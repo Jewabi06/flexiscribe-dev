@@ -100,6 +100,14 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("Start transcription error:", error);
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "An error occurred";
+    // Give a clear message if FastAPI is unreachable
+    if (message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect")) {
+      return NextResponse.json(
+        { error: `Cannot reach transcription backend (${process.env.FASTAPI_URL || "http://localhost:8000"}). Is the FastAPI server running?` },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

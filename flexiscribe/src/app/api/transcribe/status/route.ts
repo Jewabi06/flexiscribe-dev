@@ -38,6 +38,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data, { status: 200 });
   } catch (error) {
     console.error("Transcription status error:", error);
-    return NextResponse.json({ error: "An error occurred" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "An error occurred";
+    if (message.includes("fetch failed") || message.includes("ECONNREFUSED") || message.includes("connect")) {
+      return NextResponse.json(
+        { error: `Cannot reach transcription backend (${process.env.FASTAPI_URL || "http://localhost:8000"}). Is the FastAPI server running?` },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
