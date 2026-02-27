@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import prisma from "@/lib/db";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "https://miami-era-electronics-arrangement.trycloudflare.com";
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 /**
  * POST /api/transcribe/start
