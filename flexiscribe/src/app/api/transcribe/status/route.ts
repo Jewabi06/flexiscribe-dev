@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+const FASTAPI_URL = process.env.FASTAPI_URL || "https://miami-era-electronics-arrangement.trycloudflare.com";
 
 /**
  * GET /api/transcribe/status?sessionId=xxx
