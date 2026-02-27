@@ -1,0 +1,95 @@
+/* Admin Landing Page Styles */
+
+/* Special text effect — text-shadow not expressible in Tailwind */
+.confidence-text {
+  color: var(--brand-tertiary);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+/* Feature Icons — gradients & hover cannot be expressed with standard Tailwind utilities */
+.admin-feature-icon {
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.admin-feature-icon:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Icon Colors */
+.purple-icon {
+  background: linear-gradient(135deg, #b39ddb 0%, #9575cd 100%);
+}
+
+.green-icon {
+  background: linear-gradient(135deg, #81c784 0%, #66bb6a 100%);
+}
+
+.blue-icon {
+  background: linear-gradient(135deg, #64b5f6 0%, #42a5f5 100%);
+}
+
+.yellow-icon {
+  background: linear-gradient(135deg, #ffd54f 0%, #ffca28 100%);
+}
+
+/* Admin Login Button */
+.admin-login-btn {
+  display: inline-block;
+  padding: 0.8rem 2.5rem;
+  border-radius: 9999px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--brand-tertiary);
+  background: var(--accent-secondary);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  transition: all 0.3s ease;
+}
+
+@media (min-width: 640px) {
+  .admin-login-btn {
+    padding: 0.9rem 3rem;
+    font-size: 1.1rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .admin-login-btn {
+    padding: 1rem 4rem;
+    font-size: 1.25rem;
+  }
+}
+
+.admin-login-btn:hover {
+  background: var(--brand-secondary);
+  color: var(--accent-secondary);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.admin-login-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* Admin Portal Button in Navbar */
+.admin-portal-btn {
+  background: var(--accent-secondary);
+  color: var(--brand-tertiary);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+.admin-portal-btn:hover {
+  background: var(--brand-secondary);
+  border-color: var(--accent-secondary);
+}
+

@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  password    String
+  role        Role
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  token       String?   @unique
+  tokenExpiry DateTime?
+  phoneNumber String?
+  admin       Admin?
+  educator    Educator?
+  student     Student?
+}
+
+model Student {
+  id               String               @id @default(cuid())
+  studentNumber    String               @unique
+  userId           String               @unique
+  birthDate        DateTime
+  fullName         String
+  gender           Gender
+  program          String
+  section          String
+  yearLevel        String
+  username         String?              @unique
+  avatar           String?
+  xp               Int                  @default(0)
+  streakCount      Int                  @default(0)
+  lastActivityDate String?
+  downloadCount    Int                  @default(0)
+  quizzes          Quiz[]
+  quizAttempts     QuizAttempt[]
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievements     StudentAchievement[]
+  badges           StudentBadge[]
+  classes          StudentClass[]
+  notifications    Notification[]
+}
+
+model Educator {
+  id             String          @id @default(cuid())
+  username       String          @unique
+  fullName       String
+  gender         Gender
+  birthDate      DateTime
+  departmentId   String
+  userId         String          @unique
+  classes        Class[]
+  department     Department      @relation(fields: [departmentId], references: [id])
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications  Notification[]
+  transcriptions Transcription[]
+}
+
+model Department {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  educators Educator[]
+}
+
+model Lesson {
+  id        String   @id @default(cuid())
+  title     String
+  subject   String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  quizzes   Quiz[]
+
+  @@index([subject])
+}
+
+model Quiz {
+  id             String         @id @default(cuid())
+  lessonId       String
+  type           QuizType
+  difficulty     Difficulty
+  totalQuestions Int
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  studentId      String?
+  lesson         Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  student        Student?       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  attempts       QuizAttempt[]
+  questions      QuizQuestion[]
+
+  @@index([lessonId])
+  @@index([studentId])
+}
+
+model QuizQuestion {
+  id           String   @id @default(cuid())
+  quizId       String
+  questionText String
+  questionData Json
+  orderIndex   Int
+  createdAt    DateTime @default(now())
+  quiz         Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+}
+
+model QuizAttempt {
+  id             String    @id @default(cuid())
+  quizId         String
+  studentId      String
+  score          Float
+  startedAt      DateTime?
+  totalQuestions Int
+  answers        Json
+  completedAt    DateTime  @default(now())
+  quiz           Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+  @@index([studentId])
+}
+
+model Achievement {
+  id                  String               @id @default(cuid())
+  title               String
+  description         String
+  icon                String
+  category            String
+  requirementType     String
+  requirementValue    Int
+  createdAt           DateTime             @default(now())
+  studentAchievements StudentAchievement[]
+}
+
+model Badge {
+  id            String         @id @default(cuid())
+  title         String
+  description   String
+  icon          String
+  createdAt     DateTime       @default(now())
+  xpRequired    Int
+  studentBadges StudentBadge[]
+}
+
+model StudentAchievement {
+  id            String      @id @default(cuid())
+  studentId     String
+  achievementId String
+  earnedAt      DateTime    @default(now())
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  student       Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, achievementId])
+}
+
+model StudentBadge {
+  id        String   @id @default(cuid())
+  studentId String
+  badgeId   String
+  earnedAt  DateTime @default(now())
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, badgeId])
+}
+
+model Class {
+  id             String          @id @default(cuid())
+  subject        String
+  section        String
+  room           String
+  day            String
+  startTime      String
+  endTime        String?
+  students       Int             @default(0)
+  educatorId     String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  classCode      String          @unique @default(cuid())
+  educator       Educator        @relation(fields: [educatorId], references: [id], onDelete: Cascade)
+  enrollments    StudentClass[]
+  transcriptions Transcription[]
+
+  @@index([educatorId])
+}
+
+model StudentClass {
+  id        String   @id @default(cuid())
+  studentId String
+  classId   String
+  joinedAt  DateTime @default(now())
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, classId])
+  @@index([studentId])
+  @@index([classId])
+}
+
+model Transcription {
+  id             String   @id @default(cuid())
+  title          String
+  course         String
+  date           String
+  duration       String
+  content        String
+  rawText        String?
+  educatorId     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  classId        String?
+  sessionId      String?
+  status         String   @default("COMPLETED")
+  summaryJson    Json?
+  transcriptJson Json?
+  class          Class?   @relation(fields: [classId], references: [id])
+  educator       Educator @relation(fields: [educatorId], references: [id], onDelete: Cascade)
+
+  @@index([educatorId])
+  @@index([course])
+  @@index([classId])
+  @@index([status])
+}
+
+model Notification {
+  id         String    @id @default(cuid())
+  title      String
+  message    String
+  type       String    @default("info")
+  read       Boolean   @default(false)
+  educatorId String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  adminId    String?
+  studentId  String?
+  admin      Admin?    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  educator   Educator? @relation(fields: [educatorId], references: [id], onDelete: Cascade)
+  student    Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([educatorId])
+  @@index([adminId])
+  @@index([studentId])
+  @@index([read])
+}
+
+model Admin {
+  id            String         @id @default(cuid())
+  username      String         @unique
+  fullName      String
+  avatar        String?
+  userId        String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  auditLogs     AuditLog[]
+  notifications Notification[]
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  details   String?
+  userRole  Role
+  userName  String
+  adminId   String?
+  userId    String?
+  createdAt DateTime @default(now())
+  admin     Admin?   @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  action      String
+  description String?
+  userRole    Role
+  userName    String
+  userId      String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+enum Role {
+  ADMIN
+  STUDENT
+  EDUCATOR
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum QuizType {
+  MCQ
+  FILL_IN_BLANK
+  FLASHCARD
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}

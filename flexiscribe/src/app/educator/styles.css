@@ -1,0 +1,570 @@
+/* ================================================================
+   EDUCATOR PORTAL STYLES
+   Matches the Student Portal design language
+   ================================================================ */
+
+/* ───────── CSS Variables ───────── */
+:root {
+  --edu-brand-primary: linear-gradient(135deg, #9d8adb 0%, #4c4172 100%);
+  --edu-brand-secondary: #9d8adb;
+  --edu-brand-tertiary: #4c4172;
+  --edu-accent-primary: #c5a6f9;
+  --edu-accent-secondary: #ffffff;
+  --edu-bg-main: #ffffff;
+  --edu-text-primary: #4c4172;
+  --edu-text-secondary: #666;
+  --edu-neu-shadow-light: rgba(255, 255, 255, 0.6);
+  --edu-neu-shadow-dark: rgba(0, 0, 0, 0.25);
+}
+
+.dark {
+  --edu-brand-primary: linear-gradient(135deg, #2d2640 0%, #1a1625 100%);
+  --edu-brand-secondary: #6b5b95;
+  --edu-brand-tertiary: #2d2640;
+  --edu-accent-primary: #8b7fc7;
+  --edu-accent-secondary: #e8e8e8;
+  --edu-bg-main: #1a1625;
+  --edu-text-primary: #e8e8e8;
+  --edu-text-secondary: #b8b8b8;
+}
+
+/* ───────── Sidebar ───────── */
+.edu-sidebar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  width: 300px;
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 18px 18px 0;
+  position: sticky;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: visible;
+  box-shadow: inset 4px 4px 10px var(--edu-neu-shadow-dark), 
+                inset -4px -4px 10px var(--edu-neu-shadow-dark);
+}
+.edu-sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.edu-nav-item {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.edu-nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) scaleY(0);
+  width: 4px;
+  height: 60%;
+  border-radius: 0 4px 4px 0;
+  background: var(--edu-accent-primary);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.edu-nav-item:hover::before,
+.edu-nav-item.active::before {
+  transform: translateY(-50%) scaleY(1);
+}
+.edu-nav-item:hover {
+  transform: translateX(6px);
+  background: rgba(255, 255, 255, 0.15);
+}
+.edu-nav-item.active {
+  background: rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+}
+
+.edu-nav-sub-item {
+  transition: all 0.3s ease;
+}
+.edu-nav-sub-item:hover {
+  transform: translateX(4px);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ───────── Clock ───────── */
+.edu-clock-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding: 20px 0;
+}
+
+.edu-clock-time {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  letter-spacing: 0.5px;
+}
+
+/* ───────── Cards ───────── */
+.edu-card {
+  background: var(--edu-bg-main);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+.edu-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+.edu-card-gradient {
+  background: var(--edu-brand-primary);
+  border-radius: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  color: white;
+}
+.edu-card-gradient:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* ───────── Neumorphic Shadows ───────── */
+.edu-neu-shadow {
+  box-shadow: 
+    -6px -6px 14px var(--edu-neu-shadow-light),
+    6px 6px 14px var(--edu-neu-shadow-dark);
+}
+
+/* ───────── Buttons ───────── */
+.edu-btn-primary {
+  background: var(--edu-brand-primary);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 24px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+.edu-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(157, 138, 219, 0.3);
+}
+.edu-btn-primary:active {
+  transform: scale(0.95);
+}
+
+.edu-theme-toggle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: all 0.3s ease;
+}
+.edu-theme-toggle:hover {
+  transform: scale(1.05);
+}
+.edu-theme-toggle:active {
+  transform: scale(0.95);
+}
+
+/* ───────── Dropdown Animations ───────── */
+@keyframes eduDropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes eduFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes eduSlideUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -45%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes eduPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.edu-dropdown-animate {
+  animation: eduDropdownFadeIn 0.2s ease forwards;
+}
+
+.edu-fade-in {
+  animation: eduFadeIn 0.3s ease forwards;
+}
+
+/* ───────── Notification Badge ───────── */
+.edu-notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #e74c3c;
+  border-radius: 10px;
+  min-width: 8px;
+  height: 8px;
+  animation: eduPulse 2s ease-in-out infinite;
+}
+
+/* ───────── Search Bar ───────── */
+.edu-search-bar {
+  position: relative;
+  width: 100%;
+  border-radius: 50px;
+  background: var(--edu-brand-primary);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.edu-search-bar:hover,
+.edu-search-bar:focus-within {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* ───────── Custom Scrollbar ───────── */
+.edu-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.edu-scrollbar::-webkit-scrollbar-track {
+  background: rgba(157, 138, 219, 0.1);
+  border-radius: 3px;
+}
+.edu-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--edu-brand-secondary);
+  border-radius: 3px;
+}
+.edu-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--edu-accent-primary);
+}
+.edu-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--edu-brand-secondary) rgba(157, 138, 219, 0.1);
+}
+
+/* ───────── Leaderboard Items ───────── */
+.edu-leaderboard-item {
+  transition: all 0.3s ease;
+}
+.edu-leaderboard-item:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateX(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* ───────── Page Content Background ───────── */
+.edu-main-content {
+  background: var(--edu-bg-main);
+  transition: background 0.3s ease;
+}
+
+.dark .edu-main-content {
+  background: var(--edu-bg-main);
+}
+
+/* ───────── Grid Layout ───────── */
+.edu-dashboard-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  .edu-dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .edu-dashboard-grid {
+    grid-template-columns: repeat(12, 1fr);
+    gap: 24px;
+  }
+}
+
+/* ───────── Notification / Modal Styles ───────── */
+.edu-notification-dropdown {
+  width: 380px;
+  max-height: 450px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  animation: eduDropdownFadeIn 0.2s ease forwards;
+  overflow: hidden;
+}
+
+@media (max-width: 480px) {
+  .edu-notification-dropdown {
+    width: calc(100vw - 32px);
+    right: -8px;
+  }
+}
+
+.edu-notif-item {
+  transition: all 0.3s ease;
+}
+.edu-notif-item:hover {
+  transform: translateX(4px);
+}
+
+.edu-modal-overlay {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  animation: eduFadeIn 0.2s ease;
+}
+
+.edu-modal-content {
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  animation: eduDropdownFadeIn 0.3s ease forwards;
+}
+
+/* ───────── Profile Card ───────── */
+.edu-profile-card {
+  width: 100%;
+  max-height: auto;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 36px;
+  position: relative;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+}
+.edu-profile-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+}
+
+/* ───────── Schedule Grid ───────── */
+.edu-schedule-grid {
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+}
+
+.edu-schedule-cell {
+  transition: background 0.2s ease;
+}
+.edu-schedule-cell:hover {
+  background: rgba(157, 138, 219, 0.05);
+}
+
+/* ───────── Transcript Card ───────── */
+.edu-transcript-card {
+  transition: all 0.3s ease;
+}
+.edu-transcript-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(157, 138, 219, 0.28);
+}
+
+/* ───────── Class Cards ───────── */
+.edu-class-card {
+  transition: all 0.3s ease;
+}
+.edu-class-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* ───────── Section Cards ───────── */
+.edu-section-card {
+  transition: all 0.3s ease;
+}
+.edu-section-card:hover {
+  transform: translateY(-6px) scale(1.01);
+  box-shadow: 0 22px 45px rgba(76, 65, 114, 0.45);
+}
+
+/* ───────── Welcome Banner ───────── */
+.edu-welcome-banner {
+  transition: all 0.3s ease;
+}
+.edu-welcome-banner:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+
+/* ───────── Calendar ───────── */
+.edu-calendar-day {
+  transition: all 0.2s ease;
+}
+.edu-calendar-day:hover {
+  transform: scale(1.1);
+}
+
+/* ───────── XP / Progress Bars ───────── */
+.edu-xp-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.edu-xp-fill {
+  height: 100%;
+  background: #FFD700;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+/* ───────── Course Tabs ───────── */
+.edu-course-tab {
+  transition: all 0.3s ease-out;
+}
+.edu-course-tab:hover {
+  transform: translateY(-2px);
+}
+.edu-course-tab:active {
+  transform: scale(0.96) translateY(-2px);
+}
+
+/* ───────── Table ───────── */
+.edu-table-row {
+  transition: all 0.2s ease;
+}
+.edu-table-row:hover {
+  background: rgba(157, 138, 219, 0.06);
+  transform: translateX(2px);
+}
+
+/* ───────── Responsive Fixes ───────── */
+@media (max-width: 768px) {
+  .edu-card,
+  .edu-card-gradient {
+    border-radius: 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .edu-card,
+  .edu-card-gradient {
+    border-radius: 24px;
+  }
+  
+  .edu-theme-toggle {
+    width: 50px;
+    height: 50px;
+  }
+}
+
+/* ───────── Dark Mode Overrides ───────── */
+.dark .edu-card {
+  background: #2d2640;
+  border-color: rgba(139, 127, 199, 0.2);
+}
+
+.dark .edu-search-bar {
+  background: #2d2640;
+}
+
+.dark .edu-search-bar input {
+  color: #e8e8e8;
+}
+
+.dark .edu-search-bar input::placeholder {
+  color: #8b7fc7;
+}
+
+/* ───────── Dark Mode: Extended Overrides ───────── */
+
+/* Page title text (used on classes, schedule, transcriptions headers) */
+.dark .edu-main-content h1 {
+  color: #c5b8f5;
+}
+
+/* Generic card text that uses inline purple (text-[#6b5fcf] etc.) */
+.dark .edu-main-content {
+  color: var(--edu-text-primary);
+}
+
+/* Edit profile modal – form controls */
+.dark .edu-modal-content input,
+.dark .edu-modal-content select,
+.dark .edu-modal-content textarea {
+  background: #3a3456;
+  color: #e8e8e8;
+  border-color: rgba(139, 127, 199, 0.4);
+}
+.dark .edu-modal-content input:focus,
+.dark .edu-modal-content select:focus,
+.dark .edu-modal-content textarea:focus {
+  border-color: #9d8adb;
+  box-shadow: 0 0 0 3px rgba(157, 138, 219, 0.2);
+}
+.dark .edu-modal-content input::placeholder {
+  color: #8b7fc7;
+}
+.dark .edu-modal-content label {
+  color: #c5b8f5;
+}
+.dark .edu-modal-content select option {
+  background: #2d2640;
+  color: #e8e8e8;
+}
+/* Close button inside modal */
+.dark .edu-modal-content .bg-gray-100 {
+  background: #3a3456;
+  color: #e8e8e8;
+}
+
+/* Notification dropdown full-panel (EducatorHeader + ProfessorProfileCard) */
+.dark .edu-notification-dropdown {
+  background: #2d2640 !important;
+  color: #e8e8e8;
+  border-color: rgba(139, 127, 199, 0.25) !important;
+}
+.dark .edu-notification-dropdown h3,
+.dark .edu-notification-dropdown p {
+  color: #e8e8e8;
+}
+.dark .edu-notification-dropdown .border-b,
+.dark .edu-notification-dropdown .border-t {
+  border-color: rgba(139, 127, 199, 0.2);
+}
+
+/* Notification items */
+.dark .edu-notif-item {
+  background-color: transparent !important;
+}
+.dark .edu-notif-item:hover {
+  background-color: rgba(139, 127, 199, 0.12) !important;
+}
+
+/* Table rows inside StudentTableCard */
+.dark .edu-table-row:hover {
+  background: rgba(139, 127, 199, 0.1);
+}
+
+/* Schedule grid time-cell text on dark bg */
+.dark .edu-schedule-grid {
+  background: #1e1b2e;
+}
+
+/* Transcript body text colors */
+.dark .edu-main-content .text-\[\#5f54a6\] {
+  color: #c5b8f5;
+}
+.dark .edu-main-content .text-\[\#6f63a8\] {
+  color: #b0a8d4;
+}
+
