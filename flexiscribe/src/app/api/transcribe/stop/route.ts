@@ -34,11 +34,15 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      return NextResponse.json(
-        { error: error.detail || "Failed to stop transcription" },
-        { status: response.status }
-      );
+      let errorMsg = "Failed to stop transcription";
+      try {
+        const error = await response.json();
+        errorMsg = error.detail || errorMsg;
+      } catch {
+        const text = await response.text().catch(() => "");
+        errorMsg = text.slice(0, 200) || `FastAPI returned status ${response.status}`;
+      }
+      return NextResponse.json({ error: errorMsg }, { status: response.status });
     }
 
     const data = await response.json();
