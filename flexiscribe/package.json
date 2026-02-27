@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "postinstall": "node -e \"try{require('fs').copyFileSync('node_modules/pdfjs-dist/build/pdf.worker.min.mjs','public/pdf.worker.min.mjs')}catch(e){console.warn('pdf.worker copy skipped:',e.message)}\"",
+    "predev": "prisma generate",
     "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
     "build": "prisma generate && next build",
+    "build:local": "prisma generate && cross-env NODE_ENV=development next build",
     "start": "next start",
+    "start:local": "next start -p 3000",
     "lint": "eslint",
     "db:seed": "node prisma/seed-direct.js",
     "db:seed-transcriptions": "node prisma/seed-transcriptions.js"
@@ -48,6 +52,7 @@
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
     "baseline-browser-mapping": "^2.9.19",
+    "cross-env": "^10.1.0",
     "eslint": "^10.0.0",
     "eslint-config-next": "^16.1.6",
     "postcss": "^8.5.6",
