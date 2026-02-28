@@ -173,7 +173,7 @@ export default function Sidebar() {
         </button>
 
         {openClasses && (
-          <div className="ml-10 mt-1 space-y-1">
+          <div className="ml-10 my-1 space-y-1">
             {loadingCourses ? (
               <div className="px-4 py-3">
                 <div className="w-24 h-3 bg-white/20 rounded animate-pulse mb-2" />
@@ -202,7 +202,7 @@ export default function Sidebar() {
 
         <NavItem
           icon={FileText}
-          label="Transcriptions"
+          label="Documents"
           href="/educator/transcriptions"
           active={pathname === "/educator/transcriptions"}
         />
