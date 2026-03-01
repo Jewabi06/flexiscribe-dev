@@ -206,7 +206,7 @@ export default function TopBar({ onMenuClick }) {
             <Menu size={22} className="text-[#4c4172]" />
           </button>
 
-          {/* SEARCH */}
+          {/* SEARCH - FIXED AUTOCOMPLETE ISSUE */}
           <div className="relative flex-1 max-w-[900px]" ref={searchRef}>
             <Search
               size={18}
@@ -221,6 +221,14 @@ export default function TopBar({ onMenuClick }) {
               onFocus={() => {
                 if (searchResults.length > 0) setSearchOpen(true);
               }}
+              // FIX: Multiple attributes to prevent browser autofill
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              name="search-field"
+              id="search-field"
+              data-form-type="other"
               className="
                 w-full h-[48px]
                 pl-14 pr-4
