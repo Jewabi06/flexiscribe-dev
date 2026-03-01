@@ -67,7 +67,8 @@ export async function GET(request: NextRequest) {
 
       return {
         id: quiz.id,
-        lesson: quiz.lesson.title,
+        lesson: quiz.title || quiz.lesson.title,
+        lessonTitle: quiz.lesson.title,
         subject: quiz.lesson.subject,
         quizType: mapQuizType(quiz.type),
         numQuestions: quiz.totalQuestions,

@@ -183,6 +183,14 @@
   box-shadow: 0 0 0 4px rgba(197, 166, 249, 0.15);
 }
 
+/* Disabled state for dropdown triggers while generating */
+.quiz-dropdown-trigger--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+  background: rgba(157, 138, 219, 0.05);
+}
+
 .quiz-placeholder {
   color: rgba(76, 65, 114, 0.5);
   font-weight: 400;
@@ -302,6 +310,19 @@
   background: #ccc;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+/* Spinner icon inside the generate button */
+.generate-spinner {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+  animation: spinQuizBtn 0.8s linear infinite;
+}
+
+@keyframes spinQuizBtn {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Transcript dropdown item meta */

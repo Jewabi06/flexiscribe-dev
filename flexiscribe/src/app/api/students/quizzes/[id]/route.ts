@@ -137,6 +137,7 @@ export async function GET(
       success: true,
       quiz: {
         id: quiz.id,
+        title: quiz.title || null,
         lesson: quiz.lesson.title,
         subject: quiz.lesson.subject,
         quizType: displayType,
@@ -261,8 +262,9 @@ export async function POST(
           if (isCorrect) correctCount++;
           answerResults.push({ index, correct: isCorrect, userAnswer: Number(userAnswer), correctAnswer: correctIndex });
         } else if (quiz.type === 'FILL_IN_BLANK') {
-          const correctText = (data.answer || data.correctAnswer || '').toString().trim().toLowerCase();
-          const userText = userAnswer.toString().trim().toLowerCase();
+          const normalize = (t: string) => t.toString().trim().toLowerCase().replace(/[.,!?;:'"]/g, '');
+          const correctText = normalize(data.answer || data.correctAnswer || '');
+          const userText = normalize(userAnswer);
           const isCorrect = userText === correctText;
           if (isCorrect) correctCount++;
           answerResults.push({ index, correct: isCorrect, userAnswer: userAnswer, correctAnswer: data.answer || data.correctAnswer || '' });

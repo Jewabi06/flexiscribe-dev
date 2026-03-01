@@ -7,6 +7,7 @@ import NotificationMenu from "@/components/student/ui/NotificationMenu";
 import SearchBar from "@/components/student/ui/SearchBar";
 import MessageModal from "@/components/shared/MessageModal";
 import LoadingScreen from "@/components/shared/LoadingScreen";
+import useQuizGeneration from "@/hooks/useQuizGeneration";
 import "../dashboard/styles.css";
 import "./styles.css";
 
@@ -26,7 +27,19 @@ export default function QuizzesPage() {
   const [selectedQuizType, setSelectedQuizType] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState("");
   const [selectedNumQuestions, setSelectedNumQuestions] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Persistent quiz generation state (survives tab navigation)
+  const { isGenerating, selectionValues, result: genResult, generate: startGeneration, clearResult: clearGenResult } = useQuizGeneration();
+
+  // Restore dropdown values from the persisted generation state on remount
+  useEffect(() => {
+    if (isGenerating && selectionValues) {
+      setSelectedLesson(selectionValues.lessonId || '');
+      setSelectedQuizType(selectionValues.type || '');
+      setSelectedDifficulty(selectionValues.difficulty || '');
+      setSelectedNumQuestions(selectionValues.count || '');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentionally run only on mount
   
   // Dropdown states
   const [lessonDropdownOpen, setLessonDropdownOpen] = useState(false);
@@ -222,48 +235,31 @@ export default function QuizzesPage() {
     }
   };
 
+  // Surface generation errors when the result arrives (including after tab switch)
+  useEffect(() => {
+    if (genResult && !genResult.success) {
+      setModalInfo({
+        isOpen: true,
+        title: genResult.error?.includes('Ollama') ? 'Connection Error' : 'Generation Failed',
+        message: `${genResult.error || 'Unknown error'}${genResult.details ? '\n' + genResult.details : ''}`,
+        type: 'error',
+      });
+      clearGenResult();
+    }
+  }, [genResult, clearGenResult]);
+
   const handleGenerateQuiz = async () => {
     if (!hasEnrolledClasses) {
       setModalInfo({ isOpen: true, title: "No Class Enrolled", message: "You must join a class before generating quizzes. Go to the Reviewers tab and enter a class code to join.", type: "error" });
       return;
     }
     if (selectedLesson && selectedQuizType && selectedDifficulty && selectedNumQuestions) {
-      setIsGenerating(true);
-      try {
-        const response = await fetch('/api/quizzes/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            lessonId: selectedLesson,
-            type: selectedQuizType,
-            difficulty: selectedDifficulty,
-            count: selectedNumQuestions,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-          // Store quiz info for notification
-          localStorage.setItem('quiz-generated', JSON.stringify({
-            type: data.quiz.type,
-            difficulty: data.quiz.difficulty,
-            count: data.quiz.totalQuestions,
-          }));
-
-          // Navigate to the generated quiz
-          router.push(`/student/quizzes/${data.quiz.id}`);
-        } else {
-          setModalInfo({ isOpen: true, title: "Generation Failed", message: `Failed to generate quiz: ${data.error || 'Unknown error'}\n${data.details || ''}`, type: "error" });
-        }
-      } catch (error) {
-        console.error('Error generating quiz:', error);
-        setModalInfo({ isOpen: true, title: "Connection Error", message: "Failed to generate quiz. Please ensure Ollama is running and try again.", type: "error" });
-      } finally {
-        setIsGenerating(false);
-      }
+      await startGeneration({
+        lessonId: selectedLesson,
+        type: selectedQuizType,
+        difficulty: selectedDifficulty,
+        count: selectedNumQuestions,
+      }, router);
     } else {
       setModalInfo({ isOpen: true, title: "Missing Fields", message: "Please fill in all fields to generate a quiz.", type: "info" });
     }
@@ -474,8 +470,9 @@ export default function QuizzesPage() {
               <div className="quiz-input-group" ref={lessonDropdownRef}>
                 <label className="quiz-input-label">Reviewer</label>
                 <div 
-                  className="quiz-dropdown-trigger"
+                  className={`quiz-dropdown-trigger${isGenerating ? ' quiz-dropdown-trigger--disabled' : ''}`}
                   onClick={() => {
+                    if (isGenerating) return;
                     setLessonDropdownOpen(!lessonDropdownOpen);
                     setQuizTypeDropdownOpen(false);
                     setDifficultyDropdownOpen(false);
@@ -518,8 +515,9 @@ export default function QuizzesPage() {
               <div className="quiz-input-group" ref={quizTypeDropdownRef}>
                 <label className="quiz-input-label">Type of Quiz</label>
                 <div 
-                  className="quiz-dropdown-trigger"
+                  className={`quiz-dropdown-trigger${isGenerating ? ' quiz-dropdown-trigger--disabled' : ''}`}
                   onClick={() => {
+                    if (isGenerating) return;
                     setQuizTypeDropdownOpen(!quizTypeDropdownOpen);
                     setLessonDropdownOpen(false);
                     setDifficultyDropdownOpen(false);
@@ -553,8 +551,9 @@ export default function QuizzesPage() {
               <div className="quiz-input-group" ref={difficultyDropdownRef}>
                 <label className="quiz-input-label">Difficulty</label>
                 <div 
-                  className="quiz-dropdown-trigger"
+                  className={`quiz-dropdown-trigger${isGenerating ? ' quiz-dropdown-trigger--disabled' : ''}`}
                   onClick={() => {
+                    if (isGenerating) return;
                     setDifficultyDropdownOpen(!difficultyDropdownOpen);
                     setLessonDropdownOpen(false);
                     setQuizTypeDropdownOpen(false);
@@ -588,8 +587,9 @@ export default function QuizzesPage() {
               <div className="quiz-input-group" ref={numQuestionsDropdownRef}>
                 <label className="quiz-input-label">No. of Questions</label>
                 <div 
-                  className="quiz-dropdown-trigger"
+                  className={`quiz-dropdown-trigger${isGenerating ? ' quiz-dropdown-trigger--disabled' : ''}`}
                   onClick={() => {
+                    if (isGenerating) return;
                     setNumQuestionsDropdownOpen(!numQuestionsDropdownOpen);
                     setLessonDropdownOpen(false);
                     setQuizTypeDropdownOpen(false);
@@ -624,7 +624,14 @@ export default function QuizzesPage() {
                 onClick={handleGenerateQuiz}
                 disabled={isGenerating}
               >
-                {isGenerating ? 'Generating Quiz...' : 'Generate Quiz'}
+                {isGenerating ? (
+                  <>
+                    <svg className="generate-spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.42 31.42" />
+                    </svg>
+                    Generating Quiz...
+                  </>
+                ) : 'Generate Quiz'}
               </button>
             </div>
           </div>

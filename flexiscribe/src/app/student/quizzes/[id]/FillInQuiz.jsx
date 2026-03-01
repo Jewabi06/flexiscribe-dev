@@ -6,6 +6,7 @@ import UserMenu from "@/components/student/ui/UserMenu";
 import NotificationMenu from "@/components/student/ui/NotificationMenu";
 import SearchBar from "@/components/student/ui/SearchBar";
 import MessageModal from "@/components/shared/MessageModal";
+import AnswerReviewModal from "@/components/shared/AnswerReviewModal";
 import "../../dashboard/styles.css";
 import "./quiz-styles.css";
 import { trackActivity } from "../../../../utils/student";
@@ -24,6 +25,8 @@ export default function FillInQuiz({ quiz, questions }) {
   const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const [shouldRedirect, setShouldRedirect] = useState(false);
   const [quizStartedAt] = useState(() => new Date().toISOString());
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [quizResults, setQuizResults] = useState(null);
 
   const currentQuestion = questions.questions[currentQuestionIndex];
   const totalQuestions = questions.questions.length;
@@ -351,7 +354,7 @@ export default function FillInQuiz({ quiz, questions }) {
           </div>
 
           {/* Quiz Title */}
-          <h1 className="quiz-title">{quiz.lesson}</h1>
+          <h1 className="quiz-title">{quiz.title || quiz.lesson}</h1>
 
           {/* Fill-in Container */}
           <div className="fillin-container">
@@ -387,6 +390,15 @@ export default function FillInQuiz({ quiz, questions }) {
                         localStorage.removeItem(`quiz-progress-${quiz.id}`);
                         trackActivity('quiz_completed');
                         const attemptLabel = data.attempt.isFirstAttempt ? '1st Attempt' : 'Retry (10% XP)';
+                        // Store results for answer review modal
+                        setQuizResults({
+                          results: data.attempt.results,
+                          score: data.attempt.score,
+                          totalQuestions: data.attempt.totalQuestions,
+                          accuracy: data.attempt.accuracy,
+                          xpEarned: data.attempt.xpEarned,
+                          attemptLabel,
+                        });
                         setModalInfo({ isOpen: true, title: "Quiz Submitted!", message: `Score: ${data.attempt.score}/${data.attempt.totalQuestions} (${data.attempt.accuracy}%)\n${attemptLabel}\nXP Earned: +${data.attempt.xpEarned} XP`, type: "success" });
                         setShouldRedirect(true);
                       } else {
@@ -419,12 +431,36 @@ export default function FillInQuiz({ quiz, questions }) {
         isOpen={modalInfo.isOpen}
         onClose={() => {
           setModalInfo({ ...modalInfo, isOpen: false });
-          if (shouldRedirect) router.push('/student/quizzes');
+          if (shouldRedirect && quizResults) {
+            // Show the answer review modal instead of redirecting immediately
+            setReviewModalOpen(true);
+          } else if (shouldRedirect) {
+            router.push('/student/quizzes');
+          }
         }}
         title={modalInfo.title}
         message={modalInfo.message}
         type={modalInfo.type}
       />
+
+      {quizResults && (
+        <AnswerReviewModal
+          isOpen={reviewModalOpen}
+          onClose={() => {
+            setReviewModalOpen(false);
+            setQuizResults(null);
+            router.push('/student/quizzes');
+          }}
+          quizType="FILL_IN_BLANK"
+          questions={questions.questions}
+          results={quizResults.results}
+          score={quizResults.score}
+          totalQuestions={quizResults.totalQuestions}
+          accuracy={quizResults.accuracy}
+          xpEarned={quizResults.xpEarned}
+          attemptLabel={quizResults.attemptLabel}
+        />
+      )}
     </div>
   );
 }
