@@ -1,0 +1,9 @@
+fastapi==0.115.0
+uvicorn==0.30.6
+python-multipart==0.0.9
+faster-whisper==1.0.3
+sounddevice==0.5.1
+numpy==1.26.4
+scipy>=1.11.0
+ollama==0.3.3
+pydantic==2.9.2
