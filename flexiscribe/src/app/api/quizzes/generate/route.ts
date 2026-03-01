@@ -194,16 +194,22 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {
       console.error("Audit log error:", e);
+    }
+
     // Create an in-app notification for the student
     if (studentId) {
-      await prisma.notification.create({
-        data: {
-          title: 'Quiz Ready!',
-          message: `Your ${difficulty} ${typeLabel} quiz "${lesson.title}" has been generated with ${generatedQuiz.items.length} questions.`,
-          type: 'quiz_generated',
-          studentId,
-        },
-      });
+      try {
+        await prisma.notification.create({
+          data: {
+            title: 'Quiz Ready!',
+            message: `Your ${difficulty} ${typeLabel} quiz "${lesson.title}" has been generated with ${generatedQuiz.items.length} questions.`,
+            type: 'quiz_generated',
+            studentId,
+          },
+        });
+      } catch (e) {
+        console.error("Notification error:", e);
+      }
     }
 
     return NextResponse.json({
