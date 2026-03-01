@@ -40,11 +40,7 @@ export default function ManageAccountsPage() {
         onExport={handleExport}
       />
 
-      <UsersTable
-        roleFilter={role}
-        statusFilter={status}
-        dateFilter={date}
-      />
+      <UsersTable roleFilter={role} statusFilter={status} dateFilter={date}/>
     </div>
   );
 }
