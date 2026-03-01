@@ -36,19 +36,44 @@ function normalizeText(text: string): string {
 }
 
 /**
- * Check if two questions are semantically similar (for deduplication)
+ * Check if two questions are semantically similar (for deduplication).
+ * Uses a 3-tier strategy: exact match → substring → keyword-set overlap.
+ * The keyword tier catches paraphrased duplicates like
+ * "What is AI?" ≈ "What does AI aim to achieve?"
  */
 function areQuestionsSimilar(q1: string, q2: string): boolean {
   const norm1 = normalizeText(q1);
   const norm2 = normalizeText(q2);
   
-  // Exact match after normalization
+  // Tier 1: Exact match after normalization
   if (norm1 === norm2) return true;
   
-  // Check if one is a substring of the other (with length threshold)
+  // Tier 2: Substring containment (for substantial questions)
   const minLength = Math.min(norm1.length, norm2.length);
-  if (minLength > 20) { // Only for substantial questions
+  if (minLength > 20) {
     if (norm1.includes(norm2) || norm2.includes(norm1)) return true;
+  }
+  
+  // Tier 3: Keyword-set overlap — catches semantic duplicates.
+  // Extract significant words (>3 chars), ignoring common question words.
+  const stopWords = new Set(['what', 'which', 'does', 'that', 'this', 'with', 'from',
+    'most', 'following', 'primarily', 'describe', 'describes', 'between',
+    'about', 'into', 'their', 'these', 'those', 'have', 'been', 'being',
+    'would', 'could', 'should', 'will', 'your', 'they', 'them', 'than',
+    'other', 'each', 'also', 'more', 'some', 'when', 'where', 'used']);
+  const extractKeywords = (text: string): Set<string> => {
+    return new Set(
+      text.split(/\s+/)
+        .filter(w => w.length > 3 && !stopWords.has(w))
+    );
+  };
+  const kw1 = extractKeywords(norm1);
+  const kw2 = extractKeywords(norm2);
+  if (kw1.size >= 2 && kw2.size >= 2) {
+    const intersection = [...kw1].filter(w => kw2.has(w)).length;
+    const smaller = Math.min(kw1.size, kw2.size);
+    // If ≥60% of the smaller keyword set appears in the other, it's a duplicate
+    if (intersection / smaller >= 0.6) return true;
   }
   
   return false;
@@ -287,6 +312,52 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM'): { valid: boo
       item, 
       rejectionReason: 'Missing or insufficient explanation (min 10 characters)' 
     };
+  }
+
+  // ── answerIndex auto-correction from explanation ──
+  // The model frequently mis-keys answerIndex. Extract the quoted answer from
+  // the explanation ("The correct answer is '[text]' because ...") and if it
+  // matches a DIFFERENT choice, override answerIndex to point to that choice.
+  // This eliminates the largest category of mis-graded items.
+  if (item.explanation) {
+    const explanationAnswerMatch = item.explanation.match(
+      /correct answer is ['"]([^'"]+)['"]/i
+    );
+    if (explanationAnswerMatch) {
+      const extractedAnswer = normalizeText(explanationAnswerMatch[1]);
+      const matchIdx = item.choices.findIndex(
+        (c: string) => normalizeText(c) === extractedAnswer
+      );
+      if (matchIdx >= 0 && matchIdx !== item.answerIndex) {
+        console.log(
+          `🔧 Auto-fixed answerIndex: ${item.answerIndex} → ${matchIdx} ` +
+          `(extracted "${explanationAnswerMatch[1]}" from explanation)`
+        );
+        item.answerIndex = matchIdx;
+      }
+    }
+  }
+
+  // ── Reject "term echo" items ──
+  // If the question asks "What is X?" and the answer is just "X" (the same
+  // term restated), the item teaches nothing. Reject it.
+  if (item.question) {
+    const qNorm = normalizeText(item.question);
+    const aNorm = normalizeText(item.choices[item.answerIndex]);
+    // Check if the answer is a single term that appears verbatim in the question
+    if (aNorm.split(/\s+/).length <= 3) {
+      const answerWords = aNorm.split(/\s+/).filter((w: string) => w.length > 3);
+      if (answerWords.length > 0) {
+        const allInQuestion = answerWords.every((w: string) => qNorm.includes(w));
+        if (allInQuestion) {
+          return {
+            valid: false,
+            item,
+            rejectionReason: `Answer "${item.choices[item.answerIndex]}" is just the question topic restated — not a real answer`
+          };
+        }
+      }
+    }
   }
   
   // CRITICAL FIX: Randomize the position of the correct answer
@@ -544,6 +615,41 @@ function validateFillInBlankItem(item: any, summary: string = ''): { valid: bool
       rejectionReason: `Invalid distractors (length: ${Array.isArray(distractors) ? distractors.length : typeof distractors}, expected: 3)` 
     };
   }
+
+  // ── Answer quality check ──
+  // Reject items where the blanked word is a generic/stop word rather than a
+  // meaningful concept. The model sometimes blanks prepositions or articles.
+  const genericWords = new Set([
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'can', 'shall', 'must', 'need', 'dare',
+    'and', 'or', 'but', 'not', 'nor', 'yet', 'so', 'for', 'to', 'of',
+    'in', 'on', 'at', 'by', 'with', 'from', 'into', 'onto', 'upon',
+    'about', 'between', 'through', 'during', 'before', 'after', 'above',
+    'below', 'up', 'down', 'out', 'off', 'over', 'under', 'again', 'then',
+    'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+    'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no',
+    'only', 'own', 'same', 'than', 'too', 'very', 'just', 'also', 'its',
+    'it', 'this', 'that', 'these', 'those', 'they', 'them', 'their', 'we',
+    'us', 'our', 'you', 'your', 'he', 'she', 'him', 'her', 'his', 'my'
+  ]);
+  const answerLower = item.answer.trim().toLowerCase();
+  if (genericWords.has(answerLower)) {
+    return {
+      valid: false,
+      item,
+      rejectionReason: `Answer "${item.answer}" is a generic/stop word — must blank a KEY CONCEPT, not a common word`
+    };
+  }
+  
+  // Reject extremely short answers (single character) — likely a bad blank
+  if (item.answer.trim().length < 2) {
+    return {
+      valid: false,
+      item,
+      rejectionReason: `Answer "${item.answer}" is too short (${item.answer.trim().length} char) — likely not a meaningful concept`
+    };
+  }
   
   return {
     valid: true,
@@ -715,27 +821,36 @@ function buildVerificationPrompt(
 
   let typeRules: string;
   if (type === 'MCQ') {
-    typeRules = `For each MCQ item, check ALL of the following:
-1. Is the correct answer (at answerIndex) the MOST ACCURATE and SPECIFIC answer to the question, based on the summary? If the best answer is not among the 4 choices, mark INCORRECT.
-2. Are all 4 choices real concepts, terms, or phrases that appear in or relate to the summary? No placeholders or nonsensical options.
-3. Are the 3 distractors genuinely wrong for THIS question? (A distractor that is also correct = bad item.)
-4. Does the explanation accurately justify WHY the correct answer is correct?
-5. Is the question itself answerable from the summary? (Not about outside knowledge.)
-If ANY check fails, mark as INCORRECT and explain which check failed and why.`;
+    typeRules = `You are a STRICT teacher grading quiz questions. For each MCQ, check ALL of the following and mark INCORRECT if ANY fails:
+
+1. ANSWER CORRECTNESS: Read the question carefully. Based ONLY on the summary, determine the correct answer. Does the choice at answerIndex match YOUR answer? If not, mark INCORRECT.
+2. BEST ANSWER TEST: Is there a MORE SPECIFIC or MORE ACCURATE answer to this question that is NOT among the 4 choices? If so, the question is flawed — mark INCORRECT. (Example: if the question asks about "worms" but only "malware" is an option, that is too broad.)
+3. DISTRACTOR VALIDITY: Are the 3 wrong choices genuinely WRONG for this specific question? If any distractor could also be correct, mark INCORRECT.
+4. QUESTION CLARITY: Is the question clear, complete, and answerable from the summary alone? (No missing words, no outside knowledge needed.)
+5. EXPLANATION ACCURACY: Does the explanation correctly justify the answer? Does it match the choice at answerIndex?
+6. TERM ECHO: If the question asks "What is X?" and the answer is just "X" (the term itself, not a definition), mark INCORRECT.
+
+Be STRICT. When in doubt, mark INCORRECT.`;
   } else if (type === 'FILL_IN_BLANK') {
-    typeRules = `For each fill-in-blank item, check ALL of the following:
-1. When [blank] is replaced with the answer, does the sentence reflect content from the summary?
-2. Is the answer the correct word/phrase that belongs in the blank, according to the summary?
-3. Are all 3 distractors real terms from the summary that do NOT correctly fill the blank?
-4. Could any distractor also be correct for this blank? If so, mark INCORRECT.
-If ANY check fails, mark as INCORRECT and explain which check failed and why.`;
+    typeRules = `You are a STRICT teacher grading fill-in-blank items. For each item, check ALL of the following:
+
+1. SENTENCE ACCURACY: When [blank] is replaced with the answer, does the sentence match content from the summary?
+2. ANSWER CORRECTNESS: Is the answer the EXACT correct word/phrase for the blank according to the summary? Is it the COMPLETE term (not a fragment like "trade-off" when it should be "bias-variance tradeoff")?
+3. ANSWER QUALITY: Is the answer a meaningful concept/term (not a preposition, article, or generic word like "the", "and", "is")?
+4. DISTRACTOR VALIDITY: Are all 3 distractors real terms from the summary that do NOT correctly fill the blank? Could any distractor work as well as the answer? If so, mark INCORRECT.
+5. SENTENCE COMPLETENESS: Is the sentence complete and grammatically correct with the blank?
+
+Be STRICT. When in doubt, mark INCORRECT.`;
   } else {
-    typeRules = `For each flashcard, check ALL of the following:
-1. Does the front ask a clear question about a concept from the summary?
-2. Is the back factually accurate according to the summary?
-3. Does the back actually answer the front? (Not a mismatch.)
-4. Is the information on the back complete enough to be useful, without being misleading?
-If ANY check fails, mark as INCORRECT and explain which check failed and why.`;
+    typeRules = `You are a STRICT teacher grading flashcards. For each card, check ALL of the following:
+
+1. FRONT CLARITY: Does the front ask a clear, specific question about a concept from the summary?
+2. BACK ACCURACY: Is the back factually accurate according to the summary?
+3. FRONT-BACK MATCH: Does the back ACTUALLY answer the front? (Not a mismatch or tangential.)
+4. COMPLETENESS: Is the back complete enough to be a useful answer?
+5. SPECIFICITY: Is the front specific enough that only one answer is reasonable?
+
+Be STRICT. When in doubt, mark INCORRECT.`;
   }
 
   return `You are a strict academic reviewer. Verify each quiz item below against the source summary. Output ONLY valid JSON.
@@ -1086,16 +1201,21 @@ export async function generateQuizWithGemma(
     type === 'FILL_IN_BLANK' ? 3 :
     difficulty === 'HARD' ? 3 :
     6;
-  const originalBaseBatchSize = baseBatchSize; // Preserved so we can restore after recovery
   
+  // Generate a buffer of extra verified items so that even if some items are
+  // borderline or the model struggles in later waves, we still meet the
+  // requested count. Only `count` items are returned; extras are discarded.
+  const BUFFER = Math.max(5, Math.ceil(count * 0.2)); // at least 5 extra, or 20%
+  const targetCount = count + BUFFER;
+  console.log(`Will generate up to ${targetCount} verified items (${count} requested + ${BUFFER} buffer).`);
+
   // CPU inference: Ollama processes requests sequentially on CPU, so parallel calls
   // just compete for threads and both timeout. Use CONCURRENCY=1 for local/CPU setups.
   // Set OLLAMA_CONCURRENCY=2 (or higher) when running with GPU / sufficient RAM.
   const CONCURRENCY = parseInt(process.env.OLLAMA_CONCURRENCY ?? '1', 10);
-  // Generous wave budget — adaptive recovery strategies will keep retrying
-  // with different temperatures, slices, and batch sizes until the requested
-  // count is reached. The absolute time limit is the real safety valve.
-  const MAX_WAVES = Math.max(Math.ceil(count / baseBatchSize) * 10, 40);
+  // Wave budget — with improved prompts, fewer waves should be needed.
+  // The absolute time limit is the real safety valve.
+  const MAX_WAVES = Math.max(Math.ceil(targetCount / baseBatchSize) * 5, 20);
   // Absolute time limit: stop after this many ms regardless of progress.
   // Default 10 minutes — enough for large counts on CPU inference.
   const ABSOLUTE_TIME_LIMIT_MS = parseInt(process.env.OLLAMA_TIME_LIMIT_MS ?? '600000', 10);
@@ -1116,16 +1236,16 @@ export async function generateQuizWithGemma(
   try {
     // ── Parallel-wave generation loop ──
     // Each wave fires CONCURRENCY parallel API calls, each with a different summary slice
-    while (allValidItems.length < count && wave < MAX_WAVES) {
+    while (allValidItems.length < targetCount && wave < MAX_WAVES) {
       // ── Absolute time limit ──
       const elapsedSoFar = Date.now() - startTime;
       if (elapsedSoFar >= ABSOLUTE_TIME_LIMIT_MS) {
         console.warn(`⏱ Absolute time limit reached (${Math.round(elapsedSoFar / 1000)}s). ` +
-          `Returning ${allValidItems.length}/${count} collected items.`);
+          `Returning ${allValidItems.length}/${targetCount} collected items.`);
         break;
       }
 
-      const remainingCount = count - allValidItems.length;
+      const remainingCount = targetCount - allValidItems.length;
       
       // ── Adaptive temperature strategy ──
       // Instead of only decaying (which makes the model MORE deterministic when stuck),
@@ -1183,20 +1303,15 @@ export async function generateQuizWithGemma(
       // Only apply the generic reduction for early consecutive failures (before
       // recovery kicks in at stagnantWaves >= 3).
       let effectiveBatchSize: number;
-      if (stagnantWaves >= 3) {
-        // Recovery mode: use the full baseBatchSize set by the recovery strategy
-        effectiveBatchSize = baseBatchSize;
-        console.log(`Recovery mode: using full batch size ${effectiveBatchSize} (stagnantWaves=${stagnantWaves})`);
-      } else if (consecutiveFailures >= 3) {
+      if (consecutiveFailures >= 3) {
         effectiveBatchSize = Math.max(Math.floor(baseBatchSize * 0.6), 1);
         console.log(`Batch size reduced ${baseBatchSize} → ${effectiveBatchSize} after ${consecutiveFailures} consecutive failures`);
       } else {
         effectiveBatchSize = baseBatchSize;
       }
 
-      // ── Stagnation recovery: randomize slice offset ──
       // When stuck, jump to a random part of the summary to find fresh content
-      if (stagnantWaves >= 2 && stagnantWaves % 2 === 0) {
+      if (stagnantWaves >= 2) {
         sliceRandomOffset = Math.floor(Math.random() * 20);
         console.log(`🔀 Randomizing summary slice offset to ${sliceRandomOffset}`);
       }
@@ -1219,16 +1334,11 @@ export async function generateQuizWithGemma(
         const dynamicWindowSize = effectiveBatchSize <= 2 ? 1100 : effectiveBatchSize <= 4 ? 1300 : 1500;
         const summarySlice = getSummarySlice(summary, sliceIndex, dynamicWindowSize, sliceOverlap);
         
-        // Overgeneration factor: request more items than needed to account for
-        // rejections. During stagnation recovery, use a higher factor (1.5x)
-        // because most items will be duplicates — we need volume to find novel ones.
-        const overgenFactor = stagnantWaves >= 3 ? 1.5 : 1.1;
+        // Overgeneration factor: request slightly more items than needed
+        // to account for rejections during validation.
+        const overgenFactor = 1.1;
         const perCallTarget = Math.ceil(remainingCount / callsThisWave);
-        // Cap: during recovery, allow up to effectiveBatchSize + 3 to give the
-        // model real room to generate diverse content. Normally, tight cap.
-        const overgenCap = stagnantWaves >= 3
-          ? effectiveBatchSize + 3
-          : effectiveBatchSize + 1;
+        const overgenCap = effectiveBatchSize + 1;
         const batchCount = Math.min(
           Math.ceil(perCallTarget * overgenFactor),
           overgenCap
@@ -1306,19 +1416,60 @@ export async function generateQuizWithGemma(
           continue;
         }
         
-        // Validate and deduplicate items (seenItems is shared across all calls)
-        const { validItems: validBatchItems, rejectedItems: rejectedBatchItems } =
+        // ── Step 1: Structural validation + duplicate check ──
+        const { validItems: structurallyValid, rejectedItems: rejectedBatchItems } =
           validateQuizItems(parsedResponse.items, type, seenItems, difficulty, summary);
         
-        allValidItems.push(...validBatchItems);
-        allRejectedItems.push(...rejectedBatchItems);
-        waveValidCount += validBatchItems.length;
-        waveRejectedCount += rejectedBatchItems.length;
-        
-        console.log(`  Call ${i + 1}: Generated ${parsedResponse.items.length}, Valid: ${validBatchItems.length}, Rejected: ${rejectedBatchItems.length}`);
+        // ── Step 2: Factual verification on structurally valid items ──
+        // Only items that pass BOTH structural and factual checks are added
+        // to allValidItems. This eliminates the need for post-generation
+        // verification that would discard items after the fact.
+        if (structurallyValid.length > 0) {
+          const { verified, failed } = await verifyQuizItemsWithGemma(
+            structurallyValid, type, summary, resolvedModel
+          );
+          totalApiCalls += Math.ceil(structurallyValid.length / 5);
+
+          // Remove failed items from seenItems — they were tentatively added
+          // by validateQuizItems but didn't pass verification, so future waves
+          // should be free to generate similar (but correct) items.
+          for (const f of failed) {
+            let key = '';
+            if (type === 'MCQ' && f.item.question) key = normalizeText(f.item.question);
+            else if (type === 'FILL_IN_BLANK' && f.item.sentence) key = normalizeText(f.item.sentence);
+            else if (type === 'FLASHCARD' && f.item.front) key = normalizeText(f.item.front);
+            if (key) seenItems.delete(key);
+          }
+
+          // Only verified items enter the final pool
+          allValidItems.push(...verified);
+
+          // Track all rejections
+          allRejectedItems.push(...rejectedBatchItems);
+          for (const f of failed) {
+            allRejectedItems.push({
+              ...f.item,
+              _rejected: true,
+              _rejectionReason: `Verification: ${f.reason}`,
+            });
+          }
+
+          waveValidCount += verified.length;
+          waveRejectedCount += rejectedBatchItems.length + failed.length;
+
+          console.log(`  Call ${i + 1}: Generated ${parsedResponse.items.length}, ` +
+            `StructValid: ${structurallyValid.length}, ` +
+            `Verified: ${verified.length}, Rejected: ${rejectedBatchItems.length + failed.length}`);
+        } else {
+          // No structurally valid items
+          allRejectedItems.push(...rejectedBatchItems);
+          waveRejectedCount += rejectedBatchItems.length;
+          console.log(`  Call ${i + 1}: Generated ${parsedResponse.items.length}, ` +
+            `StructValid: 0, Rejected: ${rejectedBatchItems.length}`);
+        }
         
         // Early exit if we already have enough
-        if (allValidItems.length >= count) break;
+        if (allValidItems.length >= targetCount) break;
       }
       
       // Track consecutive failures for adaptive strategies
@@ -1326,21 +1477,11 @@ export async function generateQuizWithGemma(
         consecutiveFailures++;
         stagnantWaves++;
       } else {
-        const wasInRecovery = stagnantWaves >= 3;
         consecutiveFailures = 0;
         stagnantWaves = 0;
-        sliceRandomOffset = 0; // Reset slice offset on success
+        sliceRandomOffset = 0;
         
-        // Restore original batch size after recovery succeeds, so future
-        // waves don't stay stuck with a small/large recovery batch size.
-        if (wasInRecovery && baseBatchSize !== originalBaseBatchSize) {
-          console.log(`Recovery succeeded — restoring baseBatchSize from ${baseBatchSize} to ${originalBaseBatchSize}`);
-          baseBatchSize = originalBaseBatchSize;
-        }
-        
-        // Decay token multiplier gradually instead of hard-resetting to 1.0.
-        // Hard reset causes whiplash: success → reset → immediate truncation next wave.
-        // Gradual decay (15% per successful wave) converges to 1.0 over several waves.
+        // Decay token multiplier gradually on success
         if (tokenMultiplier > 1.0) {
           const prevMultiplier = tokenMultiplier;
           tokenMultiplier = Math.max(tokenMultiplier * 0.85, 1.0);
@@ -1349,63 +1490,18 @@ export async function generateQuizWithGemma(
       }
       
       // Show progress
-      const progress = Math.min(100, Math.round((allValidItems.length / count) * 100));
-      console.log(`Wave ${wave + 1} result: +${waveValidCount} valid, +${waveRejectedCount} rejected | Total: ${allValidItems.length}/${count} (${progress}%)`);
+      const progress = Math.min(100, Math.round((allValidItems.length / targetCount) * 100));
+      console.log(`Wave ${wave + 1} result: +${waveValidCount} verified, +${waveRejectedCount} rejected | Total: ${allValidItems.length}/${targetCount} (${progress}%)`);
       
       wave++;
       
-      if (allValidItems.length >= count) {
-        console.log(`✓ Target reached! Collected ${allValidItems.length} valid items in ${wave} waves (${totalApiCalls} API calls)`);
+      if (allValidItems.length >= targetCount) {
+        console.log(`✓ Target reached! Collected ${allValidItems.length} verified items in ${wave} waves (${totalApiCalls} API calls)`);
         break;
       }
 
-      // ── Adaptive recovery instead of early termination ──
-      // Instead of giving up after consecutive zero-yield waves, apply
-      // escalating recovery strategies to break through the plateau.
-      // Key insight: requesting MORE items per call (not fewer) gives the model
-      // more room to produce diverse content, increasing the chance that at
-      // least some items pass validation.
-      if (stagnantWaves >= 3) {
-        console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves. Applying recovery strategies...`);
-        
-        // Strategy 1: Cycle batch sizes UPWARD to request more items per call.
-        // Larger batches give the model more room to generate diverse content,
-        // increasing the chance that novel items slip through deduplication.
-        // Cycle: 3 → 4 → 5 → 6 → fallback to 2 if even large batches fail.
-        const batchCycle = [3, 4, 5, 6, 2];
-        const cycleIndex = Math.min(stagnantWaves - 3, batchCycle.length - 1);
-        const targetBatch = batchCycle[cycleIndex];
-        if (targetBatch !== baseBatchSize) {
-          console.log(`  → Batch size changed from ${baseBatchSize} to ${targetBatch} (cycle step ${cycleIndex + 1}/${batchCycle.length})`);
-          baseBatchSize = targetBatch;
-        }
-        
-        // Strategy 2: Boost token budget to accommodate larger batches.
-        // Larger batches need proportionally more tokens to avoid truncation.
-        if (tokenMultiplier < 1.8) {
-          const targetMultiplier = baseBatchSize >= 4 ? 1.6 : baseBatchSize >= 3 ? 1.4 : 1.2;
-          tokenMultiplier = Math.min(Math.max(tokenMultiplier, targetMultiplier), 1.8);
-          console.log(`  → Token multiplier set to ${tokenMultiplier.toFixed(2)}x for batch size ${baseBatchSize}`);
-        }
-
-        // Strategy 3: On deep stagnation (7+ waves), partially clear the
-        // seen-items set to relax duplicate detection — keeps only the last
-        // half of items, allowing previously-similar-but-not-identical content.
-        if (stagnantWaves >= 7 && seenItems.size > 0) {
-          const arr = Array.from(seenItems);
-          const keepCount = Math.ceil(arr.length / 2);
-          seenItems.clear();
-          for (const item of arr.slice(-keepCount)) {
-            seenItems.add(item);
-          }
-          console.log(`  → Relaxed duplicate memory: kept ${keepCount}/${arr.length} seen items`);
-        }
-      }
-      
-      // Progress advisory (not a termination)
-      if (wave >= 3 && allValidItems.length < count * 0.3) {
-        console.warn(`⚠ Low progress after ${wave} waves (${allValidItems.length}/${count}). ` +
-          `Recovery strategies active — will keep retrying until target is met or time limit is reached.`);
+      if (wave >= 3 && allValidItems.length < targetCount * 0.3) {
+        console.warn(`⚠ Low progress after ${wave} waves (${allValidItems.length}/${targetCount}).`);
       }
     }
     
@@ -1415,109 +1511,12 @@ export async function generateQuizWithGemma(
     }
     
     // Trim to exact count if we got more (expected with overgeneration)
-    let finalItems = allValidItems.slice(0, count);
+    // All items in allValidItems have already passed both structural
+    // validation AND factual verification during the wave loop.
+    const finalItems = allValidItems.slice(0, count);
 
-    // ── Post-generation verification ──
-    // Ask the model to cross-check every item against the source summary.
-    // Items that fail verification are discarded; focused repair waves
-    // regenerate just the missing count, up to MAX_REPAIR_ROUNDS.
-    const MAX_REPAIR_ROUNDS = 3;
-    let verificationFailures = 0;
-
-    for (let repairRound = 0; repairRound <= MAX_REPAIR_ROUNDS; repairRound++) {
-      // Check time budget — skip verification if we're already near the limit
-      const elapsedBeforeVerify = Date.now() - startTime;
-      if (elapsedBeforeVerify >= ABSOLUTE_TIME_LIMIT_MS * 0.95) {
-        console.warn(`⏱ Near time limit — skipping verification round ${repairRound}`);
-        break;
-      }
-
-      console.log(`\n🔍 Verification round ${repairRound + 1}: checking ${finalItems.length} items...`);
-      const { verified, failed } = await verifyQuizItemsWithGemma(
-        finalItems, type, summary, resolvedModel
-      );
-
-      // Track failures across rounds
-      for (const f of failed) {
-        verificationFailures++;
-        allRejectedItems.push({
-          ...f.item,
-          _rejected: true,
-          _rejectionReason: `Verification: ${f.reason}`,
-        });
-      }
-
-      console.log(`  ✓ Passed: ${verified.length}  ✗ Failed: ${failed.length}`);
-
-      if (failed.length === 0 || repairRound === MAX_REPAIR_ROUNDS) {
-        // All good, or we've exhausted repair rounds — use what we have
-        finalItems = verified;
-        break;
-      }
-
-      // Need to regenerate `failed.length` replacement items
-      const deficit = failed.length;
-      console.log(`\n🔧 Repair wave: regenerating ${deficit} item(s) to replace verification failures...`);
-
-      // Build fresh memory set from verified items
-      const repairedSeenItems = new Set<string>();
-      for (const v of verified) {
-        if (type === 'MCQ' && v.question) repairedSeenItems.add(normalizeText(v.question));
-        else if (type === 'FILL_IN_BLANK' && v.sentence) repairedSeenItems.add(normalizeText(v.sentence));
-        else if (type === 'FLASHCARD' && v.front) repairedSeenItems.add(normalizeText(v.front));
-      }
-
-      // Collect used content for the generation prompt
-      const repairUsed: string[] = [];
-      for (const v of verified) {
-        if (type === 'MCQ' && v.question) repairUsed.push(v.question);
-        else if (type === 'FILL_IN_BLANK' && v.sentence) repairUsed.push(v.sentence);
-        else if (type === 'FLASHCARD' && v.front) repairUsed.push(v.front);
-      }
-
-      // Small focused generation: request deficit + 2 to account for rejections
-      const repairBatchSize = Math.min(deficit + 2, 8);
-      const repairSlice = getSummarySlice(summary, repairRound * 3, 1300, 0);
-      const repairPromptText = buildPrompt(type, difficulty, repairBatchSize, repairSlice, [], repairUsed);
-
-      const repairTokens = type === 'MCQ' ? repairBatchSize * 260 + 100
-        : type === 'FILL_IN_BLANK' ? repairBatchSize * 110 + 100
-        : repairBatchSize * 120 + 100;
-
-      try {
-        const repairRaw = await generateWithOllama(repairPromptText, {
-          model: resolvedModel,
-          temperature: baseTemperature + 0.05, // Slight bump for diversity
-          requireJson: true,
-          maxTokens: Math.min(repairTokens, 3400),
-        });
-        totalApiCalls++;
-
-        let repairParsed: any;
-        try {
-          repairParsed = JSON.parse(repairRaw);
-        } catch {
-          const salvaged = salvageTruncatedJson(repairRaw);
-          if (salvaged) repairParsed = salvaged;
-          else { console.warn('Repair wave JSON parse failed'); finalItems = verified; continue; }
-        }
-
-        if (repairParsed?.items && Array.isArray(repairParsed.items)) {
-          const { validItems: repairValid } = validateQuizItems(
-            repairParsed.items, type, repairedSeenItems, difficulty, summary
-          );
-          console.log(`  Repair wave produced ${repairValid.length} structurally valid items`);
-
-          // Combine verified + repair items, trim to target count
-          finalItems = [...verified, ...repairValid].slice(0, count);
-        } else {
-          finalItems = verified;
-        }
-      } catch (err) {
-        console.error('Repair wave failed:', err instanceof Error ? err.message : err);
-        finalItems = verified;
-      }
-      // Loop will verify the combined set in the next round
+    if (finalItems.length < count) {
+      console.warn(`⚠ Could only produce ${finalItems.length}/${count} verified items after ${wave} waves.`);
     }
     
     // Calculate elapsed time
@@ -1529,12 +1528,12 @@ export async function generateQuizWithGemma(
     const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
     
     console.log(`\n=== Generation Complete ===`);
-    console.log(`Requested: ${count}`);
-    console.log(`Valid items generated: ${allValidItems.length}`);
-    console.log(`Final items (after verification): ${finalItems.length}`);
-    console.log(`Rejected items: ${allRejectedItems.length} (${verificationFailures} from verification)`);
+    console.log(`Requested: ${count} (target with buffer: ${targetCount})`);
+    console.log(`Total verified items generated: ${allValidItems.length}`);
+    console.log(`Final items returned: ${finalItems.length}`);
+    console.log(`Rejected items: ${allRejectedItems.length}`);
     console.log(`Total waves: ${wave} (${totalApiCalls} API calls)`);
-    console.log(`Success rate: ${Math.round((finalItems.length / Math.max(finalItems.length + allRejectedItems.length, 1)) * 100)}%`);
+    console.log(`Success rate: ${Math.round((allValidItems.length / Math.max(allValidItems.length + allRejectedItems.length, 1)) * 100)}%`);
     console.log(`JSON parse errors (possible truncations): ${jsonParseErrors}`);
     console.log(`Time elapsed: ${timeString}`);
     console.log(`===========================\n`);
@@ -1562,7 +1561,6 @@ export async function generateQuizWithGemma(
         requested: count,
         generated: finalItems.length,
         rejected: allRejectedItems.length,
-        verificationFailures,
         waves: wave,
         apiCalls: totalApiCalls
       }
@@ -1624,16 +1622,25 @@ function buildMCQPrompt(difficulty: string, count: number, summary: string, rece
 SUMMARY:
 ${summary}
 
-RULES:
-- All content from summary only, no outside knowledge
-- Each question on a different concept
-- All 4 choices must be real terms from the summary, no placeholders
-- 3 wrong choices must be real summary terms, not the correct answer
-- No duplicate or synonym choices
-- Explanation starts with: "The correct answer is '[exact choice text]' because ..."
+CRITICAL RULES — follow ALL or the item will be rejected:
+1. All content from summary only, no outside knowledge
+2. Each question on a DIFFERENT concept from the summary
+3. FIRST decide the correct answer, THEN write a question that it answers, THEN create 3 wrong choices
+4. The correct answer must DIRECTLY and SPECIFICALLY answer the question — not a broad category
+5. All 4 choices must be real terms/concepts from the summary, no placeholders
+6. The 3 wrong choices must be clearly WRONG for this specific question (not ambiguous)
+7. No duplicate or near-synonym choices
+8. answerIndex MUST point to the correct choice (double-check before outputting)
+9. Explanation MUST start with: "The correct answer is '[exact choice text]' because ..."
+10. If asking "What is X?", the answer must be X's DEFINITION or DESCRIPTION — NOT the term X itself
+11. Every question must have EXACTLY ONE unambiguously correct answer among the 4 choices
 - ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
-{"type":"mcq","difficulty":"${difficulty.toLowerCase()}","items":[{"question":"...","choices":["...","...","...","..."],"answerIndex":0,"explanation":"The correct answer is '...' because ..."}]}`;
+EXAMPLE — GOOD vs BAD:
+BAD:  Q: "What is machine learning?" → A: "Machine Learning" (echoes the question term — teaches nothing)
+GOOD: Q: "Which approach uses multi-layered neural networks to learn hierarchical features?" → A: "Deep Learning" (specific, only one correct answer, others clearly wrong)
+
+{"type":"mcq","difficulty":"${difficulty.toLowerCase()}","items":[{"question":"...","choices":["correct answer","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is 'correct answer' because ..."}]}`;
 }
 
 /**
@@ -1661,14 +1668,17 @@ function buildFillInBlankPrompt(difficulty: string, count: number, summary: stri
 SUMMARY:
 ${summary}
 
-RULES:
-- Copy sentences EXACTLY from the summary — do NOT paraphrase or reword
-- Each sentence has exactly one [blank]
-- Answer must be a word/phrase that appears VERBATIM in the original sentence
-- Each item must use a DIFFERENT sentence from a DIFFERENT part of the summary — never repeat
-- "distractors" must be a JSON array of exactly 3 strings: ["a","b","c"]
-- Distractors are other real terms from the summary (not the answer)
-- If you cannot find ${count} different sentences, return FEWER items — quality over quantity
+CRITICAL RULES — follow ALL or the item will be rejected:
+1. Copy sentences EXACTLY from the summary — do NOT paraphrase or reword
+2. Each sentence has exactly one [blank]
+3. The [blank] must replace a KEY CONCEPT, TECHNICAL TERM, or IMPORTANT NAME — NOT a common word (not "the", "is", "and", "a", etc.)
+4. Answer must be a word/phrase that appears VERBATIM in the original sentence
+5. The answer must be the COMPLETE term (e.g., "bias-variance tradeoff" not just "tradeoff")
+6. Each item must use a DIFFERENT sentence from a DIFFERENT part of the summary — never repeat
+7. "distractors" must be a JSON array of exactly 3 strings: ["a","b","c"]
+8. Distractors must be real terms from the summary that do NOT correctly fill the blank
+9. If you cannot find ${count} different sentences, return FEWER items — quality over quantity
+10. The answer must NOT be an example value when the blank should be a CATEGORY (e.g., blank should be "algorithms" not "linear regression")
 - ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
 {"type":"fill_blank","difficulty":"${difficulty.toLowerCase()}","items":[{"sentence":"The [blank] is responsible for...","answer":"term","distractors":["wrong1","wrong2","wrong3"]}]}`;
