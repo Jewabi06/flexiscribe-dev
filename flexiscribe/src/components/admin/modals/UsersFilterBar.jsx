@@ -49,8 +49,8 @@ function Dropdown({ value, options, onChange, label }) {
               }}
               className={`w-full text-left px-4 py-2 text-sm transition-colors duration-150
                 ${opt.value === value
-                  ? "bg-[#4c4172] text-white font-medium"
-                  : "text-[#4c4172] hover:bg-[#4c4172] hover:text-white"
+                  ? "bg-[#9d8adb] text-white font-medium"
+                  : "text-[#4c4172] hover:bg-[#9d8adb55] hover:text-white"
                 }`}
             >
               {opt.label}
