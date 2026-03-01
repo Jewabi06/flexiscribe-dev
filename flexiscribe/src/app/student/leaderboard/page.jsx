@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FaHome, FaBook, FaGamepad, FaTrophy, FaBars, FaTimes, FaMoon, FaSun, FaCrown, FaMedal, FaStar, FaFire } from "react-icons/fa";
+import { FaMoon, FaSun, FaCrown, FaMedal, FaStar, FaFire, FaTrophy, FaGamepad } from "react-icons/fa";
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
 import { toggleSidebar as utilToggleSidebar, toggleDarkMode as utilToggleDarkMode, handleNavigation as utilHandleNavigation } from "../../../utils/student";
@@ -165,26 +165,6 @@ export default function StudentLeaderboard() {
     return <LoadingScreen />;
   }
 
-  const hours = currentTime.getHours() % 12;
-  const minutes = currentTime.getMinutes();
-  const seconds = currentTime.getSeconds();
-
-  const hourAngle = hours * 30 + minutes * 0.5;
-  const minuteAngle = minutes * 6;
-  const secondAngle = seconds * 6;
-
-  const timeString = currentTime.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  const dateString = currentTime.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
   // Get top 3 users
   const topThree = leaderboard.slice(0, 3);
   const restOfLeaderboard = leaderboard.slice(3);
@@ -211,15 +191,10 @@ export default function StudentLeaderboard() {
 
   return (
     <div className="dashboard-container">
-      <StudentSidebar 
+      <StudentSidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         currentTime={currentTime}
-        hourAngle={hourAngle}
-        minuteAngle={minuteAngle}
-        secondAngle={secondAngle}
-        timeString={timeString}
-        dateString={dateString}
       />
 
       {/* Main Content */}

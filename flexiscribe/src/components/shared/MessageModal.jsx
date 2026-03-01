@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect } from "react";
-import { FaCheckCircle, FaTimesCircle, FaInfoCircle, FaTimes } from "react-icons/fa";
+import { FaCheckCircle, FaTimesCircle, FaInfoCircle } from "react-icons/fa";
 
 /**
  * Reusable MessageModal component to replace all alert() calls.
@@ -43,12 +43,6 @@ export default function MessageModal({ isOpen, onClose, title, message, type = "
   return (
     <div className="message-modal-overlay" onClick={onClose}>
       <div className="message-modal-content" onClick={(e) => e.stopPropagation()}>
-        {!onConfirm && (
-          <button className="message-modal-close" onClick={onClose}>
-            <FaTimes />
-          </button>
-        )}
-
         <div className="message-modal-icon">{iconMap[type]}</div>
         <h3 className="message-modal-title">{displayTitle}</h3>
         <p className="message-modal-message">{message}</p>
@@ -109,39 +103,6 @@ export default function MessageModal({ isOpen, onClose, title, message, type = "
         :global(.dark-mode) .message-modal-content {
           background: #2d2640;
           color: #f5f5f5;
-        }
-
-        .message-modal-close {
-          position: absolute;
-          top: 16px;
-          right: 16px;
-          background: rgba(0, 0, 0, 0.05);
-          border: none;
-          border-radius: 50%;
-          width: 32px;
-          height: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          color: #888;
-          font-size: 14px;
-          transition: all 0.2s ease;
-        }
-
-        .message-modal-close:hover {
-          background: rgba(0, 0, 0, 0.1);
-          color: #555;
-        }
-
-        :global(.dark-mode) .message-modal-close {
-          background: rgba(255, 255, 255, 0.1);
-          color: #aaa;
-        }
-
-        :global(.dark-mode) .message-modal-close:hover {
-          background: rgba(255, 255, 255, 0.2);
-          color: #fff;
         }
 
         .message-modal-icon {
