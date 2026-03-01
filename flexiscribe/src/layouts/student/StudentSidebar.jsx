@@ -54,7 +54,7 @@ export default function StudentSidebar({
           </div>
           <div className={`nav-item ${isActive('/student/reviewers') ? 'active' : ''}`} onClick={() => handleNavigation('/student/reviewers')}>
             <FaBook className="nav-icon" />
-            <span>Reviewers</span>
+            <span>Documents</span>
           </div>
           <div className={`nav-item ${isActive('/student/quizzes') ? 'active' : ''}`} onClick={() => handleNavigation('/student/quizzes')}>
             <FaGamepad className="nav-icon" />
