@@ -47,6 +47,40 @@ export async function GET(request: Request) {
       prisma.quiz.count({ where: { type: "FILL_IN_BLANK" } }),
     ]);
 
+    // Build weekly quiz attempt counts (Sun-Sat of current week)
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=Sun
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - dayOfWeek);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+    const weekAttempts = await prisma.quizAttempt.findMany({
+      where: {
+        completedAt: { gte: startOfWeek, lt: endOfWeek },
+      },
+      select: {
+        completedAt: true,
+        quiz: { select: { type: true } },
+      },
+    });
+
+    // Bucket by day-of-week (0-6)
+    const weeklyQuizData = Array.from({ length: 7 }, () => ({
+      mcq: 0,
+      fitb: 0,
+      flashcards: 0,
+    }));
+
+    for (const a of weekAttempts) {
+      const d = new Date(a.completedAt).getDay();
+      if (a.quiz.type === "MCQ") weeklyQuizData[d].mcq++;
+      else if (a.quiz.type === "FILL_IN_BLANK") weeklyQuizData[d].fitb++;
+      else if (a.quiz.type === "FLASHCARD") weeklyQuizData[d].flashcards++;
+    }
+
     return NextResponse.json(
       {
         stats: {
@@ -58,6 +92,7 @@ export async function GET(request: Request) {
           mcqs,
           fitb,
         },
+        weeklyQuizData,
         recentActivities,
       },
       { status: 200 }

@@ -91,10 +91,8 @@ export async function GET(request: Request) {
         username = u.admin.username;
       }
 
-      // Determine status based on recent activity
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const isActive = u.updatedAt >= sevenDaysAgo;
+      // Determine status from stored field, fallback to activity-based
+      const userStatus = u.status || "Active";
 
       return {
         id: u.id,
@@ -103,7 +101,7 @@ export async function GET(request: Request) {
         role: u.role,
         fullName,
         username,
-        status: isActive ? "Active" : "Inactive",
+        status: userStatus,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt,
         ...additionalInfo,

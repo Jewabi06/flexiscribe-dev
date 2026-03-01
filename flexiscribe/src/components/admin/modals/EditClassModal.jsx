@@ -3,6 +3,8 @@
 import { X, BookOpen, MapPin, Clock, Calendar, User, Copy, Check } from "lucide-react";
 import { useState, useEffect } from "react";
 import MessageModal from "@/components/shared/MessageModal";
+import FormDropdown from "@/components/shared/FormDropdown";
+import ClockTimePicker from "@/components/shared/ClockTimePicker";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -101,7 +103,13 @@ export default function EditClassModal({ classData, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999] px-4">
-      <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div
+        className="bg-white w-full max-w-2xl rounded-3xl shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
+        style={{
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(157,138,219,0.35) transparent",
+        }}
+      >
         {/* Header */}
         <div className="bg-[#f5f3ff] px-6 py-4 flex justify-between items-center">
           <h3 className="text-lg font-bold text-[#4c4172]">Edit Class</h3>
@@ -176,53 +184,39 @@ export default function EditClassModal({ classData, onClose }) {
 
               <div>
                 <label className="text-sm font-medium text-gray-700">Day *</label>
-                <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 mt-1 relative">
-                  <Calendar size={18} className="text-gray-600" />
-                  <select
-                    value={day}
-                    onChange={(e) => setDay(e.target.value)}
-                    className="w-full bg-transparent outline-none appearance-none text-gray-800"
-                  >
-                    <option value="">Select day</option>
-                    {DAYS.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                  <span className="absolute right-4 text-gray-500">▼</span>
-                </div>
+                <FormDropdown
+                  value={day}
+                  onChange={setDay}
+                  placeholder="Select day"
+                  icon={Calendar}
+                  options={DAYS.map((d) => ({ value: d, label: d }))}
+                />
               </div>
 
               <div>
                 <label className="text-sm font-medium text-gray-700">Start Time *</label>
-                <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 mt-1">
-                  <Clock size={18} className="text-gray-600" />
-                  <input
-                    type="time"
-                    value={to24h(startTime)}
-                    onChange={(e) => {
-                      const val12 = to12h(e.target.value);
-                      setStartTime(val12);
-                      if (endTime && e.target.value >= to24h(endTime)) {
-                        setEndTime("");
-                      }
-                    }}
-                    className="w-full bg-transparent outline-none text-gray-800"
-                  />
-                </div>
+                <ClockTimePicker
+                  value={startTime}
+                  onChange={(val) => {
+                    setStartTime(val);
+                    if (endTime) {
+                      const s24 = to24h(val);
+                      const e24 = to24h(endTime);
+                      if (s24 && e24 && s24 >= e24) setEndTime("");
+                    }
+                  }}
+                  placeholder="Select start time"
+                />
               </div>
 
               <div>
                 <label className="text-sm font-medium text-gray-700">End Time *</label>
-                <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 mt-1">
-                  <Clock size={18} className="text-gray-600" />
-                  <input
-                    type="time"
-                    value={to24h(endTime)}
-                    min={to24h(startTime) || undefined}
-                    onChange={(e) => setEndTime(to12h(e.target.value))}
-                    className="w-full bg-transparent outline-none text-gray-800"
-                  />
-                </div>
+                <ClockTimePicker
+                  value={endTime}
+                  onChange={setEndTime}
+                  placeholder="Select end time"
+                  minTime={startTime}
+                />
               </div>
             </div>
           </div>
@@ -230,22 +224,13 @@ export default function EditClassModal({ classData, onClose }) {
           {/* Assign Educator */}
           <div>
             <h4 className="text-sm font-bold text-[#4c4172] mb-3">Assign Educator</h4>
-            <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 relative">
-              <User size={18} className="text-gray-600" />
-              <select
-                value={educatorId}
-                onChange={(e) => setEducatorId(e.target.value)}
-                className="w-full bg-transparent outline-none appearance-none text-gray-800"
-              >
-                <option value="">Select an educator</option>
-                {educators.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.fullName} — {e.department}
-                  </option>
-                ))}
-              </select>
-              <span className="absolute right-4 text-gray-500">▼</span>
-            </div>
+            <FormDropdown
+              value={educatorId}
+              onChange={setEducatorId}
+              placeholder="Select an educator"
+              icon={User}
+              options={educators.map((e) => ({ value: e.id, label: `${e.fullName} — ${e.department}` }))}
+            />
           </div>
         </div>
 

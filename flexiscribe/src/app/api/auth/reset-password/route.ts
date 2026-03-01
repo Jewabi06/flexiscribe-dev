@@ -55,6 +55,21 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Audit log - password reset
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "Password Reset",
+          details: `${user.email} (${user.role}) reset their password`,
+          userRole: user.role as any,
+          userName: user.email,
+          userId: user.id,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
+    }
+
     return NextResponse.json(
       { message: "Password has been reset successfully" },
       { status: 200 }

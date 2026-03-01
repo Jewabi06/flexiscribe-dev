@@ -1,8 +1,49 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { ChevronDown } from "lucide-react";
 import TranscriptPreviewModal from "@/components/admin/modals/TranscriptPreviewModal";
 import MessageModal from "@/components/shared/MessageModal";
+
+function HeaderDropdown({ value, options, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+  const selected = options.find((o) => o.value === value);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl bg-white border border-[#d6d1ee] text-[#4c4172] hover:bg-[#f1effa] transition cursor-pointer"
+      >
+        {selected ? selected.label : placeholder}
+        <ChevronDown size={13} className={`shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[150px] rounded-xl bg-white border border-[#d6d1ee] shadow-lg py-1 overflow-hidden">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-4 py-2 text-sm transition-colors duration-150
+                ${opt.value === value
+                  ? "bg-[#4c4172] text-white font-medium"
+                  : "text-[#4c4172] hover:bg-[#4c4172] hover:text-white"}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function RawTranscriptTable() {
   const [transcripts, setTranscripts] = useState([]);
@@ -114,27 +155,24 @@ export default function RawTranscriptTable() {
             </div>
 
             <div className="flex gap-2">
-              <select
+              <HeaderDropdown
                 value={course}
-                onChange={(e) => setCourse(e.target.value)}
-                className="px-3 py-1.5 text-sm rounded-md bg-white text-[#3f3764] border"
-              >
-                <option value="ALL">All Courses</option>
-                {courses.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-
-              <select
+                onChange={setCourse}
+                placeholder="All Courses"
+                options={[
+                  { value: "ALL", label: "All Courses" },
+                  ...courses.map((c) => ({ value: c, label: c })),
+                ]}
+              />
+              <HeaderDropdown
                 value={section}
-                onChange={(e) => setSection(e.target.value)}
-                className="px-3 py-1.5 text-sm rounded-md bg-white text-[#3f3764] border"
-              >
-                <option value="ALL">All Sections</option>
-                {sections.map((s) => (
-                  <option key={s} value={s}>Section {s}</option>
-                ))}
-              </select>
+                onChange={setSection}
+                placeholder="All Sections"
+                options={[
+                  { value: "ALL", label: "All Sections" },
+                  ...sections.map((s) => ({ value: s, label: `Section ${s}` })),
+                ]}
+              />
             </div>
           </div>
         </div>

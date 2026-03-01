@@ -85,6 +85,21 @@ export async function POST(request: Request) {
       path: "/",
     });
 
+    // Audit log - admin login
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "Admin Login",
+          details: `Admin ${user.email} logged in`,
+          userRole: "ADMIN",
+          userName: user.email,
+          userId: user.id,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
+    }
+
     return response;
   } catch (error) {
     console.error("Admin login error:", error);

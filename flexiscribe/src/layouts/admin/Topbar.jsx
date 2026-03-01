@@ -207,7 +207,7 @@ export default function TopBar({ onMenuClick }) {
           </button>
 
           {/* SEARCH */}
-          <div className="relative flex-1 max-w-[900px]">
+          <div className="relative flex-1 max-w-[900px]" ref={searchRef}>
             <Search
               size={18}
               className="absolute left-5 top-1/2 -translate-y-1/2 text-[#9d8adb]"
@@ -216,6 +216,11 @@ export default function TopBar({ onMenuClick }) {
             <input
               type="text"
               placeholder="Search or run a command"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              onFocus={() => {
+                if (searchResults.length > 0) setSearchOpen(true);
+              }}
               className="
                 w-full h-[48px]
                 pl-14 pr-4
@@ -230,6 +235,49 @@ export default function TopBar({ onMenuClick }) {
                 transition
               "
             />
+
+            {/* SEARCH RESULTS DROPDOWN */}
+            {searchOpen && (
+              <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border border-[#d6d1ee] rounded-xl shadow-xl overflow-hidden max-h-80 overflow-y-auto"
+                style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(157,138,219,0.3) transparent" }}
+              >
+                {searching ? (
+                  <div className="px-4 py-6 text-center text-sm text-[#9d8adb]">
+                    Searching...
+                  </div>
+                ) : searchResults.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-gray-500">
+                    No results found for &quot;{searchQuery}&quot;
+                  </div>
+                ) : (
+                  searchResults.map((result, idx) => (
+                    <button
+                      key={result.id || idx}
+                      type="button"
+                      onClick={() => handleSearchResultClick(result)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#f5f3ff] transition-colors text-left border-b border-gray-100 last:border-b-0"
+                    >
+                      <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[#f1effa] flex items-center justify-center">
+                        {getSearchIcon(result.type)}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#4c4172] truncate">
+                          {result.title || result.name}
+                        </p>
+                        {result.subtitle && (
+                          <p className="text-xs text-gray-500 truncate">
+                            {result.subtitle}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[10px] uppercase tracking-wide text-[#9d8adb] font-medium bg-[#f1effa] px-2 py-0.5 rounded-full">
+                        {result.type}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* RIGHT */}

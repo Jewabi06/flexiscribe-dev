@@ -16,6 +16,7 @@ export default function DashboardPage() {
     mcqs: 0,
     fitb: 0,
   });
+  const [weeklyData, setWeeklyData] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,6 +30,7 @@ export default function DashboardPage() {
       if (res.ok) {
         const data = await res.json();
         setStats(data.stats);
+        setWeeklyData(data.weeklyQuizData || []);
         setRecentActivities(data.recentActivities || []);
       }
     } catch (error) {
@@ -89,7 +91,7 @@ export default function DashboardPage() {
             <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">
               Class Analytics
             </h2>
-            <ClassAnalyticsCard />
+            <ClassAnalyticsCard weeklyData={weeklyData} />
           </div>
         </div>
       </section>

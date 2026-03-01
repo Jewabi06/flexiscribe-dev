@@ -10,9 +10,20 @@ import {
   YAxis,
 } from "recharts";
 
-import { classAnalyticsData } from "@/lib/mock/classAnalytics";
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export default function ClassAnalyticsCard() {
+export default function ClassAnalyticsCard({ weeklyData = [] }) {
+  // Ensure we always have 7 data points (Sun-Sat)
+  const chartData = DAY_LABELS.map((day, i) => {
+    const entry = weeklyData[i] || {};
+    return {
+      day,
+      mcq: entry.mcq ?? 0,
+      fitb: entry.fitb ?? 0,
+      flashcards: entry.flashcards ?? 0,
+    };
+  });
+
   return (
     <div
       className="
@@ -30,18 +41,16 @@ export default function ClassAnalyticsCard() {
       {/* HEADER */}
       <div className="mb-2">
         <h3 className="text-lg font-semibold">
-          Activity Signals
+          Weekly Quiz Activity
         </h3>
         <p className="text-sm text-white/70">
-          Engagement patterns by type
+          Current week (Sun – Sat)
         </p>
       </div>
 
       {/* LEGEND */}
       <div className="flex flex-wrap gap-4 text-xs text-white mb-2">
-        <LegendItem color="#00E5FF" label="Section A" />
-        <LegendItem color="#FFD166" label="Section B" />
-        <LegendItem color="#EF476F" label="Quiz" />
+        <LegendItem color="#EF476F" label="MCQ" />
         <LegendItem color="#06D6A0" label="FITB" />
         <LegendItem color="#A78BFA" label="Flashcards" />
       </div>
@@ -49,7 +58,7 @@ export default function ClassAnalyticsCard() {
       {/* CHART */}
       <div className="flex-1 -mx-2 rounded-xl bg-[#6f63a8]/35 p-2">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={classAnalyticsData}>
+          <LineChart data={chartData}>
             <CartesianGrid
               stroke="rgba(255,255,255,0.12)"
               vertical={false}
@@ -63,17 +72,19 @@ export default function ClassAnalyticsCard() {
             />
 
             <YAxis
-              domain={[0, 100]}
-              tickFormatter={(v) => `${v}%`}
+              allowDecimals={false}
               tick={{ fill: "rgba(255,255,255,0.75)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
-              width={36}
+              width={28}
             />
 
             <Tooltip
-              labelFormatter={(label) => `Day: ${label}`}
-              formatter={(value) => [`${value ?? 0}%`, ""]}
+              labelFormatter={(label) => `${label}`}
+              formatter={(value, name) => [
+                value,
+                name === "mcq" ? "MCQ" : name === "fitb" ? "FITB" : "Flashcards",
+              ]}
               contentStyle={{
                 background: "#6f63a8",
                 border: "1px solid rgba(255,255,255,0.15)",
@@ -83,10 +94,8 @@ export default function ClassAnalyticsCard() {
               }}
             />
 
-            <Line type="monotone" dataKey="sectionA" stroke="#00E5FF" strokeWidth={2.5} dot={false} />
-            <Line type="monotone" dataKey="sectionB" stroke="#FFD166" strokeWidth={2.5} dot={false} />
-            <Line type="monotone" dataKey="quizzes"  stroke="#EF476F" strokeWidth={2.5} dot={false} />
-            <Line type="monotone" dataKey="fitb"     stroke="#06D6A0" strokeWidth={2.5} dot={false} />
+            <Line type="monotone" dataKey="mcq"        stroke="#EF476F" strokeWidth={2.5} dot={false} />
+            <Line type="monotone" dataKey="fitb"       stroke="#06D6A0" strokeWidth={2.5} dot={false} />
             <Line type="monotone" dataKey="flashcards" stroke="#A78BFA" strokeWidth={2.5} dot={false} />
           </LineChart>
         </ResponsiveContainer>
