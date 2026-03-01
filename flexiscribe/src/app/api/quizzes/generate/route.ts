@@ -78,10 +78,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build quiz content from structured JSON reviewer data (preferred) or
+    // fall back to plain text for backwards compatibility.
+    let quizContent: string;
+    try {
+      const reviewerJson = JSON.parse(lesson.content);
+      // Convert structured reviewer JSON into a dense, quiz-optimized summary
+      const parts: string[] = [];
+      if (reviewerJson.summary) {
+        parts.push(reviewerJson.summary);
+      }
+      if (Array.isArray(reviewerJson.keyConcepts)) {
+        parts.push(
+          reviewerJson.keyConcepts
+            .map((c: { term: string; definition: string }) => `${c.term}: ${c.definition}`)
+            .join('\n')
+        );
+      }
+      if (Array.isArray(reviewerJson.importantFacts)) {
+        parts.push(reviewerJson.importantFacts.join('\n'));
+      }
+      if (reviewerJson.detailedContent) {
+        parts.push(reviewerJson.detailedContent);
+      }
+      quizContent = parts.join('\n\n');
+    } catch {
+      // Not JSON — use content as-is (plain text lessons)
+      quizContent = lesson.content;
+    }
+
     // Summary quality gate — short summaries produce hallucinated filler
-    if (!lesson.content || lesson.content.trim().length < 200) {
+    if (!quizContent || quizContent.trim().length < 200) {
       return NextResponse.json(
-        { error: 'Summary is too short to generate meaningful questions. The lesson needs at least 200 characters of content.' },
+        { error: 'Reviewer content is too short to generate meaningful questions. The lesson needs at least 200 characters of content.' },
         { status: 422 }
       );
     }
@@ -89,7 +118,7 @@ export async function POST(request: NextRequest) {
     // Generate quiz — pass pre-resolved model to avoid redundant /api/tags calls
     console.log(`Generating ${type} quiz with ${count} questions at ${difficulty} difficulty using ${resolvedModel}...`);
     const generatedQuiz = await generateQuizWithGemma(
-      lesson.content,
+      quizContent,
       type as 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
       difficulty as 'EASY' | 'MEDIUM' | 'HARD',
       count,
