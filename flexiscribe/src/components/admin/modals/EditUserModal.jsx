@@ -1,14 +1,21 @@
 "use client";
 
-import { X, Mail, User, Phone } from "lucide-react";
+import { X, Mail, User, Shield } from "lucide-react";
 import { useState } from "react";
 import MessageModal from "@/components/shared/MessageModal";
+
+const STATUS_OPTIONS = [
+  { value: "Active", label: "Active", color: "bg-green-100 text-green-700" },
+  { value: "Inactive", label: "Inactive", color: "bg-gray-100 text-gray-600" },
+  { value: "Banned", label: "Banned", color: "bg-red-100 text-red-600" },
+];
 
 export default function EditUserModal({ user, onClose }) {
   const [fullName, setFullName] = useState(user.fullName || user.name || "");
   const [username, setUsername] = useState(user.username || "");
   const [email, setEmail] = useState(user.email || "");
-  const [phoneNumber, setPhoneNumber] = useState(user.phoneNumber || "");
+  const [status, setStatus] = useState(user.status || "Active");
+  const [statusOpen, setStatusOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
 
@@ -22,7 +29,7 @@ export default function EditUserModal({ user, onClose }) {
           fullName,
           username,
           email,
-          phoneNumber,
+          status,
         }),
       });
 
@@ -106,20 +113,38 @@ export default function EditUserModal({ user, onClose }) {
             </div>
           </div>
 
-          {/* Phone Number */}
+          {/* Status */}
           <div>
             <label className="text-sm font-semibold text-gray-700">
-              Phone Number
+              Account Status
             </label>
 
-            <div className="flex items-center gap-3 bg-gray-50 border rounded-xl px-4 py-3 mt-1">
-              <Phone size={18} className="text-gray-600" />
-              <input
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className="w-full bg-transparent text-gray-800 font-medium outline-none placeholder-gray-500"
-                placeholder="+63 9XX XXX XXXX"
-              />
+            <div className="relative mt-1">
+              <div
+                onClick={() => setStatusOpen(!statusOpen)}
+                className="flex items-center gap-3 bg-white border rounded-xl px-4 py-3 cursor-pointer hover:border-[#9d8adb] transition"
+              >
+                <Shield size={18} className="text-[#9d8adb]" />
+                <span className="text-[#4c4172] font-medium">{status}</span>
+                <span className="ml-auto text-gray-400 text-xs">▼</span>
+              </div>
+              {statusOpen && (
+                <div className="absolute z-50 mt-1 w-full bg-white border border-[#e6e2fb] rounded-xl shadow-lg overflow-hidden">
+                  {STATUS_OPTIONS.map((opt) => (
+                    <div
+                      key={opt.value}
+                      onClick={() => {
+                        setStatus(opt.value);
+                        setStatusOpen(false);
+                      }}
+                      className="px-4 py-3 flex items-center gap-3 cursor-pointer text-[#4c4172] hover:bg-[#9d8adb] hover:text-white transition"
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full ${opt.value === 'Active' ? 'bg-green-500' : opt.value === 'Inactive' ? 'bg-gray-400' : 'bg-red-500'}`} />
+                      <span className="font-medium">{opt.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

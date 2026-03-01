@@ -179,6 +179,21 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Audit log - quiz generation
+    try {
+      const userName = user?.email || "Unknown";
+      const userRole = user?.role || "STUDENT";
+      await prisma.auditLog.create({
+        data: {
+          action: "Quiz Generated",
+          details: `${type} quiz (${difficulty}, ${count} questions) generated from "${quiz.lesson.title}"`,
+          userRole: userRole as any,
+          userName,
+          userId: user?.userId as string || undefined,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
     // Create an in-app notification for the student
     if (studentId) {
       await prisma.notification.create({

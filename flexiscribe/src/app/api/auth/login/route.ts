@@ -115,6 +115,26 @@ export async function POST(request: Request) {
       },
     });
 
+    // Audit log - user login
+    try {
+      const displayName = user.role === "EDUCATOR" && user.educator
+        ? user.educator.fullName
+        : user.role === "STUDENT" && user.student
+          ? user.student.fullName
+          : user.email;
+      await prisma.auditLog.create({
+        data: {
+          action: "User Login",
+          details: `${displayName} (${user.role}) logged in`,
+          userRole: user.role as any,
+          userName: displayName,
+          userId: user.id,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
+    }
+
     // Create response
     const response = NextResponse.json(
       {

@@ -168,6 +168,21 @@ export async function POST(request: Request) {
       },
     });
 
+    // Audit log - student registration
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "Student Registration",
+          details: `${fullName} (${email}) registered as a student`,
+          userRole: "STUDENT",
+          userName: fullName,
+          userId: result.user.id,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
+    }
+
     return NextResponse.json(
       {
         message: "Student registered successfully",

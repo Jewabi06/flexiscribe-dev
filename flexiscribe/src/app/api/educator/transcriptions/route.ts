@@ -206,6 +206,21 @@ export async function POST(request: NextRequest) {
       console.error("Failed to create educator notification:", eduNotifErr);
     }
 
+    // Audit log - transcription created
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "Transcription Created",
+          details: `Educator ${educator.fullName} uploaded transcription "${title}"${classId ? ` for class ${course}` : ""}`,
+          userRole: "EDUCATOR",
+          userName: educator.fullName,
+          userId: user.userId,
+        },
+      });
+    } catch (e) {
+      console.error("Audit log error:", e);
+    }
+
     return NextResponse.json({ transcription }, { status: 201 });
   } catch (error) {
     console.error("Create transcription error:", error);

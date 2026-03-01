@@ -13,7 +13,6 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
   // Profile form
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
 
   // Security form
   const [currentPassword, setCurrentPassword] = useState("");
@@ -37,7 +36,6 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
         setProfile(data.admin);
         setFullName(data.admin.fullName || "");
         setUsername(data.admin.username || "");
-        setPhoneNumber(data.admin.phoneNumber || "");
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -55,7 +53,6 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
         body: JSON.stringify({
           fullName,
           username,
-          phoneNumber,
         }),
       });
 
@@ -239,18 +236,6 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
                       className="w-full mt-1 rounded-lg border px-3 py-2 bg-gray-100"
                       disabled
                       value="Administrator"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">
-                      Phone Number
-                    </label>
-                    <input
-                      className="w-full mt-1 rounded-lg border px-3 py-2"
-                      placeholder="+63 9XX XXX XXXX"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
                     />
                   </div>
 
