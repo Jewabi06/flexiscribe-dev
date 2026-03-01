@@ -468,11 +468,11 @@ export default function QuizzesPage() {
 
           {/* Generate Quiz Section */}
           <div className="generate-quiz-section">
-            <h2 className="generate-quiz-title">Generate Quiz from Lesson</h2>
+            <h2 className="generate-quiz-title">Generate Quiz from Reviewer</h2>
             <div className="generate-quiz-form">
-              {/* Lesson Dropdown */}
+              {/* Reviewer Dropdown */}
               <div className="quiz-input-group" ref={lessonDropdownRef}>
-                <label className="quiz-input-label">Lesson</label>
+                <label className="quiz-input-label">Reviewer</label>
                 <div 
                   className="quiz-dropdown-trigger"
                   onClick={() => {
@@ -485,14 +485,14 @@ export default function QuizzesPage() {
                   <span className={!selectedLesson ? "quiz-placeholder" : ""}>
                     {selectedLesson 
                       ? lessons.find(l => l.id === selectedLesson)?.title 
-                      : "Select a lesson"}
+                      : "Select a reviewer"}
                   </span>
                   <FaChevronDown className={`quiz-dropdown-icon ${lessonDropdownOpen ? 'open' : ''}`} />
                 </div>
                 {lessonDropdownOpen && (
                   <div className="quiz-dropdown-menu">
                     {lessons.length === 0 ? (
-                      <div className="quiz-dropdown-item disabled">No lessons available</div>
+                      <div className="quiz-dropdown-item disabled">No reviewers available</div>
                     ) : (
                       lessons.map((lesson) => (
                         <div
