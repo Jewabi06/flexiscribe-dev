@@ -688,6 +688,162 @@ function validateQuizItems(
   return { validItems, rejectedItems };
 }
 
+// ============================================================================
+// POST-GENERATION VERIFICATION
+// ============================================================================
+
+/**
+ * Build a verification prompt for a batch of quiz items.
+ * The model is asked to act as a strict teacher, cross-checking each item
+ * against the source summary and returning a structured JSON verdict.
+ */
+function buildVerificationPrompt(
+  items: any[],
+  type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
+  summary: string
+): string {
+  // Serialize items compactly for the prompt
+  const itemsBlock = items.map((item, idx) => {
+    if (type === 'MCQ') {
+      return `Item ${idx}:\n  Question: ${item.question}\n  Choices: ${JSON.stringify(item.choices)}\n  Correct answer index: ${item.answerIndex} ("${item.choices[item.answerIndex]}")\n  Explanation: ${item.explanation}`;
+    } else if (type === 'FILL_IN_BLANK') {
+      return `Item ${idx}:\n  Sentence: ${item.sentence}\n  Answer: ${item.answer}\n  Distractors: ${JSON.stringify(item.distractors)}`;
+    } else {
+      return `Item ${idx}:\n  Front: ${item.front}\n  Back: ${item.back}`;
+    }
+  }).join('\n\n');
+
+  let typeRules: string;
+  if (type === 'MCQ') {
+    typeRules = `For each MCQ item, check ALL of the following:
+1. Is the correct answer (at answerIndex) the MOST ACCURATE and SPECIFIC answer to the question, based on the summary? If the best answer is not among the 4 choices, mark INCORRECT.
+2. Are all 4 choices real concepts, terms, or phrases that appear in or relate to the summary? No placeholders or nonsensical options.
+3. Are the 3 distractors genuinely wrong for THIS question? (A distractor that is also correct = bad item.)
+4. Does the explanation accurately justify WHY the correct answer is correct?
+5. Is the question itself answerable from the summary? (Not about outside knowledge.)
+If ANY check fails, mark as INCORRECT and explain which check failed and why.`;
+  } else if (type === 'FILL_IN_BLANK') {
+    typeRules = `For each fill-in-blank item, check ALL of the following:
+1. When [blank] is replaced with the answer, does the sentence reflect content from the summary?
+2. Is the answer the correct word/phrase that belongs in the blank, according to the summary?
+3. Are all 3 distractors real terms from the summary that do NOT correctly fill the blank?
+4. Could any distractor also be correct for this blank? If so, mark INCORRECT.
+If ANY check fails, mark as INCORRECT and explain which check failed and why.`;
+  } else {
+    typeRules = `For each flashcard, check ALL of the following:
+1. Does the front ask a clear question about a concept from the summary?
+2. Is the back factually accurate according to the summary?
+3. Does the back actually answer the front? (Not a mismatch.)
+4. Is the information on the back complete enough to be useful, without being misleading?
+If ANY check fails, mark as INCORRECT and explain which check failed and why.`;
+  }
+
+  return `You are a strict academic reviewer. Verify each quiz item below against the source summary. Output ONLY valid JSON.
+
+SUMMARY:
+${summary}
+
+ITEMS TO VERIFY:
+${itemsBlock}
+
+${typeRules}
+
+Respond with ONLY this JSON structure (no extra text):
+{"verdicts":[{"index":0,"pass":true,"reason":null},{"index":1,"pass":false,"reason":"explanation of what is wrong"}]}`;
+}
+
+/**
+ * Verify a batch of quiz items for factual correctness using Ollama.
+ *
+ * Sends the items + summary to the model and asks it to cross-check each one.
+ * Returns items split into verified (passed) and failed (with reasons).
+ *
+ * Items are processed in sub-batches of up to VERIFY_BATCH_SIZE to keep
+ * the prompt+response within token limits.
+ */
+async function verifyQuizItemsWithGemma(
+  items: any[],
+  type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
+  summary: string,
+  model: string
+): Promise<{ verified: any[]; failed: { item: any; reason: string }[] }> {
+  if (items.length === 0) return { verified: [], failed: [] };
+
+  const VERIFY_BATCH_SIZE = 5; // Keep prompts manageable for 4B models
+  const verified: any[] = [];
+  const failed: { item: any; reason: string }[] = [];
+
+  // Process in sub-batches
+  for (let offset = 0; offset < items.length; offset += VERIFY_BATCH_SIZE) {
+    const batch = items.slice(offset, offset + VERIFY_BATCH_SIZE);
+    const prompt = buildVerificationPrompt(batch, type, summary);
+
+    // Token budget: ~80 tokens per verdict (index + pass/fail + reason sentence)
+    const maxTokens = Math.min(batch.length * 100 + 80, 1200);
+
+    try {
+      const raw = await generateWithOllama(prompt, {
+        model,
+        temperature: 0.1, // Near-deterministic for factual checking
+        requireJson: true,
+        maxTokens,
+      });
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // Try to salvage
+        const salvaged = salvageTruncatedJson(raw);
+        if (salvaged) {
+          // salvageTruncatedJson returns { items: [...] }, but we expect { verdicts: [...] }
+          // Re-parse: look for "verdicts" key or fall back to items
+          parsed = { verdicts: salvaged.items };
+        } else {
+          console.warn(`⚠ Verification JSON parse failed for batch at offset ${offset} — accepting items as-is`);
+          verified.push(...batch);
+          continue;
+        }
+      }
+
+      const verdicts: any[] = parsed?.verdicts || parsed?.items || [];
+      if (!Array.isArray(verdicts) || verdicts.length === 0) {
+        // Model returned garbage — accept items rather than rejecting blindly
+        console.warn(`⚠ Verification returned no verdicts for batch at offset ${offset} — accepting items as-is`);
+        verified.push(...batch);
+        continue;
+      }
+
+      // Map verdicts back to items
+      const verdictMap = new Map<number, { pass: boolean; reason: string | null }>();
+      for (const v of verdicts) {
+        if (typeof v.index === 'number') {
+          verdictMap.set(v.index, { pass: !!v.pass, reason: v.reason || null });
+        }
+      }
+
+      for (let i = 0; i < batch.length; i++) {
+        const verdict = verdictMap.get(i);
+        if (!verdict) {
+          // No verdict for this item — accept it (benefit of the doubt)
+          verified.push(batch[i]);
+        } else if (verdict.pass) {
+          verified.push(batch[i]);
+        } else {
+          failed.push({ item: batch[i], reason: verdict.reason || 'Failed verification' });
+          console.warn(`❌ Verification rejected item ${offset + i}: ${verdict.reason}`);
+        }
+      }
+    } catch (err) {
+      // Verification call itself failed — accept the batch to avoid blocking generation
+      console.error(`⚠ Verification call failed for batch at offset ${offset}:`, err instanceof Error ? err.message : err);
+      verified.push(...batch);
+    }
+  }
+
+  return { verified, failed };
+}
+
 export interface OllamaGenerateRequest {
   model: string;
   prompt: string;
@@ -1259,7 +1415,110 @@ export async function generateQuizWithGemma(
     }
     
     // Trim to exact count if we got more (expected with overgeneration)
-    const finalItems = allValidItems.slice(0, count);
+    let finalItems = allValidItems.slice(0, count);
+
+    // ── Post-generation verification ──
+    // Ask the model to cross-check every item against the source summary.
+    // Items that fail verification are discarded; focused repair waves
+    // regenerate just the missing count, up to MAX_REPAIR_ROUNDS.
+    const MAX_REPAIR_ROUNDS = 3;
+    let verificationFailures = 0;
+
+    for (let repairRound = 0; repairRound <= MAX_REPAIR_ROUNDS; repairRound++) {
+      // Check time budget — skip verification if we're already near the limit
+      const elapsedBeforeVerify = Date.now() - startTime;
+      if (elapsedBeforeVerify >= ABSOLUTE_TIME_LIMIT_MS * 0.95) {
+        console.warn(`⏱ Near time limit — skipping verification round ${repairRound}`);
+        break;
+      }
+
+      console.log(`\n🔍 Verification round ${repairRound + 1}: checking ${finalItems.length} items...`);
+      const { verified, failed } = await verifyQuizItemsWithGemma(
+        finalItems, type, summary, resolvedModel
+      );
+
+      // Track failures across rounds
+      for (const f of failed) {
+        verificationFailures++;
+        allRejectedItems.push({
+          ...f.item,
+          _rejected: true,
+          _rejectionReason: `Verification: ${f.reason}`,
+        });
+      }
+
+      console.log(`  ✓ Passed: ${verified.length}  ✗ Failed: ${failed.length}`);
+
+      if (failed.length === 0 || repairRound === MAX_REPAIR_ROUNDS) {
+        // All good, or we've exhausted repair rounds — use what we have
+        finalItems = verified;
+        break;
+      }
+
+      // Need to regenerate `failed.length` replacement items
+      const deficit = failed.length;
+      console.log(`\n🔧 Repair wave: regenerating ${deficit} item(s) to replace verification failures...`);
+
+      // Build fresh memory set from verified items
+      const repairedSeenItems = new Set<string>();
+      for (const v of verified) {
+        if (type === 'MCQ' && v.question) repairedSeenItems.add(normalizeText(v.question));
+        else if (type === 'FILL_IN_BLANK' && v.sentence) repairedSeenItems.add(normalizeText(v.sentence));
+        else if (type === 'FLASHCARD' && v.front) repairedSeenItems.add(normalizeText(v.front));
+      }
+
+      // Collect used content for the generation prompt
+      const repairUsed: string[] = [];
+      for (const v of verified) {
+        if (type === 'MCQ' && v.question) repairUsed.push(v.question);
+        else if (type === 'FILL_IN_BLANK' && v.sentence) repairUsed.push(v.sentence);
+        else if (type === 'FLASHCARD' && v.front) repairUsed.push(v.front);
+      }
+
+      // Small focused generation: request deficit + 2 to account for rejections
+      const repairBatchSize = Math.min(deficit + 2, 8);
+      const repairSlice = getSummarySlice(summary, repairRound * 3, 1300, 0);
+      const repairPromptText = buildPrompt(type, difficulty, repairBatchSize, repairSlice, [], repairUsed);
+
+      const repairTokens = type === 'MCQ' ? repairBatchSize * 260 + 100
+        : type === 'FILL_IN_BLANK' ? repairBatchSize * 110 + 100
+        : repairBatchSize * 120 + 100;
+
+      try {
+        const repairRaw = await generateWithOllama(repairPromptText, {
+          model: resolvedModel,
+          temperature: baseTemperature + 0.05, // Slight bump for diversity
+          requireJson: true,
+          maxTokens: Math.min(repairTokens, 3400),
+        });
+        totalApiCalls++;
+
+        let repairParsed: any;
+        try {
+          repairParsed = JSON.parse(repairRaw);
+        } catch {
+          const salvaged = salvageTruncatedJson(repairRaw);
+          if (salvaged) repairParsed = salvaged;
+          else { console.warn('Repair wave JSON parse failed'); finalItems = verified; continue; }
+        }
+
+        if (repairParsed?.items && Array.isArray(repairParsed.items)) {
+          const { validItems: repairValid } = validateQuizItems(
+            repairParsed.items, type, repairedSeenItems, difficulty, summary
+          );
+          console.log(`  Repair wave produced ${repairValid.length} structurally valid items`);
+
+          // Combine verified + repair items, trim to target count
+          finalItems = [...verified, ...repairValid].slice(0, count);
+        } else {
+          finalItems = verified;
+        }
+      } catch (err) {
+        console.error('Repair wave failed:', err instanceof Error ? err.message : err);
+        finalItems = verified;
+      }
+      // Loop will verify the combined set in the next round
+    }
     
     // Calculate elapsed time
     const endTime = Date.now();
@@ -1272,10 +1531,10 @@ export async function generateQuizWithGemma(
     console.log(`\n=== Generation Complete ===`);
     console.log(`Requested: ${count}`);
     console.log(`Valid items generated: ${allValidItems.length}`);
-    console.log(`Final items (after trimming): ${finalItems.length}`);
-    console.log(`Rejected items: ${allRejectedItems.length}`);
+    console.log(`Final items (after verification): ${finalItems.length}`);
+    console.log(`Rejected items: ${allRejectedItems.length} (${verificationFailures} from verification)`);
     console.log(`Total waves: ${wave} (${totalApiCalls} API calls)`);
-    console.log(`Success rate: ${Math.round((allValidItems.length / (allValidItems.length + allRejectedItems.length)) * 100)}%`);
+    console.log(`Success rate: ${Math.round((finalItems.length / Math.max(finalItems.length + allRejectedItems.length, 1)) * 100)}%`);
     console.log(`JSON parse errors (possible truncations): ${jsonParseErrors}`);
     console.log(`Time elapsed: ${timeString}`);
     console.log(`===========================\n`);
@@ -1289,9 +1548,9 @@ export async function generateQuizWithGemma(
     }
     
     if (finalItems.length < count) {
-      console.warn(`Generated ${finalItems.length} valid items out of ${count} requested (${wave} waves)`);
+      console.warn(`Generated ${finalItems.length} verified items out of ${count} requested (${wave} waves)`);
     } else {
-      console.log(`Successfully generated ${finalItems.length} items in ${wave} waves (${totalApiCalls} API calls)`);
+      console.log(`Successfully generated ${finalItems.length} verified items in ${wave} waves (${totalApiCalls} API calls)`);
     }
     
     return {
@@ -1303,6 +1562,7 @@ export async function generateQuizWithGemma(
         requested: count,
         generated: finalItems.length,
         rejected: allRejectedItems.length,
+        verificationFailures,
         waves: wave,
         apiCalls: totalApiCalls
       }
