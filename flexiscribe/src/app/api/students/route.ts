@@ -107,6 +107,17 @@ export async function POST(request: Request) {
     // Convert gender string to enum value
     const genderEnum = gender.toUpperCase().replace(/\s+/g, "_");
 
+    // Assign a random default avatar
+    const DEFAULT_AVATARS = [
+      "/img/cat-pfp.png",
+      "/img/bookworm-pfp.png",
+      "/img/bee-pfp.png",
+      "/img/beaver-pfp.png",
+      "/img/bird-pfp.png",
+      "/img/owl-pfp.png",
+    ];
+    const randomAvatar = DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)];
+
     // Create user and student in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create user
@@ -129,6 +140,7 @@ export async function POST(request: Request) {
           program,
           gender: genderEnum as any,
           birthDate: new Date(dateOfBirth),
+          avatar: randomAvatar,
           userId: user.id,
         },
       });
