@@ -10,6 +10,27 @@ import LoadingScreen from "@/components/shared/LoadingScreen";
 import "../dashboard/styles.css";
 import "./styles.css";
 
+// Default avatar options for fallback
+const DEFAULT_AVATARS = [
+  "/img/cat-pfp.png",
+  "/img/bookworm-pfp.png",
+  "/img/bee-pfp.png",
+  "/img/beaver-pfp.png",
+  "/img/bird-pfp.png",
+  "/img/owl-pfp.png",
+];
+
+// Deterministic fallback avatar based on user id or username
+const getFallbackAvatar = (identifier) => {
+  if (!identifier) return DEFAULT_AVATARS[0];
+  let hash = 0;
+  const str = String(identifier);
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return DEFAULT_AVATARS[Math.abs(hash) % DEFAULT_AVATARS.length];
+};
+
 export default function StudentLeaderboard() {
   const router = useRouter();
   const [currentTime, setCurrentTime] = useState(null);
@@ -224,11 +245,7 @@ export default function StudentLeaderboard() {
                 </div>
                 <div className="podium-avatar">
                   <div className="avatar-circle">
-                    {topThree[1]?.username === studentProfile?.username && (studentProfile?.avatar || userProfileImage) ? (
-                      <img src={studentProfile?.avatar || userProfileImage} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                    ) : (
-                      <FaStar className="avatar-icon" />
-                    )}
+                    <img src={topThree[1]?.avatar || getFallbackAvatar(topThree[1]?.username)} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                   </div>
                 </div>
                 <h3 className="podium-username">{topThree[1]?.username}</h3>
@@ -248,11 +265,7 @@ export default function StudentLeaderboard() {
                 </div>
                 <div className="podium-avatar">
                   <div className="avatar-circle">
-                    {topThree[0]?.username === studentProfile?.username && (studentProfile?.avatar || userProfileImage) ? (
-                      <img src={studentProfile?.avatar || userProfileImage} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                    ) : (
-                      <FaStar className="avatar-icon" />
-                    )}
+                    <img src={topThree[0]?.avatar || getFallbackAvatar(topThree[0]?.username)} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                   </div>
                 </div>
                 <h3 className="podium-username">{topThree[0]?.username}</h3>
@@ -272,11 +285,7 @@ export default function StudentLeaderboard() {
                 </div>
                 <div className="podium-avatar">
                   <div className="avatar-circle">
-                    {topThree[2]?.username === studentProfile?.username && (studentProfile?.avatar || userProfileImage) ? (
-                      <img src={studentProfile?.avatar || userProfileImage} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                    ) : (
-                      <FaStar className="avatar-icon" />
-                    )}
+                    <img src={topThree[2]?.avatar || getFallbackAvatar(topThree[2]?.username)} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                   </div>
                 </div>
                 <h3 className="podium-username">{topThree[2]?.username}</h3>
@@ -322,11 +331,7 @@ export default function StudentLeaderboard() {
                   <div className="cell username-col">
                     <div className="leaderboard-user-info">
                       <div className="leaderboard-user-avatar">
-                        {user.username === studentProfile?.username && (studentProfile?.avatar || userProfileImage) ? (
-                          <img src={studentProfile?.avatar || userProfileImage} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                        ) : (
-                          <FaStar className="avatar-icon" />
-                        )}
+                        <img src={user.avatar || getFallbackAvatar(user.username)} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                       </div>
                       <span className="username">{user.username}</span>
                       {user.username === studentProfile?.username && (
