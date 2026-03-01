@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "session_id": "b5ac4969-46ed-479e-9e0d-3b076a0477e0",
+    "run_id": "20260301_223955",
+    "course_code": "CPE103"
+  },
+  "summaries": [
+    {
+      "minute": 1,
+      "timestamp": "22:40:55",
+      "summary": "The lecture covers a small voice activity detection model, starting with a complete application launch, utilizing a 16 whisper rate, and a re-sampled audio device. The system is running on a server with fallback functionality.",
+      "key_points": [
+        "Voice Activity Detection (VAD) - True",
+        "Whisper Rate - 16",
+        "Audio Device - Re-sampled",
+        "Fallback Functionality"
+      ]
+    },
+    {
+      "minute": 2,
+      "timestamp": "22:45:15",
+      "summary": "The lecture discusses Laby, a character who is angry and upset, and is experiencing a problem with a TV. The speaker is testing the recording with a slow-down effect.",
+      "key_points": [
+        "Character: Laby, a person experiencing anger and a problem with a TV.",
+        "Test: Recording with slow-down effect.",
+        "Laby is angry and upset."
+      ]
+    }
+  ]
+}
