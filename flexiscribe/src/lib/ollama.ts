@@ -1215,7 +1215,7 @@ export async function generateQuizWithGemma(
   const CONCURRENCY = parseInt(process.env.OLLAMA_CONCURRENCY ?? '1', 10);
   // Wave budget — with improved prompts, fewer waves should be needed.
   // The absolute time limit is the real safety valve.
-  const MAX_WAVES = Math.max(Math.ceil(targetCount / baseBatchSize) * 4, 15);
+  const MAX_WAVES = Math.max(Math.ceil(targetCount / baseBatchSize) * 5, 20);
   // Absolute time limit: stop after this many ms regardless of progress.
   // Default 10 minutes — enough for large counts on CPU inference.
   const ABSOLUTE_TIME_LIMIT_MS = parseInt(process.env.OLLAMA_TIME_LIMIT_MS ?? '600000', 10);
