@@ -3,7 +3,6 @@ Manages active transcription sessions.
 Each session holds the state for one live transcription run.
 """
 import threading
-import queue
 import time
 import os
 import json
@@ -19,8 +18,8 @@ class TranscriptionSession:
         self.course_code = course_code
         self.educator_id = educator_id
         self.run_id = time.strftime("%Y%m%d_%H%M%S")
-        self.text_queue: queue.Queue = queue.Queue()
         self.stop_event = threading.Event()
+        self.whisper_done = threading.Event()  # Set when whisper finishes
         self.started_at = time.time()
         self.status = "running"  # running | stopping | completed | error
 

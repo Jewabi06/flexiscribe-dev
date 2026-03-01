@@ -1,9 +1,31 @@
+"""
+Whisper transcription worker — optimised for Jetson Orin Nano with GPU.
+
+Uses OpenAI's PyTorch-based Whisper (``import whisper``) instead of
+faster-whisper/CTranslate2, because the CTranslate2 pip package was NOT
+compiled with CUDA sm_87 kernels for Jetson Orin.  The NVIDIA Jetson-
+specific PyTorch build *does* include sm_87 so we get full GPU inference.
+
+Records live audio from the microphone and transcribes every CHUNK_DURATION
+seconds (~10 s).  Each fragment is appended to ``session.live_chunks`` for
+real-time display.  The summarisation worker reads those chunks on its own
+timer.
+
+Key optimisations for Jetson Orin Nano:
+  - "small" model on CUDA FP16 (~0.9 GB VRAM, ~2-3 s per 10 s chunk).
+  - beam_size = 1 (greedy) + temperature = 0.0 for fast deterministic output.
+  - Ollama runs on CPU (configured elsewhere) so Whisper owns the GPU.
+  - RMS energy gate to avoid wasting GPU cycles on silence.
+  - Hallucination filter to drop single-word artefacts.
+  - Immediate stop: checks stop_event before each transcribe() call.
+"""
+
 import time
 import threading
-import queue
 import numpy as np
 import sounddevice as sd
-from faster_whisper import WhisperModel
+import whisper                   # OpenAI's PyTorch-based Whisper
+import torch
 from scipy.signal import resample_poly
 from math import gcd
 
@@ -13,12 +35,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     WHISPER_SAMPLE_RATE, AUDIO_NATIVE_RATE, AUDIO_DEVICE,
     CHUNK_DURATION, CHANNELS,
-    WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE,
-    WHISPER_LANGUAGE, WHISPER_INITIAL_PROMPT, WHISPER_VAD_FILTER,
-    AUDIO_ENERGY_THRESHOLD, BUFFER_INTERVAL,
+    WHISPER_MODEL, WHISPER_DEVICE, WHISPER_FP16,
+    WHISPER_LANGUAGE, WHISPER_INITIAL_PROMPT,
+    AUDIO_ENERGY_THRESHOLD, WHISPER_BEAM_SIZE, WHISPER_TEMPERATURE,
 )
-from transcriber.chunk_buffer import MinuteBuffer
 
+
+# ── Helpers ───────────────────────────────────────────────────────────────
 
 def _resample_audio(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
     """Resample audio from one sample rate to another using polyphase filter."""
@@ -29,6 +52,7 @@ def _resample_audio(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarr
     down = from_rate // divisor
     return resample_poly(audio, up, down).astype(np.float32)
 
+
 _model = None
 _model_lock = threading.Lock()
 
@@ -38,45 +62,43 @@ _HALLUCINATION_PHRASES = {
     "thank you", "thanks for watching", "subscribe",
     "thank you for watching", "bye", "you.", "the.",
     "thanks", "thank", "please subscribe",
+    "so", "uh", "um", "hmm",
 }
 
 
-def get_whisper_model() -> WhisperModel:
-    """Load the Whisper model once with safe device/compute-type fallback."""
+def get_whisper_model():
+    """Load the OpenAI Whisper model once (singleton, thread-safe)."""
     global _model
     if _model is None:
         with _model_lock:
             if _model is None:
                 device = WHISPER_DEVICE
-                compute_type = WHISPER_COMPUTE_TYPE
                 print(f"[INFO] Loading Whisper model '{WHISPER_MODEL}' "
-                      f"on {device} ({compute_type})...")
+                      f"on {device} (fp16={WHISPER_FP16})...")
                 try:
-                    _model = WhisperModel(
-                        WHISPER_MODEL,
-                        device=device,
-                        compute_type=compute_type,
-                    )
+                    _model = whisper.load_model(WHISPER_MODEL, device=device)
                 except Exception as e:
-                    # Fallback: if CUDA fails at runtime, drop to CPU
                     if device != "cpu":
-                        print(f"[WARN] Failed to load on {device}: {e}")
-                        print("[INFO] Falling back to CPU (float32)...")
-                        _model = WhisperModel(
-                            WHISPER_MODEL,
-                            device="cpu",
-                            compute_type="float32",
-                        )
+                        print(f"[WARN] Failed on {device}: {e}")
+                        print("[INFO] Falling back to CPU...")
+                        _model = whisper.load_model(WHISPER_MODEL, device="cpu")
                     else:
                         raise
-                print("[INFO] Whisper model loaded.")
+                print(f"[INFO] Whisper model loaded on "
+                      f"{next(_model.parameters()).device}.")
     return _model
 
 
 def _is_hallucination(text: str) -> bool:
     """Check if transcribed text is a known Whisper hallucination."""
     cleaned = text.strip().lower().rstrip(".!?,")
-    return cleaned in _HALLUCINATION_PHRASES
+    if cleaned in _HALLUCINATION_PHRASES:
+        return True
+    # Also filter very short outputs (≤2 words) that are just filler
+    words = cleaned.split()
+    if len(words) <= 2 and all(w in _HALLUCINATION_PHRASES for w in words):
+        return True
+    return False
 
 
 def _rms_energy(audio: np.ndarray) -> float:
@@ -84,43 +106,122 @@ def _rms_energy(audio: np.ndarray) -> float:
     return float(np.sqrt(np.mean(audio ** 2)))
 
 
-def whisper_worker(text_queue: queue.Queue, stop_event: threading.Event, session=None):
+# ── Transcribe a single audio buffer ─────────────────────────────────────
+
+def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool):
     """
-    Records live audio from mic, transcribes with Whisper every CHUNK_DURATION
-    seconds (~10s), and does two things with each fragment:
+    Resample -> energy gate -> normalise -> transcribe -> hallucination filter.
+    Returns the transcribed text or None.
+    """
+    if needs_resample:
+        audio_data = _resample_audio(
+            audio_data, AUDIO_NATIVE_RATE, WHISPER_SAMPLE_RATE,
+        )
 
-    1. Immediately appends to session.live_chunks for real-time display.
-    2. Accumulates in MinuteBuffer and flushes to text_queue every 60s
-       for per-minute summarization (~6 chunks per summary).
+    energy = _rms_energy(audio_data)
+    if energy < AUDIO_ENERGY_THRESHOLD:
+        print(f"[DEBUG] Skipping chunk (energy={energy:.6f} "
+              f"< threshold={AUDIO_ENERGY_THRESHOLD})")
+        return None
 
-    Key features:
-    - RMS energy gate: skips near-silent chunks before they reach Whisper.
-    - VAD filter (Silero): faster-whisper strips silent segments internally.
-    - Language / initial-prompt: steers Whisper toward Taglish output.
-    - Hallucination filter: drops single-word artefacts like "You".
-    - MinuteBuffer: accumulates transcribed text, flushes every 60 seconds.
+    # Normalise to [-1, 1]
+    audio_data = audio_data.astype(np.float32)
+    peak = np.max(np.abs(audio_data))
+    if peak > 0:
+        audio_data /= peak
+
+    # Pad or trim to exactly 30 s as expected by openai-whisper
+    audio_data = whisper.pad_or_trim(audio_data)
+
+    # Encode mel spectrogram on the model's device
+    mel = whisper.log_mel_spectrogram(audio_data).to(model.device)
+
+    # Decode with optimised settings for Taglish real-time
+    options = whisper.DecodingOptions(
+        language=WHISPER_LANGUAGE,
+        beam_size=WHISPER_BEAM_SIZE if WHISPER_BEAM_SIZE > 1 else None,
+        best_of=None,
+        temperature=WHISPER_TEMPERATURE,
+        prompt=WHISPER_INITIAL_PROMPT,
+        fp16=WHISPER_FP16,
+        without_timestamps=True,
+        suppress_blank=True,
+    )
+    result = whisper.decode(model, mel, options)
+    transcript_text = result.text.strip()
+
+    if not transcript_text:
+        print("[DEBUG] Whisper returned empty transcript.")
+        return None
+
+    if _is_hallucination(transcript_text):
+        print(f'[DEBUG] Filtered hallucination: "{transcript_text}"')
+        return None
+
+    # Log no-speech probability for diagnostics
+    if hasattr(result, "no_speech_prob"):
+        if result.no_speech_prob > 0.6:
+            print(f"[DEBUG] High no_speech_prob ({result.no_speech_prob:.2f}), "
+                  f"filtering: \"{transcript_text[:50]}\"")
+            return None
+
+    return transcript_text
+
+
+# ── Main worker ───────────────────────────────────────────────────────────
+
+def whisper_worker(stop_event: threading.Event, session):
+    """
+    Records live audio, transcribes with Whisper every ~10 s, and appends
+    each fragment to ``session.live_chunks`` for real-time display.
+
+    The summarisation worker independently reads ``live_chunks`` on a 60 s
+    timer, so this function has zero queue/buffer overhead.
+
+    On stop it processes any remaining audio so no spoken words are lost,
+    then sets ``session.whisper_done`` to tell the summariser it can safely
+    collect the final chunks.
     """
     model = get_whisper_model()
-    minute_buffer = MinuteBuffer(interval=BUFFER_INTERVAL)
-    needs_resample = (AUDIO_NATIVE_RATE != WHISPER_SAMPLE_RATE)
+    needs_resample = AUDIO_NATIVE_RATE != WHISPER_SAMPLE_RATE
+
     print("[INFO] Whisper worker started.")
-    print(f"[INFO] Model={WHISPER_MODEL}, Language={WHISPER_LANGUAGE or 'auto-detect'}, "
-          f"VAD={WHISPER_VAD_FILTER}, "
-          f"energy_threshold={AUDIO_ENERGY_THRESHOLD}, "
-          f"buffer_interval={BUFFER_INTERVAL}s")
+    print(f"[INFO] Model={WHISPER_MODEL}, device={WHISPER_DEVICE}, "
+          f"fp16={WHISPER_FP16}, beam_size={WHISPER_BEAM_SIZE}, "
+          f"Language={WHISPER_LANGUAGE or 'auto-detect'}, "
+          f"energy_threshold={AUDIO_ENERGY_THRESHOLD}")
     print(f"[INFO] Audio device={AUDIO_DEVICE}, "
           f"native_rate={AUDIO_NATIVE_RATE}Hz, "
           f"whisper_rate={WHISPER_SAMPLE_RATE}Hz, "
           f"resample={'yes' if needs_resample else 'no'}")
-    audio_buffer = []
 
-    last_display_time = time.time()
-    last_summary_time = time.time()
+    audio_buffer = []
+    buffer_lock = threading.Lock()
 
     def audio_callback(indata, frames, time_info, status):
         if status:
             print(f"[WARN] {status}")
-        audio_buffer.append(indata[:, 0].copy())
+        with buffer_lock:
+            audio_buffer.append(indata[:, 0].copy())
+
+    def _drain_buffer():
+        """Thread-safe drain of the audio buffer."""
+        with buffer_lock:
+            if not audio_buffer:
+                return None
+            data = np.concatenate(audio_buffer, axis=0)
+            audio_buffer.clear()
+            return data
+
+    def _append_live_chunk(text):
+        """Append a transcribed fragment to session.live_chunks."""
+        session.live_chunk_counter += 1
+        session.live_chunks.append({
+            "chunk_id": session.live_chunk_counter,
+            "timestamp": time.strftime("%H:%M:%S"),
+            "text": text,
+        })
+        print(f"[LIVE] Chunk {session.live_chunk_counter}: {text[:80]}...")
 
     try:
         with sd.InputStream(
@@ -131,107 +232,37 @@ def whisper_worker(text_queue: queue.Queue, stop_event: threading.Event, session
             blocksize=int(AUDIO_NATIVE_RATE * CHUNK_DURATION),
         ):
             print(f"[INFO] Recording audio from device {AUDIO_DEVICE}...")
+
             while not stop_event.is_set():
-                time.sleep(0.5)  # check buffer twice per second
+                # Wait for one chunk-duration of audio or until stop
+                stop_event.wait(timeout=CHUNK_DURATION)
 
-                if not audio_buffer:
-                    # Even if no audio, check if minute buffer should flush
-                    if minute_buffer.should_flush() and minute_buffer.has_content():
-                        combined_text = minute_buffer.flush()
-                        if combined_text.strip():
-                            text_queue.put(combined_text)
-                            print(f"[BUFFER] Flushed minute text ({len(combined_text)} chars)")
+                # Check stop BEFORE transcribing to avoid processing after stop
+                audio_data = _drain_buffer()
+                if audio_data is None:
                     continue
 
-                audio_data = np.concatenate(audio_buffer, axis=0)
-                audio_buffer.clear()
+                # If stop was signalled, still transcribe this last buffered audio
+                t0 = time.time()
+                text = _transcribe_chunk(model, audio_data, needs_resample)
+                elapsed = time.time() - t0
+                if text:
+                    _append_live_chunk(text)
+                    print(f"[PERF] Transcription took {elapsed:.1f}s")
 
-                # ── Resample from mic native rate to Whisper's 16kHz ──
-                if needs_resample:
-                    audio_data = _resample_audio(
-                        audio_data, AUDIO_NATIVE_RATE, WHISPER_SAMPLE_RATE
-                    )
-
-                # ── Energy gate: skip chunks that are mostly silence ──
-                energy = _rms_energy(audio_data)
-                if energy < AUDIO_ENERGY_THRESHOLD:
-                    print(f"[DEBUG] Skipping chunk (energy={energy:.6f} "
-                          f"< threshold={AUDIO_ENERGY_THRESHOLD})")
-                    # Still check minute buffer flush even on silent chunks
-                    if minute_buffer.should_flush() and minute_buffer.has_content():
-                        combined_text = minute_buffer.flush()
-                        if combined_text.strip():
-                            text_queue.put(combined_text)
-                            print(f"[BUFFER] Flushed minute text ({len(combined_text)} chars)")
-                    continue
-
-                # Normalise audio to [-1, 1]
-                audio_data = audio_data.astype(np.float32)
-                peak = np.max(np.abs(audio_data))
-                if peak > 0:
-                    audio_data /= peak
-
-                # ── Transcribe with Taglish-aware settings ──
-                segments, info = model.transcribe(
-                    audio_data,
-                    beam_size=5,
-                    language=WHISPER_LANGUAGE,
-                    initial_prompt=WHISPER_INITIAL_PROMPT,
-                    vad_filter=WHISPER_VAD_FILTER,
-                    vad_parameters=dict(
-                        min_silence_duration_ms=500,
-                        speech_pad_ms=300,
-                    ),
-                    condition_on_previous_text=False,
-                    no_speech_threshold=0.6,
-                    log_prob_threshold=-1.0,
-                )
-
-                transcript_text = " ".join(
-                    seg.text.strip() for seg in segments
-                ).strip()
-
-                # ── Drop known hallucinations ──
-                if not transcript_text:
-                    print("[DEBUG] Whisper returned empty transcript.")
-                else:
-                    if _is_hallucination(transcript_text):
-                        print(f"[DEBUG] Filtered hallucination: \"{transcript_text}\"")
-                    else:
-                        if info and hasattr(info, 'language'):
-                            print(f"[DEBUG] Detected language: {info.language} "
-                                  f"(prob={getattr(info, 'language_probability', 'N/A')})")
-
-                        # ── Real-time: append to session.live_chunks immediately ──
-                        if session is not None:
-                            import time as _time
-                            session.live_chunk_counter += 1
-                            live_chunk = {
-                                "chunk_id": session.live_chunk_counter,
-                                "timestamp": _time.strftime("%H:%M:%S"),
-                                "text": transcript_text,
-                            }
-                            session.live_chunks.append(live_chunk)
-                            print(f"[LIVE] Chunk {session.live_chunk_counter}: "
-                                  f"{transcript_text[:60]}...")
-
-                        # ── Accumulate for 60s summarization ──
-                        minute_buffer.add_text(transcript_text)
-
-                # ── Flush minute buffer if interval has elapsed ──
-                if minute_buffer.should_flush() and minute_buffer.has_content():
-                    combined_text = minute_buffer.flush()
-                    if combined_text.strip():
-                        text_queue.put(combined_text)
-                        print(f"[BUFFER] Flushed minute text ({len(combined_text)} chars)")
+            # ── Process ALL remaining audio after stop ────────────────
+            time.sleep(0.3)
+            audio_data = _drain_buffer()
+            if audio_data is not None:
+                print("[INFO] Processing remaining audio buffer on stop...")
+                text = _transcribe_chunk(model, audio_data, needs_resample)
+                if text:
+                    _append_live_chunk(text)
 
     except Exception as e:
         print(f"[ERROR] Whisper worker for session {session.session_id}: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        # ── Flush any remaining buffered text when stopping ──
-        if minute_buffer.has_content():
-            remaining_text = minute_buffer.flush()
-            if remaining_text.strip():
-                text_queue.put(remaining_text)
-                print(f"[BUFFER] Flushed remaining text on stop ({len(remaining_text)} chars)")
-        print("[INFO] Whisper worker stopped.")
+        session.whisper_done.set()
+        print("[INFO] Whisper worker stopped — whisper_done event set.")

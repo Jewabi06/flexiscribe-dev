@@ -1,6 +1,9 @@
 """
 fLexiScribe FastAPI Backend
 Handles live transcription sessions via Whisper + Ollama summarization.
+
+On Jetson Orin Nano, uses NVIDIA's Jetson-specific PyTorch build for
+GPU-accelerated Whisper inference (sm_87 compute capability).
 """
 import os
 import sys
@@ -8,6 +11,25 @@ import threading
 import uuid
 import time
 import json
+
+# Ensure libcusparseLt is findable before importing torch (via config)
+_cusparse_path = os.path.expanduser(
+    "~/.local/lib/python3.10/site-packages/nvidia/cusparselt/lib"
+)
+if os.path.isdir(_cusparse_path):
+    os.environ.setdefault("LD_LIBRARY_PATH", "")
+    if _cusparse_path not in os.environ["LD_LIBRARY_PATH"]:
+        os.environ["LD_LIBRARY_PATH"] = (
+            _cusparse_path + ":" + os.environ["LD_LIBRARY_PATH"]
+        )
+    import ctypes
+    try:
+        ctypes.CDLL(os.path.join(_cusparse_path, "libcusparseLt.so.0"))
+    except OSError:
+        pass
+
+# Jetson Orin NVML workaround — must be set before torch import
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:False")
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -110,14 +132,14 @@ def start_transcription(req: StartRequest):
     # Start whisper worker thread
     t1 = threading.Thread(
         target=whisper_worker,
-        args=(session.text_queue, session.stop_event, session),
+        args=(session.stop_event, session),
         daemon=True,
     )
 
     # Start summarization worker thread
     t2 = threading.Thread(
         target=summarization_worker,
-        args=(session.text_queue, session.stop_event, session),
+        args=(session.stop_event, session),
         daemon=True,
     )
 
@@ -156,14 +178,30 @@ def stop_transcription(req: StopRequest):
     session.status = "stopping"
     session.stop_event.set()
 
-    # Wait for threads to finish (with timeout)
+    # Wait for whisper to finish its current transcription + remaining buffer.
+    # On Jetson with GPU, a single transcribe() call takes ~2-3 s for 10 s audio.
+    # We wait for whisper_done event (more reliable than thread.join timeout).
+    print("[API] Waiting for whisper worker to finish...")
     if session.whisper_thread:
         session.whisper_thread.join(timeout=15)
+
+    # Double-check: wait for the whisper_done event in case the thread is still
+    # cleaning up.  This ensures we capture the very last chunk.
+    session.whisper_done.wait(timeout=10)
+    print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
+
+    # Wait for summarizer: processes remaining chunks + generates Cornell
+    # summary via Ollama on CPU, which can take 30-60 s for longer lectures.
+    # We give it generous time since the frontend handles the delay.
+    print("[API] Waiting for summarizer to finish...")
     if session.summarizer_thread:
-        session.summarizer_thread.join(timeout=30)
+        session.summarizer_thread.join(timeout=120)
+
+    print(f"[API] Stop complete. Status: {session.status}")
 
     # Build response with all data
     transcript_data = session.get_transcript_json()
+    live_transcript_data = session.get_live_transcript_json()
     summary_data = session.get_summary_json()
     final_summary = session.get_final_summary_json()
 
@@ -173,6 +211,7 @@ def stop_transcription(req: StopRequest):
         "course_code": session.course_code,
         "duration": session.duration_formatted,
         "transcript": transcript_data,
+        "live_transcript": live_transcript_data,
         "minute_summaries": summary_data,
         "final_summary": final_summary,
         "file_status": session.file_status,
