@@ -62,6 +62,57 @@ function escapeRegex(str: string): string {
 }
 
 /**
+ * Attempt to salvage complete JSON items from a truncated API response.
+ * When num_predict cuts the output mid-JSON, the last item is incomplete
+ * but earlier items may be perfectly valid. This function extracts them
+ * using brace-counting with string awareness.
+ */
+function salvageTruncatedJson(raw: string): { items: any[] } | null {
+  const match = raw.match(/"items"\s*:\s*\[/);
+  if (!match || match.index === undefined) return null;
+
+  const arrayContentStart = match.index + match[0].length;
+  const content = raw.substring(arrayContentStart);
+
+  const items: any[] = [];
+  let depth = 0;
+  let objStart = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\' && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        const objStr = content.substring(objStart, i + 1);
+        try {
+          items.push(JSON.parse(objStr));
+        } catch {
+          // Skip malformed objects
+        }
+        objStart = -1;
+      }
+    }
+  }
+
+  if (items.length > 0) {
+    console.log(`🔧 Salvaged ${items.length} complete item(s) from truncated JSON`);
+    return { items };
+  }
+  return null;
+}
+
+/**
  * Extract leading sentence of each paragraph as a concept-seed list.
  * Used to prepend topical anchors to summary slices for long summaries.
  */
@@ -263,19 +314,24 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM'): { valid: boo
     const substringMatch = explanationText.includes(correctText);
 
     if (!substringMatch) {
-      // Word-overlap check with difficulty-aware threshold
-      const correctWords = correctText.split(/\s+/).filter(w => w.length > 3);
-      if (correctWords.length >= 2) {
-        const explanationWordSet = new Set(explanationText.split(/\s+/));
-        const hits = correctWords.filter(w => explanationWordSet.has(w)).length;
-        const overlapRatio = hits / correctWords.length;
-        const threshold = difficulty === 'EASY' ? 0.3 : 0.5;
-        if (overlapRatio < threshold) {
-          return {
-            valid: false,
-            item: fixedItem,
-            rejectionReason: `Explanation does not reference correct answer (word overlap ${Math.round(overlapRatio * 100)}% < ${Math.round(threshold * 100)}%)`
-          };
+      // For EASY: skip strict alignment check. EASY questions are simple recall —
+      // if choices and answerIndex are valid, a slightly off explanation is acceptable.
+      // This prevents rejecting otherwise-correct items when the model paraphrases.
+      if (difficulty !== 'EASY') {
+        // Word-overlap check for MEDIUM/HARD
+        const correctWords = correctText.split(/\s+/).filter(w => w.length > 3);
+        if (correctWords.length >= 2) {
+          const explanationWordSet = new Set(explanationText.split(/\s+/));
+          const hits = correctWords.filter(w => explanationWordSet.has(w)).length;
+          const overlapRatio = hits / correctWords.length;
+          const threshold = 0.5;
+          if (overlapRatio < threshold) {
+            return {
+              valid: false,
+              item: fixedItem,
+              rejectionReason: `Explanation does not reference correct answer (word overlap ${Math.round(overlapRatio * 100)}% < ${Math.round(threshold * 100)}%)`
+            };
+          }
         }
       }
     }
@@ -874,14 +930,19 @@ export async function generateQuizWithGemma(
     type === 'FILL_IN_BLANK' ? 3 :
     difficulty === 'HARD' ? 3 :
     6;
+  const originalBaseBatchSize = baseBatchSize; // Preserved so we can restore after recovery
   
   // CPU inference: Ollama processes requests sequentially on CPU, so parallel calls
   // just compete for threads and both timeout. Use CONCURRENCY=1 for local/CPU setups.
   // Set OLLAMA_CONCURRENCY=2 (or higher) when running with GPU / sufficient RAM.
   const CONCURRENCY = parseInt(process.env.OLLAMA_CONCURRENCY ?? '1', 10);
-  // Allow more waves so the loop has room to collect all valid items.
-  // Early termination (stagnantWaves) still stops us before hitting this cap.
-  const MAX_WAVES = Math.max(Math.ceil(count / baseBatchSize) * 3, 5);
+  // Generous wave budget — adaptive recovery strategies will keep retrying
+  // with different temperatures, slices, and batch sizes until the requested
+  // count is reached. The absolute time limit is the real safety valve.
+  const MAX_WAVES = Math.max(Math.ceil(count / baseBatchSize) * 10, 40);
+  // Absolute time limit: stop after this many ms regardless of progress.
+  // Default 10 minutes — enough for large counts on CPU inference.
+  const ABSOLUTE_TIME_LIMIT_MS = parseInt(process.env.OLLAMA_TIME_LIMIT_MS ?? '600000', 10);
   
   let wave = 0;
   let totalApiCalls = 0;
@@ -890,6 +951,7 @@ export async function generateQuizWithGemma(
   let jsonParseErrors = 0; // Track truncation-related parse failures
   let tokenMultiplier = 1.0; // Dynamic: increases by 20% per parse error, resets on success
   let stagnantWaves = 0; // Track consecutive waves with zero new valid items
+  let sliceRandomOffset = 0; // Random offset added to slice index on stagnation recovery
 
   console.log(`Starting quiz generation: ${count} ${type} items at ${difficulty} difficulty`);
   console.log(`Configuration: baseBatchSize=${baseBatchSize}, CONCURRENCY=${CONCURRENCY}, MAX_WAVES=${MAX_WAVES}`);
@@ -899,19 +961,40 @@ export async function generateQuizWithGemma(
     // ── Parallel-wave generation loop ──
     // Each wave fires CONCURRENCY parallel API calls, each with a different summary slice
     while (allValidItems.length < count && wave < MAX_WAVES) {
+      // ── Absolute time limit ──
+      const elapsedSoFar = Date.now() - startTime;
+      if (elapsedSoFar >= ABSOLUTE_TIME_LIMIT_MS) {
+        console.warn(`⏱ Absolute time limit reached (${Math.round(elapsedSoFar / 1000)}s). ` +
+          `Returning ${allValidItems.length}/${count} collected items.`);
+        break;
+      }
+
       const remainingCount = count - allValidItems.length;
       
-      // Temperature decay: start creative, get more factual with retries.
-      // Floor is type-dependent: FLASHCARD needs higher creative floor to avoid
-      // over-deterministic outputs that trigger duplicate rejection and retries.
-      const tempFloor = type === 'FLASHCARD' ? 0.35 : 0.25;
-      const temperature = Math.max(
-        baseTemperature - (consecutiveFailures * 0.02),
-        tempFloor
-      );
+      // ── Adaptive temperature strategy ──
+      // Instead of only decaying (which makes the model MORE deterministic when stuck),
+      // oscillate: boost temperature on stagnation to encourage diversity, then
+      // reset on success. This breaks out of repetitive generation loops.
+      let temperature: number;
+      if (stagnantWaves >= 2) {
+        // Stagnation recovery: INCREASE temperature for diversity
+        const boost = Math.min(stagnantWaves * 0.08, 0.35);
+        // Higher ceiling during deep stagnation to maximize diversity
+        const tempCeiling = stagnantWaves >= 5
+          ? (type === 'FLASHCARD' ? 0.95 : 0.85)
+          : (type === 'FLASHCARD' ? 0.85 : 0.75);
+        temperature = Math.min(baseTemperature + boost, tempCeiling);
+        console.log(`🔄 Stagnation recovery (wave ${stagnantWaves}): temperature boosted to ${temperature.toFixed(2)}`);
+      } else if (consecutiveFailures > 0 && stagnantWaves === 0) {
+        // Minor failures but still producing SOME items — gentle decay
+        const tempFloor = type === 'FLASHCARD' ? 0.35 : 0.25;
+        temperature = Math.max(baseTemperature - (consecutiveFailures * 0.02), tempFloor);
+      } else {
+        temperature = baseTemperature;
+      }
       
       if (temperature !== baseTemperature) {
-        console.log(`Temperature decayed to ${temperature.toFixed(2)} after ${consecutiveFailures} consecutive low-quality waves`);
+        console.log(`Temperature adjusted to ${temperature.toFixed(2)} (base: ${baseTemperature.toFixed(2)})`);
       }
       
       // Extract used concepts for memory injection — cap at 8 to avoid bloating prompt
@@ -937,16 +1020,29 @@ export async function generateQuizWithGemma(
         }
       }
       
-      // ── Dynamic batch-size reduction ──
-      // After 3+ consecutive failures the model is struggling; shrink batches
-      // so each request is simpler and more likely to produce valid JSON.
-      // Threshold raised from 2→3 to give the model more chances at full batch size.
-      const effectiveBatchSize = consecutiveFailures >= 3
-        ? Math.max(Math.floor(baseBatchSize * 0.6), 1)
-        : baseBatchSize;
-
-      if (effectiveBatchSize !== baseBatchSize) {
+      // ── Dynamic batch-size adjustment ──
+      // When in stagnation recovery (stagnantWaves >= 3), the recovery block has
+      // already set baseBatchSize to a deliberate value via cycling. Do NOT reduce
+      // it here — that was the bug causing recovery to be immediately undone.
+      // Only apply the generic reduction for early consecutive failures (before
+      // recovery kicks in at stagnantWaves >= 3).
+      let effectiveBatchSize: number;
+      if (stagnantWaves >= 3) {
+        // Recovery mode: use the full baseBatchSize set by the recovery strategy
+        effectiveBatchSize = baseBatchSize;
+        console.log(`Recovery mode: using full batch size ${effectiveBatchSize} (stagnantWaves=${stagnantWaves})`);
+      } else if (consecutiveFailures >= 3) {
+        effectiveBatchSize = Math.max(Math.floor(baseBatchSize * 0.6), 1);
         console.log(`Batch size reduced ${baseBatchSize} → ${effectiveBatchSize} after ${consecutiveFailures} consecutive failures`);
+      } else {
+        effectiveBatchSize = baseBatchSize;
+      }
+
+      // ── Stagnation recovery: randomize slice offset ──
+      // When stuck, jump to a random part of the summary to find fresh content
+      if (stagnantWaves >= 2 && stagnantWaves % 2 === 0) {
+        sliceRandomOffset = Math.floor(Math.random() * 20);
+        console.log(`🔀 Randomizing summary slice offset to ${sliceRandomOffset}`);
       }
 
       // Determine how many parallel calls to fire this wave
@@ -959,19 +1055,27 @@ export async function generateQuizWithGemma(
       
       // Build and fire parallel promises
       const wavePromises = Array.from({ length: callsThisWave }).map((_, i) => {
-        const sliceIndex = wave * CONCURRENCY + i; // Each call gets a different summary slice
+        const sliceIndex = wave * CONCURRENCY + i + sliceRandomOffset; // Each call gets a different summary slice
         // Zero overlap for all types — overlap causes the same content to reappear
         // across waves, triggering massive duplicate rejections (especially for MCQ/FIB).
         const sliceOverlap = 0;
-        const summarySlice = getSummarySlice(summary, sliceIndex, 1100, sliceOverlap);
+        // Dynamic window size: larger batches need more context from the summary
+        const dynamicWindowSize = effectiveBatchSize <= 2 ? 1100 : effectiveBatchSize <= 4 ? 1300 : 1500;
+        const summarySlice = getSummarySlice(summary, sliceIndex, dynamicWindowSize, sliceOverlap);
         
-        // Request 1.1x what we need per call to account for rejections.
-        // Validation pass rates are typically high enough that 1.1x suffices;
-        // lower overgeneration = fewer tokens = meaningfully faster inference.
+        // Overgeneration factor: request more items than needed to account for
+        // rejections. During stagnation recovery, use a higher factor (1.5x)
+        // because most items will be duplicates — we need volume to find novel ones.
+        const overgenFactor = stagnantWaves >= 3 ? 1.5 : 1.1;
         const perCallTarget = Math.ceil(remainingCount / callsThisWave);
+        // Cap: during recovery, allow up to effectiveBatchSize + 3 to give the
+        // model real room to generate diverse content. Normally, tight cap.
+        const overgenCap = stagnantWaves >= 3
+          ? effectiveBatchSize + 3
+          : effectiveBatchSize + 1;
         const batchCount = Math.min(
-          Math.ceil(perCallTarget * 1.1),
-          effectiveBatchSize + 1 // Tight overgen cap
+          Math.ceil(perCallTarget * overgenFactor),
+          overgenCap
         );
         
         // ── Difficulty-aware token budgets ──
@@ -980,14 +1084,17 @@ export async function generateQuizWithGemma(
         // Budgets raised after observing truncation even at 180 tokens/item.
         const baseTokensPerItem =
           difficulty === 'HARD'
-            ? (type === 'MCQ' ? 200 : type === 'FILL_IN_BLANK' ? 110 : 130)
+            ? (type === 'MCQ' ? 280 : type === 'FILL_IN_BLANK' ? 120 : 140)
             : difficulty === 'MEDIUM'
-            ? (type === 'MCQ' ? 160 : type === 'FILL_IN_BLANK' ? 90 : 100)
-            : (type === 'MCQ' ? 140 : type === 'FILL_IN_BLANK' ? 80 : 75);
+            ? (type === 'MCQ' ? 220 : type === 'FILL_IN_BLANK' ? 100 : 110)
+            : (type === 'MCQ' ? 200 : type === 'FILL_IN_BLANK' ? 90 : 85);
         // Dynamic token multiplier: after parse errors (truncation), automatically
         // increase budget for subsequent waves to avoid repeated truncation.
-        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 300);
-        const maxTokens = Math.min(batchCount * tokensPerItem + 50, 2200); // Hard cap raised to 2200
+        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 450);
+        // Hard cap scales with batch size: larger batches need proportionally more tokens.
+        // Minimum 2800 to avoid truncation even for small batches of MCQ.
+        const tokenHardCap = effectiveBatchSize <= 2 ? 2800 : effectiveBatchSize <= 4 ? 3400 : 4000;
+        const maxTokens = Math.min(batchCount * tokensPerItem + 100, tokenHardCap);
         
         console.log(`  Call ${i + 1}: Requesting ${batchCount} items (slice offset ${sliceIndex}, max ${maxTokens} tokens)`);
         
@@ -1021,13 +1128,20 @@ export async function generateQuizWithGemma(
         try {
           parsedResponse = JSON.parse(rawResponse);
         } catch (parseError) {
-          jsonParseErrors++;
-          // Bump token multiplier by 20% per parse error (cap at 1.6x)
-          tokenMultiplier = Math.min(tokenMultiplier * 1.2, 1.6);
-          console.error(`  Call ${i + 1}: JSON parse error (${jsonParseErrors} total) — ` +
-            `response may have been truncated by num_predict cap. ` +
-            `Token multiplier raised to ${tokenMultiplier.toFixed(2)}x.`, parseError);
-          continue;
+          // Try to salvage complete items from truncated JSON before giving up
+          const salvaged = salvageTruncatedJson(rawResponse);
+          if (salvaged && salvaged.items.length > 0) {
+            console.log(`  Call ${i + 1}: JSON parse failed — salvaged ${salvaged.items.length} complete item(s)`);
+            parsedResponse = salvaged;
+          } else {
+            jsonParseErrors++;
+            // Bump token multiplier by 25% per parse error (cap at 2.0x)
+            tokenMultiplier = Math.min(tokenMultiplier * 1.25, 2.0);
+            console.error(`  Call ${i + 1}: JSON parse error (${jsonParseErrors} total) — ` +
+              `response truncated, no items salvageable. ` +
+              `Token multiplier raised to ${tokenMultiplier.toFixed(2)}x.`, parseError);
+            continue;
+          }
         }
         
         // Validate structure
@@ -1051,17 +1165,30 @@ export async function generateQuizWithGemma(
         if (allValidItems.length >= count) break;
       }
       
-      // Track consecutive failures for temperature decay
+      // Track consecutive failures for adaptive strategies
       if (waveValidCount === 0) {
         consecutiveFailures++;
         stagnantWaves++;
       } else {
+        const wasInRecovery = stagnantWaves >= 3;
         consecutiveFailures = 0;
         stagnantWaves = 0;
-        // Reset token multiplier on a successful wave (truncation issue resolved)
+        sliceRandomOffset = 0; // Reset slice offset on success
+        
+        // Restore original batch size after recovery succeeds, so future
+        // waves don't stay stuck with a small/large recovery batch size.
+        if (wasInRecovery && baseBatchSize !== originalBaseBatchSize) {
+          console.log(`Recovery succeeded — restoring baseBatchSize from ${baseBatchSize} to ${originalBaseBatchSize}`);
+          baseBatchSize = originalBaseBatchSize;
+        }
+        
+        // Decay token multiplier gradually instead of hard-resetting to 1.0.
+        // Hard reset causes whiplash: success → reset → immediate truncation next wave.
+        // Gradual decay (15% per successful wave) converges to 1.0 over several waves.
         if (tokenMultiplier > 1.0) {
-          console.log(`Token multiplier reset to 1.0x (successful wave)`);
-          tokenMultiplier = 1.0;
+          const prevMultiplier = tokenMultiplier;
+          tokenMultiplier = Math.max(tokenMultiplier * 0.85, 1.0);
+          console.log(`Token multiplier decayed ${prevMultiplier.toFixed(2)}x → ${tokenMultiplier.toFixed(2)}x (successful wave)`);
         }
       }
       
@@ -1076,19 +1203,53 @@ export async function generateQuizWithGemma(
         break;
       }
 
-      // ── Early termination on stagnation ──
-      // If 3+ consecutive waves produced zero new items, the model has likely
-      // exhausted its diversity for this summary. Return what we have rather
-      // than wasting 10+ more waves on zero yield.
-      if (stagnantWaves >= 3 && allValidItems.length > 0) {
-        console.warn(`⚠ Early termination: ${stagnantWaves} consecutive waves with zero new items. ` +
-          `Returning ${allValidItems.length}/${count} collected items.`);
-        break;
+      // ── Adaptive recovery instead of early termination ──
+      // Instead of giving up after consecutive zero-yield waves, apply
+      // escalating recovery strategies to break through the plateau.
+      // Key insight: requesting MORE items per call (not fewer) gives the model
+      // more room to produce diverse content, increasing the chance that at
+      // least some items pass validation.
+      if (stagnantWaves >= 3) {
+        console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves. Applying recovery strategies...`);
+        
+        // Strategy 1: Cycle batch sizes UPWARD to request more items per call.
+        // Larger batches give the model more room to generate diverse content,
+        // increasing the chance that novel items slip through deduplication.
+        // Cycle: 3 → 4 → 5 → 6 → fallback to 2 if even large batches fail.
+        const batchCycle = [3, 4, 5, 6, 2];
+        const cycleIndex = Math.min(stagnantWaves - 3, batchCycle.length - 1);
+        const targetBatch = batchCycle[cycleIndex];
+        if (targetBatch !== baseBatchSize) {
+          console.log(`  → Batch size changed from ${baseBatchSize} to ${targetBatch} (cycle step ${cycleIndex + 1}/${batchCycle.length})`);
+          baseBatchSize = targetBatch;
+        }
+        
+        // Strategy 2: Boost token budget to accommodate larger batches.
+        // Larger batches need proportionally more tokens to avoid truncation.
+        if (tokenMultiplier < 1.8) {
+          const targetMultiplier = baseBatchSize >= 4 ? 1.6 : baseBatchSize >= 3 ? 1.4 : 1.2;
+          tokenMultiplier = Math.min(Math.max(tokenMultiplier, targetMultiplier), 1.8);
+          console.log(`  → Token multiplier set to ${tokenMultiplier.toFixed(2)}x for batch size ${baseBatchSize}`);
+        }
+
+        // Strategy 3: On deep stagnation (7+ waves), partially clear the
+        // seen-items set to relax duplicate detection — keeps only the last
+        // half of items, allowing previously-similar-but-not-identical content.
+        if (stagnantWaves >= 7 && seenItems.size > 0) {
+          const arr = Array.from(seenItems);
+          const keepCount = Math.ceil(arr.length / 2);
+          seenItems.clear();
+          for (const item of arr.slice(-keepCount)) {
+            seenItems.add(item);
+          }
+          console.log(`  → Relaxed duplicate memory: kept ${keepCount}/${arr.length} seen items`);
+        }
       }
       
-      // Safety valve
+      // Progress advisory (not a termination)
       if (wave >= 3 && allValidItems.length < count * 0.3) {
-        console.warn(`⚠ Low progress after ${wave} waves. Consider using MEDIUM or EASY difficulty for better results with this model.`);
+        console.warn(`⚠ Low progress after ${wave} waves (${allValidItems.length}/${count}). ` +
+          `Recovery strategies active — will keep retrying until target is met or time limit is reached.`);
       }
     }
     
@@ -1195,7 +1356,7 @@ function buildMCQPrompt(difficulty: string, count: number, summary: string, rece
   // Inject already-used questions so the model avoids recycling the same concepts.
   // Cap at 15 to avoid exceeding context window on very large runs.
   const usedBlock = usedQuestions.length > 0
-    ? `\n\nIMPORTANT: The following questions have ALREADY been used. You MUST NOT create questions about the same topics or concepts. Any repeated topic will be REJECTED.\n${usedQuestions.slice(-15).map(q => `- ${q}`).join('\n')}\n`
+    ? `\n\nIMPORTANT: The following questions have ALREADY been used. You MUST NOT create questions about the same topics or concepts. Any repeated topic will be REJECTED.\n${usedQuestions.slice(-30).map(q => `- ${q}`).join('\n')}\n`
     : '';
 
   return `Create ${count} ${difficulty} MCQs from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
@@ -1232,7 +1393,7 @@ function buildFillInBlankPrompt(difficulty: string, count: number, summary: stri
   // Inject already-used sentences so the model doesn't regenerate them.
   // Cap at 15 to avoid exceeding context window on very large runs.
   const usedBlock = usedSentences.length > 0
-    ? `\n\nIMPORTANT: The following sentences have ALREADY been used. You MUST NOT output any of these again or any sentence covering the same concept. Any repeated sentence will be REJECTED.\n${usedSentences.slice(-15).map(s => `- ${s}`).join('\n')}\n`
+    ? `\n\nIMPORTANT: The following sentences have ALREADY been used. You MUST NOT output any of these again or any sentence covering the same concept. Any repeated sentence will be REJECTED.\n${usedSentences.slice(-30).map(s => `- ${s}`).join('\n')}\n`
     : '';
 
   return `Create ${count} ${difficulty} fill-in-the-blank items from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
@@ -1267,7 +1428,7 @@ function buildFlashcardPrompt(difficulty: string, count: number, summary: string
 
   // Inject already-used fronts so the model doesn't regenerate duplicate cards.
   const usedBlock = usedSentences.length > 0
-    ? `\n\nALREADY USED FLASHCARD FRONTS (DO NOT reuse these questions):\n${usedSentences.slice(-15).map(s => `- ${s}`).join('\n')}\n`
+    ? `\n\nALREADY USED FLASHCARD FRONTS (DO NOT reuse these questions):\n${usedSentences.slice(-30).map(s => `- ${s}`).join('\n')}\n`
     : '';
 
   return `Create ${count} ${difficulty} flashcards from this summary. Output ONLY valid JSON.${avoid}${usedBlock}

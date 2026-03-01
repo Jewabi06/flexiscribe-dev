@@ -334,7 +334,7 @@ export default function FlashcardQuiz({ quiz, questions }) {
           </div>
 
           {/* Quiz Title */}
-          <h1 className="quiz-title">{quiz.lesson}</h1>
+          <h1 className="quiz-title">{quiz.title || quiz.lesson}</h1>
 
           {/* Flashcard Container */}
           <div className="flashcard-container">

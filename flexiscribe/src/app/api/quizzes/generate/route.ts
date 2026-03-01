@@ -6,6 +6,13 @@ import { verifyAuth } from '@/lib/auth';
 // Allow up to 5 minutes for remote Ollama inference (batch quiz generation)
 export const maxDuration = 300;
 
+// Display-friendly labels for quiz types used in the formatted title
+const QUIZ_TYPE_LABELS: Record<string, string> = {
+  MCQ: 'MCQ',
+  FILL_IN_BLANK: 'Fill-in-Blank',
+  FLASHCARD: 'Flashcard',
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -96,12 +103,32 @@ export async function POST(request: NextRequest) {
       resolvedModel
     );
 
+    // Compute the sequence number: count existing quizzes of the same lesson + type + student, then +1
+    const existingCount = await prisma.quiz.count({
+      where: {
+        lessonId,
+        type,
+        ...(studentId ? { studentId } : {}),
+      },
+    });
+    const sequenceNumber = existingCount + 1;
+
+    // Build the formatted title: [Lesson Title] | [Difficulty] [Quiz Type] #N | [mm/dd/yyyy]
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const dateStr = `${mm}/${dd}/${yyyy}`;
+    const typeLabel = QUIZ_TYPE_LABELS[type] || type;
+    const formattedTitle = `${lesson.title} | ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`;
+
     // Save quiz to database (tied to the student for uniqueness)
     const quiz = await prisma.quiz.create({
       data: {
         lessonId,
         type,
         difficulty,
+        title: formattedTitle,
         totalQuestions: generatedQuiz.items.length,
         ...(studentId ? { studentId } : {}),
         questions: {
@@ -123,10 +150,23 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Create an in-app notification for the student
+    if (studentId) {
+      await prisma.notification.create({
+        data: {
+          title: 'Quiz Ready!',
+          message: `Your ${difficulty} ${typeLabel} quiz "${lesson.title}" has been generated with ${generatedQuiz.items.length} questions.`,
+          type: 'quiz_generated',
+          studentId,
+        },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       quiz: {
         id: quiz.id,
+        title: formattedTitle,
         type: quiz.type,
         difficulty: quiz.difficulty,
         totalQuestions: quiz.totalQuestions,

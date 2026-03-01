@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { FaBell, FaFileAlt, FaBook, FaCheck, FaTrophy, FaMedal } from "react-icons/fa";
+import { FaBell, FaFileAlt, FaBook, FaCheck, FaTrophy, FaMedal, FaGamepad } from "react-icons/fa";
 
 export default function NotificationMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -82,6 +82,8 @@ export default function NotificationMenu() {
         return <FaTrophy style={{ color: "#f39c12" }} />;
       case "badge":
         return <FaMedal style={{ color: "#9b59b6" }} />;
+      case "quiz_generated":
+        return <FaGamepad style={{ color: "#4ade80" }} />;
       default:
         return <FaBell style={{ color: "var(--accent-primary)" }} />;
     }
