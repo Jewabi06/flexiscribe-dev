@@ -1,10 +1,9 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FaHome, FaBook, FaGamepad, FaTrophy, FaSearch, FaBars, FaTimes, FaMoon, FaSun, FaArrowLeft, FaEye, FaEyeSlash, FaLock, FaUser } from "react-icons/fa";
-import NotificationMenu from "@/components/student/ui/NotificationMenu";
-import SearchBar from "@/components/student/ui/SearchBar";
-import UserMenu from "@/components/student/ui/UserMenu";
+import { FaSearch, FaArrowLeft, FaEye, FaEyeSlash, FaLock, FaUser } from "react-icons/fa";
+import StudentSidebar from "@/layouts/student/StudentSidebar";
+import StudentHeader from "@/layouts/student/StudentHeader";
 import MessageModal from "@/components/shared/MessageModal";
 import LoadingScreen from "@/components/shared/LoadingScreen";
 import "../../student/dashboard/styles.css";
@@ -117,18 +116,18 @@ export default function StudentProfile() {
 
     fetchStudentProfile();
 
-    // Check if URL has hash for change-password
-    if (window.location.hash === '#change-password') {
-      setTimeout(() => {
-        const passwordSection = document.getElementById('change-password-section');
-        if (passwordSection) {
-          passwordSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 100);
-    }
-
     return () => clearInterval(timer);
   }, []);
+
+  // Scroll to change-password section once the page has fully loaded
+  useEffect(() => {
+    if (mounted && !loading && window.location.hash === '#change-password') {
+      const passwordSection = document.getElementById('change-password-section');
+      if (passwordSection) {
+        passwordSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  }, [loading, mounted]);
 
   // Countdown timer for resend code
   useEffect(() => {
@@ -322,146 +321,17 @@ export default function StudentProfile() {
     return <LoadingScreen />;
   }
 
-  const hours = currentTime.getHours() % 12;
-  const minutes = currentTime.getMinutes();
-  const seconds = currentTime.getSeconds();
-
-  const hourAngle = hours * 30 + minutes * 0.5;
-  const minuteAngle = minutes * 6;
-  const secondAngle = seconds * 6;
-
-  const timeString = currentTime.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  const dateString = currentTime.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
   return (
     <div className="dashboard-container">
-      {/* Mobile Menu Toggle Button */}
-      <button className="mobile-menu-toggle" onClick={toggleSidebar}>
-        {sidebarOpen ? <FaTimes /> : <FaBars />}
-      </button>
-
-      {/* Sidebar Overlay for Mobile */}
-      {sidebarOpen && <div className="sidebar-overlay" onClick={toggleSidebar}></div>}
-
-      {/* Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="logo-section">
-          <div className="logo-content">
-            <img src="/img/fLexiScribe-logo.png" alt="Logo" className="h-16 w-16" />
-            <div className="flex flex-col items-start">
-              <h1 className="text-2xl font-bold">fLexiScribe</h1>
-              <p className="text-xs font-normal">Your Note-Taking Assistant</p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="nav-menu">
-          <div className="nav-item" onClick={() => router.push("/student/dashboard")}>
-            <FaHome className="nav-icon" />
-            <span>Dashboard</span>
-          </div>
-          <div className="nav-item" onClick={() => router.push("/student/reviewers")}>
-            <FaBook className="nav-icon" />
-            <span>Reviewers</span>
-          </div>
-          <div className="nav-item" onClick={() => router.push("/student/quizzes")}>
-            <FaGamepad className="nav-icon" />
-            <span>Quizzes</span>
-          </div>
-          <div className="nav-item" onClick={() => router.push("/student/leaderboard")}>
-            <FaTrophy className="nav-icon" />
-            <span>Leaderboard</span>
-          </div>
-        </nav>
-
-        <div className="clock-widget">
-          <svg className="clock-svg" viewBox="0 0 100 100">
-            <circle
-              cx="50"
-              cy="50"
-              r="45"
-              fill="none"
-              stroke="white"
-              strokeWidth="2"
-            />
-            {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(
-              (angle) => (
-                <line
-                  key={angle}
-                  x1="50"
-                  y1="10"
-                  x2="50"
-                  y2="15"
-                  stroke="white"
-                  strokeWidth="2"
-                  transform={`rotate(${angle} 50 50)`}
-                />
-              )
-            )}
-            <line
-              className="hour-hand"
-              x1="50"
-              y1="50"
-              x2="50"
-              y2="30"
-              stroke="white"
-              strokeWidth="3"
-              strokeLinecap="round"
-              transform={`rotate(${hourAngle} 50 50)`}
-            />
-            <line
-              className="minute-hand"
-              x1="50"
-              y1="50"
-              x2="50"
-              y2="20"
-              stroke="white"
-              strokeWidth="2"
-              strokeLinecap="round"
-              transform={`rotate(${minuteAngle} 50 50)`}
-            />
-            <line
-              className="second-hand"
-              x1="50"
-              y1="50"
-              x2="50"
-              y2="15"
-              stroke="var(--accent-primary)"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              transform={`rotate(${secondAngle} 50 50)`}
-            />
-            <circle cx="50" cy="50" r="3" fill="white" />
-          </svg>
-          <div className="clock-time">{timeString}</div>
-          <div className="clock-date">{dateString}</div>
-        </div>
-      </aside>
+      <StudentSidebar
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        currentTime={currentTime}
+      />
 
       {/* Main Content */}
       <main className="main-content flex flex-col justify-between min-h-screen">
-        {/* Header */}
-        <header className="dashboard-header">
-          <SearchBar />
-          <div className="header-actions">
-            <button className="theme-toggle-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
-              {darkMode ? <FaSun /> : <FaMoon />}
-            </button>
-            
-            <NotificationMenu />
-            
-            <UserMenu userName={studentProfile?.username || formData.username || "Student"} userRole="Student" />
-          </div>
-        </header>
+        <StudentHeader darkMode={darkMode} setDarkMode={setDarkMode} studentProfile={studentProfile} />
         
         {/* Profile Content */}
         <div className="profile-content">
@@ -628,6 +498,7 @@ export default function StudentProfile() {
                         name="currentPassword"
                         value={passwordData.currentPassword}
                         onChange={handlePasswordChange}
+                        autoComplete="current-password"
                         className={passwordErrors.currentPassword ? "error" : ""}
                       />
                       <button
@@ -635,7 +506,7 @@ export default function StudentProfile() {
                         className="password-toggle"
                         onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                       >
-                        {showCurrentPassword ? <FaEyeSlash /> : <FaEye />}
+                        {showCurrentPassword ? <FaEye /> : <FaEyeSlash />}
                       </button>
                     </div>
                     {passwordErrors.currentPassword && (
@@ -652,6 +523,7 @@ export default function StudentProfile() {
                         name="newPassword"
                         value={passwordData.newPassword}
                         onChange={handlePasswordChange}
+                        autoComplete="new-password"
                         className={passwordErrors.newPassword ? "error" : ""}
                       />
                       <button
@@ -659,7 +531,7 @@ export default function StudentProfile() {
                         className="password-toggle"
                         onClick={() => setShowNewPassword(!showNewPassword)}
                       >
-                        {showNewPassword ? <FaEyeSlash /> : <FaEye />}
+                        {showNewPassword ? <FaEye /> : <FaEyeSlash />}
                       </button>
                     </div>
                     {passwordErrors.newPassword && (
@@ -677,6 +549,7 @@ export default function StudentProfile() {
                         name="confirmPassword"
                         value={passwordData.confirmPassword}
                         onChange={handlePasswordChange}
+                        autoComplete="new-password"
                         className={passwordErrors.confirmPassword ? "error" : ""}
                       />
                       <button
@@ -684,7 +557,7 @@ export default function StudentProfile() {
                         className="password-toggle"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       >
-                        {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+                        {showConfirmPassword ? <FaEye /> : <FaEyeSlash />}
                       </button>
                     </div>
                     {passwordErrors.confirmPassword && (
@@ -748,7 +621,7 @@ export default function StudentProfile() {
                     <button 
                       className="save-btn" 
                       onClick={handleBackToPasswordForm}
-                      style={{ flex: 1, background: 'var(--text-secondary)' }}
+                      style={{ flex: 1, background: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
                     >
                       Back
                     </button>

@@ -281,10 +281,7 @@ body {
   height: 100px;
 }
 
-.hour-hand,
-.minute-hand {
-  transition: transform 0.5s cubic-bezier(0.4, 0.0, 0.2, 1);
-}
+/* Clock hands use direct SVG coordinate rendering — no CSS transform transitions needed */
 
 .clock-time {
   font-size: 14px;
@@ -1390,7 +1387,9 @@ body {
 
 .profile-picture-section {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
   margin-bottom: 2rem;
 }
 
@@ -1422,7 +1421,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  opacity: 0;
+  /* Always slightly visible on touch devices; full reveal on hover/focus */
+  opacity: 0.25;
   transition: opacity 0.3s ease;
   cursor: pointer;
   color: white;
@@ -1435,42 +1435,58 @@ body {
   font-size: 24px;
 }
 
-.profile-picture-container:hover .profile-picture-overlay {
+.profile-picture-container:hover .profile-picture-overlay,
+.profile-picture-container:focus-within .profile-picture-overlay {
   opacity: 1;
+}
+
+@media (hover: hover) {
+  /* On pointer devices: hide until hover */
+  .profile-picture-overlay {
+    opacity: 0;
+  }
 }
 
 .hidden {
   display: none;
 }
 
-/* Avatar Selector Styles */
+/* Avatar Selector Styles — mobile-first */
 .avatar-selector {
-  margin-top: 1.5rem;
-  padding: 1.5rem;
+  width: 100%;
+  max-width: 480px;
+  padding: 1rem;
   background: var(--card-bg);
   border-radius: 12px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
 .avatar-selector-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 1rem;
   text-align: center;
 }
 
+/* Mobile-first: 3 columns on small screens */
 .avatar-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-  gap: 12px;
-  max-width: 600px;
-  margin: 0 auto;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+/* 6 columns from 480 px up */
+@media (min-width: 480px) {
+  .avatar-grid {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+  }
 }
 
 .avatar-option {
-  width: 80px;
-  height: 80px;
+  aspect-ratio: 1;
+  width: 100%;
   border-radius: 50%;
   overflow: hidden;
   cursor: pointer;
@@ -1479,20 +1495,31 @@ body {
   background: var(--brand-primary);
 }
 
-.avatar-option:hover {
-  transform: scale(1.05);
+.avatar-option:hover,
+.avatar-option:focus {
+  transform: scale(1.08);
   border-color: var(--brand-secondary);
+  outline: none;
+}
+
+/* Larger tap target feedback on touch */
+@media (hover: none) {
+  .avatar-option:active {
+    transform: scale(0.95);
+    border-color: var(--brand-secondary);
+  }
 }
 
 .avatar-option.selected {
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(157, 138, 219, 0.3);
+  box-shadow: 0 0 0 3px rgba(157, 138, 219, 0.4);
 }
 
 .avatar-option img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 /* Password Section Styles */

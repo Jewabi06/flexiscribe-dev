@@ -104,11 +104,12 @@ export default function SearchBar() {
       <div className="search-bar">
         <FaSearch className="search-icon" />
         <input
-          type="text"
+          type="search"
           placeholder="Search transcripts, quizzes, summaries..."
           value={searchQuery}
           onChange={handleInputChange}
           onFocus={() => searchQuery && setIsOpen(true)}
+          autoComplete="off"
         />
         {searchQuery && (
           <button className="clear-search-btn" onClick={handleClearSearch}>

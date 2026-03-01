@@ -6,13 +6,14 @@ import { FaHome, FaBook, FaGamepad, FaTrophy, FaBars, FaTimes } from "react-icon
 export default function StudentSidebar({ 
   sidebarOpen, 
   setSidebarOpen, 
-  currentTime,
-  hourAngle,
-  minuteAngle,
-  secondAngle,
-  timeString,
-  dateString
+  currentTime
 }) {
+  const timeString = currentTime
+    ? currentTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+    : "";
+  const dateString = currentTime
+    ? currentTime.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    : "";
   const router = useRouter();
   const pathname = usePathname();
 
@@ -54,7 +55,7 @@ export default function StudentSidebar({
           </div>
           <div className={`nav-item ${isActive('/student/reviewers') ? 'active' : ''}`} onClick={() => handleNavigation('/student/reviewers')}>
             <FaBook className="nav-icon" />
-            <span>Reviewers</span>
+            <span>Documents</span>
           </div>
           <div className={`nav-item ${isActive('/student/quizzes') ? 'active' : ''}`} onClick={() => handleNavigation('/student/quizzes')}>
             <FaGamepad className="nav-icon" />
@@ -66,75 +67,69 @@ export default function StudentSidebar({
           </div>
         </nav>
 
-        {currentTime && (
-          <div className="clock-widget">
-            <svg className="clock-svg" viewBox="0 0 100 100">
-              <circle
-                cx="50"
-                cy="50"
-                r="45"
-                fill="none"
-                stroke="white"
-                strokeWidth="2"
-              />
-              {/* Hour markers */}
-              {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map(
-                (angle) => (
-                  <line
-                    key={angle}
-                    x1="50"
-                    y1="10"
-                    x2="50"
-                    y2="15"
-                    stroke="white"
-                    strokeWidth="2"
-                    transform={`rotate(${angle} 50 50)`}
-                  />
-                )
-              )}
-              {/* Hour hand */}
-              <line
-                className="hour-hand"
-                x1="50"
-                y1="50"
-                x2="50"
-                y2="30"
-                stroke="white"
-                strokeWidth="3"
-                strokeLinecap="round"
-                transform={`rotate(${hourAngle} 50 50)`}
-              />
-              {/* Minute hand */}
-              <line
-                className="minute-hand"
-                x1="50"
-                y1="50"
-                x2="50"
-                y2="20"
-                stroke="white"
-                strokeWidth="2"
-                strokeLinecap="round"
-                transform={`rotate(${minuteAngle} 50 50)`}
-              />
-              {/* Second hand */}
-              <line
-                className="second-hand"
-                x1="50"
-                y1="50"
-                x2="50"
-                y2="15"
-                stroke="var(--accent-primary)"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                transform={`rotate(${secondAngle} 50 50)`}
-              />
-              {/* Center dot */}
-              <circle cx="50" cy="50" r="3" fill="white" />
-            </svg>
-            <div className="clock-time">{timeString}</div>
-            <div className="clock-date">{dateString}</div>
-          </div>
-        )}
+        {currentTime && (() => {
+          const s = currentTime.getSeconds();
+          const m = currentTime.getMinutes() + s / 60;
+          const h = (currentTime.getHours() % 12) + m / 60;
+
+          const hAngle = (h * 30 * Math.PI) / 180;
+          const mAngle = (m * 6 * Math.PI) / 180;
+          const sAngle = (s * 6 * Math.PI) / 180;
+
+          return (
+            <div className="clock-widget">
+              <svg className="clock-svg" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="45" fill="none" stroke="white" strokeWidth="2" />
+                {/* Hour markers */}
+                {[...Array(12)].map((_, i) => {
+                  const a = (i * 30 * Math.PI) / 180;
+                  return (
+                    <line
+                      key={i}
+                      x1={50 + Math.sin(a) * 36}
+                      y1={50 - Math.cos(a) * 36}
+                      x2={50 + Math.sin(a) * 42}
+                      y2={50 - Math.cos(a) * 42}
+                      stroke="white"
+                      strokeWidth="2"
+                    />
+                  );
+                })}
+                {/* Hour hand */}
+                <line
+                  x1="50" y1="50"
+                  x2={50 + Math.sin(hAngle) * 20}
+                  y2={50 - Math.cos(hAngle) * 20}
+                  stroke="white"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+                {/* Minute hand */}
+                <line
+                  x1="50" y1="50"
+                  x2={50 + Math.sin(mAngle) * 30}
+                  y2={50 - Math.cos(mAngle) * 30}
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                {/* Second hand */}
+                <line
+                  x1="50" y1="50"
+                  x2={50 + Math.sin(sAngle) * 34}
+                  y2={50 - Math.cos(sAngle) * 34}
+                  stroke="var(--accent-primary)"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+                {/* Center dot */}
+                <circle cx="50" cy="50" r="3" fill="white" />
+              </svg>
+              <div className="clock-time">{timeString}</div>
+              <div className="clock-date">{dateString}</div>
+            </div>
+          );
+        })()}
       </aside>
     </>
   );

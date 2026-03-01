@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FaHome, FaBook, FaGamepad, FaTrophy, FaSearch, FaBars, FaTimes, FaMoon, FaSun } from "react-icons/fa";
+import { FaMoon, FaSun } from "react-icons/fa";
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
 import StudentSidebar from "@/layouts/student/StudentSidebar";
@@ -222,39 +222,12 @@ export default function StudentDashboard() {
     return <LoadingScreen />;
   }
 
-  // Calculate clock hand angles
-  const hours = currentTime.getHours() % 12;
-  const minutes = currentTime.getMinutes();
-  const seconds = currentTime.getSeconds();
-
-  const hourAngle = hours * 30 + minutes * 0.5;
-  const minuteAngle = minutes * 6;
-  const secondAngle = seconds * 6;
-
-  // Format time and date
-  const timeString = currentTime.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  const dateString = currentTime.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
   return (
     <div className="dashboard-container">
-      <StudentSidebar 
+      <StudentSidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         currentTime={currentTime}
-        hourAngle={hourAngle}
-        minuteAngle={minuteAngle}
-        secondAngle={secondAngle}
-        timeString={timeString}
-        dateString={dateString}
       />
 
       {/* Main Content */}
@@ -528,7 +501,6 @@ export default function StudentDashboard() {
                               background: isCurrentUser ? 'rgba(41, 182, 246, 0.15)' : 'rgba(255, 255, 255, 0.1)',
                               border: isCurrentUser ? '2px solid var(--accent-primary)' : '2px solid transparent',
                               transition: 'all 0.3s ease',
-                              cursor: 'pointer',
                             }}
                             onMouseEnter={(e) => { if (!isCurrentUser) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)'; 
                               e.currentTarget.style.transform = 'translateX(8px)';

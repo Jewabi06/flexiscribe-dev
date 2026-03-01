@@ -1,10 +1,9 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { FaHome, FaBook, FaGamepad, FaTrophy, FaBars, FaTimes, FaMoon, FaSun, FaArrowLeft, FaFileAlt, FaEye, FaClock, FaCheckCircle } from "react-icons/fa";
-import UserMenu from "@/components/student/ui/UserMenu";
-import NotificationMenu from "@/components/student/ui/NotificationMenu";
-import SearchBar from "@/components/student/ui/SearchBar";
+import { FaArrowLeft, FaFileAlt, FaEye, FaClock, FaCheckCircle } from "react-icons/fa";
+import StudentSidebar from "@/layouts/student/StudentSidebar";
+import StudentHeader from "@/layouts/student/StudentHeader";
 import LoadingScreen from "@/components/shared/LoadingScreen";
 import "../../../dashboard/styles.css";
 import "./styles.css";
@@ -114,90 +113,16 @@ export default function ClassTranscriptsPage() {
     return <LoadingScreen />;
   }
 
-  const hours = currentTime.getHours() % 12;
-  const minutes = currentTime.getMinutes();
-  const seconds = currentTime.getSeconds();
-  const hourAngle = hours * 30 + minutes * 0.5;
-  const minuteAngle = minutes * 6;
-  const secondAngle = seconds * 6;
-  const timeString = currentTime.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  const dateString = currentTime.toLocaleDateString("en-US", {
-    weekday: "long",
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
   return (
     <div className="dashboard-container">
-      <button className="mobile-menu-toggle" onClick={toggleSidebar}>
-        {sidebarOpen ? <FaTimes /> : <FaBars />}
-      </button>
-
-      {sidebarOpen && <div className="sidebar-overlay" onClick={toggleSidebar}></div>}
-
-      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="logo-section">
-          <div className="logo-content">
-            <img src="/img/fLexiScribe-logo.png" alt="Logo" className="h-16 w-16" />
-            <div className="flex flex-col items-start">
-              <h1 className="text-2xl font-bold">fLexiScribe</h1>
-              <p className="text-xs font-normal">Your Note-Taking Assistant</p>
-            </div>
-          </div>
-        </div>
-
-        <nav className="nav-menu">
-          <div className="nav-item" onClick={() => router.push('/student/dashboard')}>
-            <FaHome className="nav-icon" />
-            <span>Dashboard</span>
-          </div>
-          <div className="nav-item active">
-            <FaBook className="nav-icon" />
-            <span>Reviewers</span>
-          </div>
-          <div className="nav-item" onClick={() => router.push('/student/quizzes')}>
-            <FaGamepad className="nav-icon" />
-            <span>Quizzes</span>
-          </div>
-          <div className="nav-item" onClick={() => router.push('/student/leaderboard')}>
-            <FaTrophy className="nav-icon" />
-            <span>Leaderboard</span>
-          </div>
-        </nav>
-
-        <div className="clock-widget">
-          <svg className="clock-svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="45" fill="none" stroke="white" strokeWidth="2" />
-            {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((angle) => (
-              <line key={angle} x1="50" y1="10" x2="50" y2="15" stroke="white" strokeWidth="2" transform={`rotate(${angle} 50 50)`} />
-            ))}
-            <line className="hour-hand" x1="50" y1="50" x2="50" y2="30" stroke="white" strokeWidth="3" strokeLinecap="round" transform={`rotate(${hourAngle} 50 50)`} />
-            <line className="minute-hand" x1="50" y1="50" x2="50" y2="20" stroke="white" strokeWidth="2" strokeLinecap="round" transform={`rotate(${minuteAngle} 50 50)`} />
-            <line className="second-hand" x1="50" y1="50" x2="50" y2="15" stroke="var(--accent-primary)" strokeWidth="1.5" strokeLinecap="round" transform={`rotate(${secondAngle} 50 50)`} />
-            <circle cx="50" cy="50" r="3" fill="white" />
-          </svg>
-          <div className="clock-time">{timeString}</div>
-          <div className="clock-date">{dateString}</div>
-        </div>
-      </aside>
+      <StudentSidebar
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        currentTime={currentTime}
+      />
 
       <main className="main-content flex flex-col justify-between min-h-screen">
-        <header className="dashboard-header">
-          <SearchBar />
-          <div className="header-actions">
-            <button className="theme-toggle-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
-              {darkMode ? <FaSun /> : <FaMoon />}
-            </button>
-            <NotificationMenu />
-            <UserMenu userName={studentProfile?.username || 'Student'} userRole={studentProfile?.role || 'Student'} userAvatar={studentProfile?.avatar} />
-          </div>
-        </header>
+        <StudentHeader darkMode={darkMode} setDarkMode={setDarkMode} studentProfile={studentProfile} />
         
         <div className="class-content">
           <div className="back-button-container">

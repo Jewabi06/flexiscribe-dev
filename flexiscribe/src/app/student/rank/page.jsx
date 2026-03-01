@@ -1,11 +1,12 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FaHome, FaBook, FaGamepad, FaTrophy, FaBars, FaTimes, FaMoon, FaSun, FaArrowLeft, FaMedal, FaStar, FaCrown } from "react-icons/fa";
+import { FaMoon, FaSun, FaArrowLeft, FaMedal, FaStar, FaCrown, FaTrophy } from "react-icons/fa";
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
 import MessageModal from "@/components/shared/MessageModal";
 import LoadingScreen from "@/components/shared/LoadingScreen";
+import { useAchievement } from "@/components/shared/AchievementContext";
 import { calculateRank, ALL_RANKS, toggleSidebar as utilToggleSidebar, toggleDarkMode as utilToggleDarkMode } from "../../../utils/student";
 import "../dashboard/styles.css";
 import "./styles.css";
@@ -22,7 +23,8 @@ export default function StudentRank() {
   const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [leaderboardRank, setLeaderboardRank] = useState(null);
-  const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
+  const [modalInfo, setModalInfo] = useState({ isOpen: false, title1: "", message: "", type: "info" });
+  const { showAchievements } = useAchievement();
   const [currentRank, setCurrentRank] = useState({
     name: "Learner V",
     tier: "V",
@@ -131,18 +133,11 @@ export default function StudentRank() {
           const data = await response.json();
           setAchievements(data.achievements);
           
-          // Notify about newly earned achievements
+          // Notify via global provider (handles modal across the whole student portal)
           if (data.newlyEarned && data.newlyEarned.length > 0) {
-            const newNames = data.achievements
-              .filter(a => data.newlyEarned.includes(a.id))
-              .map(a => `🏆 ${a.name}`)
-              .join('\n');
-            setModalInfo({
-              isOpen: true,
-              title: "Achievement Unlocked!",
-              message: `Congratulations! You've earned:\n${newNames}`,
-              type: "success",
-            });
+            const newlyEarnedAchievements = data.achievements
+              .filter(a => data.newlyEarned.includes(a.id));
+            showAchievements(newlyEarnedAchievements);
           }
         } else {
           console.error('Failed to fetch achievements');
@@ -250,26 +245,6 @@ export default function StudentRank() {
     return <LoadingScreen />;
   }
 
-  const hours = currentTime.getHours() % 12;
-  const minutes = currentTime.getMinutes();
-  const seconds = currentTime.getSeconds();
-
-  const hourAngle = hours * 30 + minutes * 0.5;
-  const minuteAngle = minutes * 6;
-  const secondAngle = seconds * 6;
-
-  const timeString = currentTime.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  const dateString = currentTime.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
   const xpProgress = ((currentRank.xp - currentRank.xpMin) / (currentRank.xpMax - currentRank.xpMin)) * 100;
   const earnedAchievements = achievements.filter(a => a.earned);
   const lockedAchievements = achievements.filter(a => !a.earned);
@@ -279,15 +254,10 @@ export default function StudentRank() {
 
   return (
     <div className="dashboard-container">
-      <StudentSidebar 
+      <StudentSidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         currentTime={currentTime}
-        hourAngle={hourAngle}
-        minuteAngle={minuteAngle}
-        secondAngle={secondAngle}
-        timeString={timeString}
-        dateString={dateString}
       />
 
       {/* Main Content */}
