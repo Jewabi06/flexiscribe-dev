@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { generateQuizWithGemma, getBestAvailableModel } from '@/lib/ollama';
+import { generateQuizWithGemma, getBestAvailableModel, cleanSummaryForQuiz, expandKeyConcepts } from '@/lib/ollama';
 import { verifyAuth } from '@/lib/auth';
 
 // Allow up to 5 minutes for remote Ollama inference (batch quiz generation)
@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
     // Build quiz content from structured JSON reviewer data (preferred) or
     // fall back to plain text for backwards compatibility.
     let quizContent: string;
+    let keyConcepts: { term: string; definition: string }[] = [];
     try {
       const reviewerJson = JSON.parse(lesson.content);
       // Convert structured reviewer JSON into a dense, quiz-optimized summary
@@ -96,6 +97,10 @@ export async function POST(request: NextRequest) {
         parts.push(reviewerJson.summary);
       }
       if (Array.isArray(reviewerJson.keyConcepts)) {
+        // Preserve structured keyConcepts for the generation pipeline
+        keyConcepts = reviewerJson.keyConcepts
+          .filter((c: any) => c.term && c.definition)
+          .map((c: any) => ({ term: String(c.term), definition: String(c.definition) }));
         parts.push(
           reviewerJson.keyConcepts
             .map((c: { term: string; definition: string }) => `${c.term}: ${c.definition}`)
@@ -114,6 +119,18 @@ export async function POST(request: NextRequest) {
       quizContent = lesson.content;
     }
 
+    // Clean the summary: strip greetings, conversational fillers, and meta-text
+    // that would pollute fill-in-blank sentences if copied verbatim.
+    quizContent = cleanSummaryForQuiz(quizContent);
+
+    // Expand key concepts with variant terms found in the summary text.
+    // e.g. "JOIN Operation" → also adds "INNER JOIN", "LEFT JOIN" etc.
+    // This lets the deterministic FIB generator produce items with correct,
+    // verbatim answers instead of mismatching broad terms to specific sentences.
+    if (keyConcepts.length > 0) {
+      keyConcepts = expandKeyConcepts(keyConcepts, quizContent);
+    }
+
     // Summary quality gate — short summaries produce hallucinated filler
     if (!quizContent || quizContent.trim().length < 200) {
       return NextResponse.json(
@@ -129,7 +146,8 @@ export async function POST(request: NextRequest) {
       type as 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
       difficulty as 'EASY' | 'MEDIUM' | 'HARD',
       count,
-      resolvedModel
+      resolvedModel,
+      keyConcepts
     );
 
     // Compute the sequence number: count existing quizzes of the same lesson + type + student, then +1
