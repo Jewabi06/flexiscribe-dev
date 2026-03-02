@@ -300,10 +300,10 @@ export default function TopBar({ onMenuClick }) {
           </div>
 
           {/* RIGHT SECTION - ICONS */}
-          <div className="ml-auto flex items-center gap-1 sm:gap-2">
+          <div className="ml-auto flex items-center">
             
-            {/* NOTIFICATIONS */}
-            <div className="relative">
+            {/* NOTIFICATIONS - Added left margin for space */}
+            <div className="relative ml-2 sm:ml-3">
               <button
                 onClick={() => {
                   setNotifOpen(!notifOpen);
