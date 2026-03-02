@@ -253,6 +253,15 @@ export function expandKeyConcepts(
           if (seen.has(normV)) continue;
           if (variant.length < 4) continue;
 
+          // Reject variants with unbalanced parentheses (e.g. "NAT (Network")
+          const openParen = (variant.match(/\(/g) || []).length;
+          const closeParen = (variant.match(/\)/g) || []).length;
+          if (openParen !== closeParen) continue;
+
+          // Reject variants starting/ending with non-word punctuation
+          if (/^[^\w]/.test(variant)) continue;
+          if (/[^\w.)!?]$/.test(variant)) continue;
+
           // Skip negated forms (e.g. "non-relational" when term is "Relational")
           if (/\bnon[-\s]?\w/i.test(variant) && !/\bnon[-\s]?\w/i.test(concept.term)) continue;
 
@@ -416,9 +425,14 @@ function generateDeterministicFIB(
     if (usedSentences.has(c.sentence)) continue;
     // Skip greeting sentences
     if (greetingPatterns.some(p => p.test(c.sentence))) continue;
-    // Difficulty filter: EASY prefers single-word terms, HARD prefers multi-word
-    if (difficulty === 'EASY' && c.term.split(/\s+/).length > 2) continue;
-    if (difficulty === 'HARD' && c.term.split(/\s+/).length === 1 && c.term.length < 5) continue;
+    // ── Bloom's taxonomy difficulty filter ──
+    // EASY  → single-word or short terms (recall)
+    // MEDIUM → any term length (understanding)
+    // HARD  → multi-word terms and longer, complex sentences (application)
+    const termWordCount = c.term.split(/\s+/).length;
+    if (difficulty === 'EASY' && termWordCount > 1) continue;
+    if (difficulty === 'HARD' && termWordCount === 1 && c.term.length < 5) continue;
+    if (difficulty === 'HARD' && c.sentence.length < 60) continue;
 
     const item = buildFIBItem(c.term, c.sentence, allTerms, summary);
     if (!item) continue;
@@ -429,11 +443,16 @@ function generateDeterministicFIB(
   }
 
   // PASS 2: if still under count, allow reusing terms (different sentences)
+  // Still apply relaxed difficulty filters to maintain differentiation.
   if (result.length < count) {
     for (const c of shuffled) {
       if (result.length >= count) break;
       if (usedSentences.has(c.sentence)) continue;
       if (greetingPatterns.some(p => p.test(c.sentence))) continue;
+      // Relaxed difficulty filter — only exclude the worst mismatches
+      const termWordCount2 = c.term.split(/\s+/).length;
+      if (difficulty === 'EASY' && termWordCount2 > 2) continue;
+      if (difficulty === 'HARD' && termWordCount2 === 1 && c.term.length < 4) continue;
 
       const item = buildFIBItem(c.term, c.sentence, allTerms, summary);
       if (!item) continue;
@@ -690,7 +709,7 @@ function hasPlaceholderText(choice: string): boolean {
  * Validate and fix a single MCQ item
  * Returns object with { valid: boolean, item: any, rejectionReason?: string }
  */
-function validateMCQItem(item: any, difficulty: string = 'MEDIUM'): { valid: boolean; item: any; rejectionReason?: string } {
+function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: { term: string; definition: string }[] = [], summary: string = ''): { valid: boolean; item: any; rejectionReason?: string } {
   // Check choices array
   if (!item.choices || item.choices.length !== 4) {
     return { 
@@ -864,6 +883,29 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM'): { valid: boo
             };
           }
         }
+      }
+    }
+  }
+
+  // ── MCQ choice relevance check ──
+  // When keyConcepts are available, verify that distractors are real terms
+  // from the source material (either key concepts or found in summary).
+  // This prevents hallucinated distractors like "scanning" or "penetration testing".
+  if (keyConcepts.length > 0 && summary.length > 0) {
+    const conceptTerms = new Set(keyConcepts.map(k => normalizeText(k.term)));
+    const normSummary = normalizeText(summary);
+    for (let ci = 0; ci < fixedItem.choices.length; ci++) {
+      if (ci === fixedItem.answerIndex) continue; // Skip correct answer
+      const choiceNorm = normalizeText(fixedItem.choices[ci]);
+      const isKeyConcept = conceptTerms.has(choiceNorm) ||
+        [...conceptTerms].some(ct => ct.includes(choiceNorm) || choiceNorm.includes(ct));
+      const inSummary = normSummary.includes(choiceNorm);
+      if (!isKeyConcept && !inSummary) {
+        return {
+          valid: false,
+          item: fixedItem,
+          rejectionReason: `Distractor "${fixedItem.choices[ci]}" is neither a key concept nor found in the summary`
+        };
       }
     }
   }
@@ -1232,7 +1274,7 @@ function validateQuizItems(
     
     // Type-specific validation
     if (type === 'MCQ') {
-      validationResult = validateMCQItem(item, difficulty);
+      validationResult = validateMCQItem(item, difficulty, keyConcepts, summary);
       
       // Check for duplicates — use semantic similarity (keyword overlap)
       // instead of exact normalized match. This catches paraphrased duplicates
@@ -1355,6 +1397,8 @@ function buildVerificationPrompt(
 4. QUESTION CLARITY: Is the question clear, complete, and answerable from the summary alone? (No missing words, no outside knowledge needed.)
 5. EXPLANATION ACCURACY: Does the explanation correctly justify the answer? Does it match the choice at answerIndex?
 6. TERM ECHO: If the question asks "What is X?" and the answer is just "X" (the term itself, not a definition), mark INCORRECT.
+7. DISTRACTOR SOURCE: Are all 3 wrong choices real terms from the summary or key concepts list? If any distractor is a made-up term not found in the source material, mark INCORRECT.
+8. DIFFICULTY MATCH: For EASY, the question should test recall/definition only. For MEDIUM, it should test understanding/purpose/comparison. For HARD, it should present a scenario or require multi-step reasoning. If the cognitive level does not match the stated difficulty, mark INCORRECT.
 
 Be STRICT. When in doubt, mark INCORRECT.`;
   } else if (type === 'FILL_IN_BLANK') {
@@ -1934,16 +1978,16 @@ export async function generateQuizWithGemma(
         // Budgets raised after observing truncation even at 180 tokens/item.
         const baseTokensPerItem =
           difficulty === 'HARD'
-            ? (type === 'MCQ' ? 280 : type === 'FILL_IN_BLANK' ? 180 : 140)
+            ? (type === 'MCQ' ? 380 : type === 'FILL_IN_BLANK' ? 180 : 160)
             : difficulty === 'MEDIUM'
-            ? (type === 'MCQ' ? 220 : type === 'FILL_IN_BLANK' ? 150 : 110)
-            : (type === 'MCQ' ? 200 : type === 'FILL_IN_BLANK' ? 130 : 85);
+            ? (type === 'MCQ' ? 340 : type === 'FILL_IN_BLANK' ? 150 : 130)
+            : (type === 'MCQ' ? 320 : type === 'FILL_IN_BLANK' ? 130 : 100);
         // Dynamic token multiplier: after parse errors (truncation), automatically
         // increase budget for subsequent waves to avoid repeated truncation.
-        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 450);
+        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 550);
         // Hard cap scales with batch size: larger batches need proportionally more tokens.
-        // Minimum 2800 to avoid truncation even for small batches of MCQ.
-        const tokenHardCap = effectiveBatchSize <= 2 ? 3200 : effectiveBatchSize <= 4 ? 3800 : 4500;
+        // MCQ items with explanations need significantly more tokens than FIB/flashcards.
+        const tokenHardCap = effectiveBatchSize <= 2 ? 4000 : effectiveBatchSize <= 4 ? 5000 : 6000;
         const maxTokens = Math.min(batchCount * tokensPerItem + 100, tokenHardCap);
         
         console.log(`  Call ${i + 1}: Requesting ${batchCount} items (slice offset ${sliceIndex}, max ${maxTokens} tokens)`);
@@ -2185,56 +2229,88 @@ function buildPrompt(
 ): string {
   switch (type) {
     case 'MCQ':
-      return buildMCQPrompt(difficulty, count, summary, recentConcepts, usedSentences);
+      return buildMCQPrompt(difficulty, count, summary, recentConcepts, usedSentences, keyConcepts);
     case 'FILL_IN_BLANK':
       return buildFillInBlankPrompt(difficulty, count, summary, recentConcepts, usedSentences, keyConcepts);
     case 'FLASHCARD':
-      return buildFlashcardPrompt(difficulty, count, summary, recentConcepts, usedSentences);
+      return buildFlashcardPrompt(difficulty, count, summary, recentConcepts, usedSentences, keyConcepts);
     default:
       throw new Error(`Unknown quiz type: ${type}`);
   }
 }
 
 /**
- * Build MCQ generation prompt with all quality controls
+ * Build MCQ generation prompt with Bloom's taxonomy difficulty separation
+ * and key-concept-aware distractors.
  */
-function buildMCQPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedQuestions: string[] = []): string {
+function buildMCQPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedQuestions: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
+  // ── Bloom's taxonomy difficulty templates ──
   const diffGuide: Record<string, string> = {
-    EASY: 'Simple recall only. Correct answer is a direct quote from the summary. Wrong choices are obviously wrong.',
-    MEDIUM: 'Test understanding. Choices are plausible but distinguishable. Distractors are related summary concepts.',
-    HARD: 'Test critical thinking. All choices seem reasonable. Distractors are closely related summary concepts a student could confuse.'
+    EASY: `EASY = Recall / Recognition (Bloom's Level 1)
+- Questions must test DEFINITION or IDENTIFICATION of a single concept
+- Question patterns: "What is X?", "Which protocol does X use?", "What layer is responsible for X?", "How many bits does X have?"
+- Correct answer is a direct fact from the summary
+- Wrong choices should be OBVIOUSLY wrong (different categories or unrelated terms)
+- Only 1 concept per question`,
+    MEDIUM: `MEDIUM = Understanding / Comparison (Bloom's Level 2-3)
+- Questions must test PURPOSE, DIFFERENCE, or INTERPRETATION
+- Question patterns: "What is the purpose of X?", "What is the difference between X and Y?", "Why is X used for...?", "Which scenario describes X?"
+- The question MUST include words like "purpose", "why", "difference", "compare", "how does", or "explain"
+- Wrong choices should be plausible (same domain) but distinguishable`,
+    HARD: `HARD = Application / Analysis (Bloom's Level 4-5)
+- Questions must present a SCENARIO or require MULTI-CONCEPT REASONING
+- Question patterns: "A network has [scenario]... Which [concept] is responsible?", "Given [configuration], what will happen?", "Which protocol should be used and why?"
+- The question MUST describe a real-world situation, troubleshooting case, or multi-step problem
+- All choices must seem reasonable — only deep understanding reveals the correct one`
+  };
+
+  const diffExamples: Record<string, string> = {
+    EASY: `EXAMPLE for EASY:
+GOOD: Q: "What does the ping command primarily use to test connectivity?" → A: "ICMP" (simple recall)
+BAD:  Q: "Why is ICMP important for network diagnostics?" → A: "It measures round-trip time" (tests understanding — too hard for EASY)`,
+    MEDIUM: `EXAMPLE for MEDIUM:
+GOOD: Q: "Why is UDP preferred for real-time applications like streaming?" → A: "Because it prioritizes speed over reliability" (tests understanding of purpose)
+BAD:  Q: "What is UDP?" → A: "User Datagram Protocol" (simple recall — too easy for MEDIUM)`,
+    HARD: `EXAMPLE for HARD:
+GOOD: Q: "A device can reach hosts in its subnet but cannot access the internet. What configuration is most likely missing?" → A: "Default gateway" (requires troubleshooting reasoning)
+BAD:  Q: "What is a default gateway?" → A: "A router that forwards traffic" (simple recall — too easy for HARD)`
   };
 
   const avoid = recentConcepts.length > 0 ? `\nAVOID these topics: ${recentConcepts.join(', ')}` : '';
 
   // Inject already-used questions so the model avoids recycling the same concepts.
-  // Cap at 15 to avoid exceeding context window on very large runs.
   const usedBlock = usedQuestions.length > 0
     ? `\n\nIMPORTANT: The following questions have ALREADY been used. You MUST NOT create questions about the same topics or concepts. Any repeated topic will be REJECTED.\n${usedQuestions.slice(-30).map(q => `- ${q}`).join('\n')}\n`
+    : '';
+
+  // Build KEY CONCEPTS block — tells the model which terms to use for answers and distractors
+  const keyConceptsBlock = keyConcepts.length > 0
+    ? `\n\nKEY CONCEPTS (use these for correct answers and distractors):\n${keyConcepts.map(k => `- ${k.term}`).join('\n')}\n`
     : '';
 
   return `Create ${count} ${difficulty} MCQs from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
 
 SUMMARY:
-${summary}
+${summary}${keyConceptsBlock}
+
+DIFFICULTY LEVEL:
+${diffGuide[difficulty] || diffGuide.MEDIUM}
+
+${diffExamples[difficulty] || diffExamples.MEDIUM}
 
 CRITICAL RULES — follow ALL or the item will be rejected:
 1. All content from summary only, no outside knowledge
 2. Each question on a DIFFERENT concept from the summary
 3. FIRST decide the correct answer, THEN write a question that it answers, THEN create 3 wrong choices
 4. The correct answer must DIRECTLY and SPECIFICALLY answer the question — not a broad category
-5. All 4 choices must be real terms/concepts from the summary, no placeholders
+5. All 4 choices must be real terms/concepts from the summary or KEY CONCEPTS list, no placeholders
 6. The 3 wrong choices must be clearly WRONG for this specific question (not ambiguous)
-7. No duplicate or near-synonym choices
-8. answerIndex MUST point to the correct choice (double-check before outputting)
-9. Explanation MUST start with: "The correct answer is '[exact choice text]' because ..."
-10. If asking "What is X?", the answer must be X's DEFINITION or DESCRIPTION — NOT the term X itself
-11. Every question must have EXACTLY ONE unambiguously correct answer among the 4 choices
-- ${diffGuide[difficulty] || diffGuide.MEDIUM}
-
-EXAMPLE — GOOD vs BAD:
-BAD:  Q: "What is machine learning?" → A: "Machine Learning" (echoes the question term — teaches nothing)
-GOOD: Q: "Which approach uses multi-layered neural networks to learn hierarchical features?" → A: "Deep Learning" (specific, only one correct answer, others clearly wrong)
+7. The correct answer and all 3 distractors MUST be chosen from the KEY CONCEPTS list above (if provided). Do NOT invent terms.
+8. No duplicate or near-synonym choices
+9. answerIndex MUST point to the correct choice (double-check before outputting)
+10. Explanation MUST start with: "The correct answer is '[exact choice text]' because ..."
+11. If asking "What is X?", the answer must be X's DEFINITION or DESCRIPTION — NOT the term X itself
+12. Every question must have EXACTLY ONE unambiguously correct answer among the 4 choices
 
 {"type":"mcq","difficulty":"${difficulty.toLowerCase()}","items":[{"question":"...","choices":["correct answer","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is 'correct answer' because ..."}]}`;
 }
@@ -2294,13 +2370,23 @@ BAD:  {"sentence":"The [blank] is very important in databases.","answer":"thing"
 }
 
 /**
- * Build flashcard generation prompt
+ * Build flashcard generation prompt with Bloom's taxonomy difficulty separation
  */
-function buildFlashcardPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedSentences: string[] = []): string {
+function buildFlashcardPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedSentences: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
+  // ── Bloom's taxonomy difficulty templates ──
   const diffGuide: Record<string, string> = {
-    EASY: 'Front: "What is [term]?" only. Back: 1-2 sentence definition from summary.',
-    MEDIUM: 'Front: Concept question. Back: Explanation with application (2-3 sentences).',
-    HARD: 'Front: Complex scenario. Back: Detailed analysis or comparison.'
+    EASY: `EASY = Recall (Bloom's Level 1)
+- Front: "What is [term]?" — simple definition question
+- Back: 1-2 sentence definition directly from the summary
+- One concept per card`,
+    MEDIUM: `MEDIUM = Understanding (Bloom's Level 2-3)
+- Front: "What is the purpose of X?", "How does X work?", "What is the difference between X and Y?"
+- Back: 2-3 sentence explanation with purpose or comparison
+- Front MUST include "purpose", "how", "why", "difference", or "explain"`,
+    HARD: `HARD = Application / Analysis (Bloom's Level 4-5)
+- Front: Scenario-based question or multi-concept comparison
+- Back: Detailed analysis, step-by-step explanation, or troubleshooting reasoning (3-4 sentences)
+- Front MUST describe a situation or ask "what would happen if..."`
   };
 
   const avoid = recentConcepts.length > 0 ? `\nAVOID these topics: ${recentConcepts.join(', ')}` : '';
@@ -2310,16 +2396,23 @@ function buildFlashcardPrompt(difficulty: string, count: number, summary: string
     ? `\n\nALREADY USED FLASHCARD FRONTS (DO NOT reuse these questions):\n${usedSentences.slice(-30).map(s => `- ${s}`).join('\n')}\n`
     : '';
 
+  // Build KEY CONCEPTS block when available
+  const keyConceptsBlock = keyConcepts.length > 0
+    ? `\n\nKEY CONCEPTS (create cards about these terms):\n${keyConcepts.map(k => `- ${k.term}`).join('\n')}\n`
+    : '';
+
   return `Create ${count} ${difficulty} flashcards from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
 
 SUMMARY:
-${summary}
+${summary}${keyConceptsBlock}
+
+DIFFICULTY LEVEL:
+${diffGuide[difficulty] || diffGuide.MEDIUM}
 
 RULES:
 - Content from summary only, no outside knowledge
 - Each card on a different concept
 - Use exact terminology from the summary
-- ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
 {"type":"flashcard","difficulty":"${difficulty.toLowerCase()}","items":[{"front":"What is...?","back":"It is..."}]}`;
 }
