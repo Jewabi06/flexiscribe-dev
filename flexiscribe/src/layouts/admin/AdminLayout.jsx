@@ -11,7 +11,7 @@ export default function AdminLayout({ children }) {
     <div className="flex min-h-screen bg-[#f4f3fb]">
       <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col md:ml-[345px]">
         <TopBar onMenuClick={() => setSidebarOpen(true)} />
 
         <main className="flex-1 px-4 sm:px-10 py-6 pt-8">
