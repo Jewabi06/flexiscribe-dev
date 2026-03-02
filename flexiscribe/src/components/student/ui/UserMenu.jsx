@@ -59,17 +59,28 @@ export default function UserMenu({ userName, userRole, userAvatar }) {
   const handleLogout = async () => {
     setIsOpen(false);
     try {
-      // Call logout API to clear the auth cookie
-      await fetch("/api/auth/logout", { method: "POST" });
+      // Call logout API to clear the auth cookie and DB token
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
       
       // Clear any client-side storage
       localStorage.clear();
       sessionStorage.clear();
       
-      // Redirect to login
-      window.location.href = "/auth/student/login";
+      // Redirect based on the role returned by the server
+      const role = data.role;
+      if (role === "EDUCATOR") {
+        window.location.href = "/auth/educator/login";
+      } else if (role === "ADMIN") {
+        // Admin login is gated — go to landing page
+        window.location.href = "/";
+      } else {
+        window.location.href = "/auth/student/login";
+      }
     } catch (error) {
       console.error("Logout error:", error);
+      localStorage.clear();
+      sessionStorage.clear();
       // Redirect anyway
       window.location.href = "/auth/student/login";
     }

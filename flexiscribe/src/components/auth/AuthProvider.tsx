@@ -77,19 +77,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    const currentRole = user?.role;
+    const fallbackRole = user?.role;
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      setUser(null);
+      const role = data.role || fallbackRole;
+      if (role === "STUDENT") {
+        window.location.href = "/auth/student/login";
+      } else if (role === "EDUCATOR") {
+        window.location.href = "/auth/educator/login";
+      } else if (role === "ADMIN") {
+        // Admin login is gated — go to landing page
+        window.location.href = "/";
+      } else {
+        window.location.href = "/auth/role-selection";
+      }
     } catch (error) {
       console.error("Logout error:", error);
-    } finally {
       setUser(null);
-      if (currentRole === "STUDENT") {
-        router.push("/auth/role-selection?role=student");
-      } else if (currentRole === "EDUCATOR") {
-        router.push("/auth/role-selection?role=educator");
+      if (fallbackRole === "STUDENT") {
+        window.location.href = "/auth/student/login";
+      } else if (fallbackRole === "EDUCATOR") {
+        window.location.href = "/auth/educator/login";
+      } else if (fallbackRole === "ADMIN") {
+        window.location.href = "/";
       } else {
-        router.push("/auth/role-selection");
+        window.location.href = "/auth/role-selection";
       }
     }
   };

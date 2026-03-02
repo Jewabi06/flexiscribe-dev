@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       role: user.role,
     });
 
-    // Create response
+    // Create response (admin never exposes token in response body)
     const response = NextResponse.json(
       {
         message: "Login successful",
@@ -71,7 +71,6 @@ export async function POST(request: Request) {
           email: user.email,
           role: user.role,
         },
-        token, // Send token in response for client-side storage if needed
       },
       { status: 200 }
     );
