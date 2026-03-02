@@ -5,6 +5,7 @@ import { FaArrowLeft, FaArrowRight } from "react-icons/fa";
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
 import MessageModal from "@/components/shared/MessageModal";
+import FlashcardReviewModal from "@/components/shared/FlashcardReviewModal";
 import "../../dashboard/styles.css";
 import "./quiz-styles.css";
 import { trackActivity } from "../../../../utils/student";
@@ -23,6 +24,8 @@ export default function FlashcardQuiz({ quiz, questions }) {
   const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const [shouldRedirect, setShouldRedirect] = useState(false);
   const [quizStartedAt] = useState(() => new Date().toISOString());
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [attemptData, setAttemptData] = useState(null);
 
   const currentQuestion = questions.questions[currentQuestionIndex];
   const totalQuestions = questions.questions.length;
@@ -258,9 +261,8 @@ export default function FlashcardQuiz({ quiz, questions }) {
                         localStorage.removeItem(`quiz-flipped-${quiz.id}`);
                         localStorage.removeItem(`quiz-progress-${quiz.id}`);
                         trackActivity('flashcard_session');
-                        const attemptLabel = data.attempt.isFirstAttempt ? '1st Attempt' : 'Retry (10% XP)';
-                        setModalInfo({ isOpen: true, title: "Flashcards Reviewed!", message: `${attemptLabel}\nXP Earned: +${data.attempt.xpEarned} XP`, type: "success" });
-                        setShouldRedirect(true);
+                        setAttemptData(data.attempt);
+                        setShowReviewModal(true);
                       } else {
                         setModalInfo({ isOpen: true, title: "Error", message: data.error || 'Failed to submit review.', type: "error" });
                         setSubmitting(false);
@@ -286,6 +288,20 @@ export default function FlashcardQuiz({ quiz, questions }) {
           </div>
         </div>
       </main>
+
+      <FlashcardReviewModal
+        isOpen={showReviewModal}
+        onClose={() => {
+          setShowReviewModal(false);
+          if (attemptData) {
+            const attemptLabel = attemptData.isFirstAttempt ? '1st Attempt' : 'Retry (10% XP)';
+            setModalInfo({ isOpen: true, title: "Flashcards Reviewed!", message: `${attemptLabel}\nXP Earned: +${attemptData.xpEarned} XP`, type: "success" });
+            setShouldRedirect(true);
+          }
+        }}
+        flashcards={questions.questions.map(q => ({ front: q.front, back: q.back }))}
+        title={quiz.title || quiz.lesson}
+      />
 
       <MessageModal
         isOpen={modalInfo.isOpen}

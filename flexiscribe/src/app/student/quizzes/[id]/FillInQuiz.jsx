@@ -268,8 +268,8 @@ export default function FillInQuiz({ quiz, questions }) {
                           xpEarned: data.attempt.xpEarned,
                           attemptLabel,
                         });
-                        setModalInfo({ isOpen: true, title: "Quiz Submitted!", message: `Score: ${data.attempt.score}/${data.attempt.totalQuestions} (${data.attempt.accuracy}%)\n${attemptLabel}\nXP Earned: +${data.attempt.xpEarned} XP`, type: "success" });
-                        setShouldRedirect(true);
+                        // Show review modal first, then success message
+                        setReviewModalOpen(true);
                       } else {
                         setModalInfo({ isOpen: true, title: "Error", message: data.error || 'Failed to submit quiz.', type: "error" });
                         setSubmitting(false);
@@ -300,10 +300,7 @@ export default function FillInQuiz({ quiz, questions }) {
         isOpen={modalInfo.isOpen}
         onClose={() => {
           setModalInfo({ ...modalInfo, isOpen: false });
-          if (shouldRedirect && quizResults) {
-            // Show the answer review modal instead of redirecting immediately
-            setReviewModalOpen(true);
-          } else if (shouldRedirect) {
+          if (shouldRedirect) {
             router.push('/student/quizzes');
           }
         }}
@@ -317,8 +314,14 @@ export default function FillInQuiz({ quiz, questions }) {
           isOpen={reviewModalOpen}
           onClose={() => {
             setReviewModalOpen(false);
-            setQuizResults(null);
-            router.push('/student/quizzes');
+            // Show success message after review
+            setModalInfo({
+              isOpen: true,
+              title: "Quiz Submitted!",
+              message: `Score: ${quizResults.score}/${quizResults.totalQuestions} (${quizResults.accuracy}%)\n${quizResults.attemptLabel}\nXP Earned: +${quizResults.xpEarned} XP`,
+              type: "success"
+            });
+            setShouldRedirect(true);
           }}
           quizType="FILL_IN_BLANK"
           questions={questions.questions}
