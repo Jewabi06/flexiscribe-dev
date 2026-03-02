@@ -1,24 +1,4 @@
-import nodemailer from "nodemailer";
-
-// Create reusable Gmail SMTP transporter
-function getTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-
-  if (!user || !pass) {
-    throw new Error(
-      "GMAIL_USER or GMAIL_APP_PASSWORD environment variables are not set. Email sending is unavailable."
-    );
-  }
-
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user,
-      pass,
-    },
-  });
-}
+import { Resend } from "resend";
 
 export interface EmailOptions {
   to: string;
@@ -27,24 +7,28 @@ export interface EmailOptions {
 }
 
 /**
- * Send an email using Gmail SMTP via Nodemailer
+ * Send an email using Resend
  */
 export async function sendEmail({ to, subject, html }: EmailOptions) {
   try {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error("RESEND_API_KEY environment variable is not set.");
+    }
+
+    const resend = new Resend(apiKey);
+    const from = process.env.EMAIL_FROM || "fLexiScribe <onboarding@resend.dev>";
+
     console.log("Attempting to send email to:", to);
-    console.log("From:", process.env.GMAIL_USER);
+    const { data, error } = await resend.emails.send({ from, to, subject, html });
 
-    const transporter = getTransporter();
+    if (error) {
+      console.error("Resend API error:", error);
+      return { success: false, error };
+    }
 
-    const result = await transporter.sendMail({
-      from: `"fLexiScribe" <${process.env.GMAIL_USER}>`,
-      to,
-      subject,
-      html,
-    });
-
-    console.log("Email sent successfully:", result.messageId);
-    return { success: true, data: result };
+    console.log("Email sent successfully:", data?.id);
+    return { success: true, data };
   } catch (error) {
     console.error("Email sending error:", error);
     return { success: false, error };
