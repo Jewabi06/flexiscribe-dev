@@ -15,14 +15,25 @@ Lecture segment:
 
 def build_cornell_prompt(text: str) -> str:
     return f"""
-Create a comprehensive Cornell Notes summary of this full lecture. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Write the summary preserving the language style used in the lecture.
+Create a comprehensive Cornell Notes reviewer from this full lecture transcript. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Write all content preserving the language style used in the lecture.
+
+Rules:
+- All content must be factually based on the lecture text only.
+- Organize by topic in the order they appear in the transcript.
+- Cover all major topics — ensure every significant concept from the transcript appears in the reviewer.
 
 Return ONLY valid JSON with no extra text:
 {{
   "title": "A descriptive title for the lecture topic",
-  "cue_questions": ["Question 1 about key concept", "Question 2", "Question 3"],
-  "notes": ["Important note or concept 1", "Important note 2", "Important note 3"],
-  "summary": "A comprehensive 3-5 sentence summary of the entire lecture"
+  "key_concepts": ["Important keyword or concept 1", "Important keyword or concept 2"],
+  "notes": [
+    {{
+      "term": "Term or concept name",
+      "definition": "Clear definition of the term based on the lecture",
+      "example": "An example or application mentioned or implied in the lecture"
+    }}
+  ],
+  "summary": ["Concise takeaway point 1", "Concise takeaway point 2", "Concise takeaway point 3"]
 }}
 
 Full lecture transcript:
