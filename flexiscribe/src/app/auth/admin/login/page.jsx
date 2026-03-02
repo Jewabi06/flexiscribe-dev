@@ -24,7 +24,7 @@ export default function AdminLogin() {
   const strength = getPasswordStrength(password);
 
   const handleBack = () => {
-    router.push("/admin");
+    router.push("/");
   };
 
   // Handle form submission

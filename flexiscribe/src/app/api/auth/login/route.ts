@@ -1,9 +1,7 @@
 import prisma from "@/lib/db";
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this-in-production";
+import { generateToken } from "@/lib/auth";
 
 export async function POST(request: Request) {
   try {
@@ -95,12 +93,12 @@ export async function POST(request: Request) {
       };
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // Generate JWT token using shared auth lib (jose)
+    const token = await generateToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role as "ADMIN" | "STUDENT" | "EDUCATOR",
+    });
 
     // Calculate token expiry (7 days from now)
     const tokenExpiry = new Date();

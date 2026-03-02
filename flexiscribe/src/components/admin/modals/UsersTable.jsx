@@ -37,12 +37,26 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
       if (dateFilter && dateFilter !== "All") params.append("date", dateFilter);
 
       const res = await fetch(`/api/admin/users?${params.toString()}`);
+      
       if (res.ok) {
         const data = await res.json();
-        setUsers(data.users || []);
+        
+        // Handle different possible response structures
+        let usersList = [];
+        if (data.users) usersList = data.users;
+        else if (data.data) usersList = data.data;
+        else if (data.accounts) usersList = data.accounts;
+        else if (Array.isArray(data)) usersList = data;
+        else if (data.results) usersList = data.results;
+        
+        setUsers(usersList);
+      } else {
+        console.error("API returned error status:", res.status);
+        setUsers([]);
       }
     } catch (error) {
       console.error("Error fetching users:", error);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -78,6 +92,7 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
   };
 
   function formatDate(date) {
+    if (!date) return "N/A";
     return new Date(date).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -124,34 +139,34 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
                 {/* NAME */}
                 <div>
                   <p className="font-semibold text-[#4c4172]">
-                    {u.fullName || u.name}
+                    {u.fullName || u.name || "N/A"}
                   </p>
-                  <p className="text-sm text-[#7b6fae]">{u.email}</p>
+                  <p className="text-sm text-[#7b6fae]">{u.email || "N/A"}</p>
                   {u.phoneNumber && (
                     <p className="text-xs text-[#9d8adb]">{u.phoneNumber}</p>
                   )}
                 </div>
 
                 {/* USERNAME */}
-                <div className="text-[#6f63a6]">@{u.username}</div>
+                <div className="text-[#6f63a6]">@{u.username || "N/A"}</div>
 
                 {/* STATUS */}
                 <div className="flex justify-center">
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
-                      STATUS_STYLE[u.status]
+                      STATUS_STYLE[u.status] || "bg-gray-100 text-gray-600 border border-gray-300"
                     }`}
                   >
-                    {u.status}
+                    {u.status || "Unknown"}
                   </span>
                 </div>
 
                 {/* ROLE */}
-                <div className="text-[#6f63a6] text-center">{u.role}</div>
+                <div className="text-[#6f63a6] text-center">{u.role || "N/A"}</div>
 
                 {/* JOINED */}
                 <div className="text-[#9a94b8]">
-                  {formatDate(u.createdAt || u.joined)}
+                  {formatDate(u.createdAt || u.joined || u.created_at)}
                 </div>
 
                 {/* ACTIONS */}
@@ -189,9 +204,9 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
               <div className="flex justify-between">
                 <div>
                   <p className="font-semibold text-[#4c4172]">
-                    {u.fullName || u.name}
+                    {u.fullName || u.name || "N/A"}
                   </p>
-                  <p className="text-sm text-[#7b6fae]">{u.email}</p>
+                  <p className="text-sm text-[#7b6fae]">{u.email || "N/A"}</p>
                   {u.phoneNumber && (
                     <p className="text-xs text-[#9d8adb]">{u.phoneNumber}</p>
                   )}
@@ -199,10 +214,10 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
 
                 <span
                   className={`px-5 py-3 rounded-full text-xs font-semibold whitespace-nowrap border ${
-                    STATUS_STYLE[u.status]
+                    STATUS_STYLE[u.status] || "bg-gray-100 text-gray-600 border border-gray-300"
                   }`}
                 >
-                  {u.status}
+                  {u.status || "Unknown"}
                 </span>
               </div>
 
@@ -210,18 +225,18 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
               <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
                 <div>
                   <p className="text-gray-400 text-xs">Username</p>
-                  <p className="font-medium text-[#4c4172]">@{u.username}</p>
+                  <p className="font-medium text-[#4c4172]">@{u.username || "N/A"}</p>
                 </div>
 
                 <div>
                   <p className="text-gray-400 text-xs">Role</p>
-                  <p className="font-medium text-[#4c4172]">{u.role}</p>
+                  <p className="font-medium text-[#4c4172]">{u.role || "N/A"}</p>
                 </div>
 
                 <div>
                   <p className="text-gray-400 text-xs">Joined</p>
                   <p className="font-medium text-[#4c4172]">
-                    {formatDate(u.createdAt || u.joined)}
+                    {formatDate(u.createdAt || u.joined || u.created_at)}
                   </p>
                 </div>
               </div>

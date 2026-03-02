@@ -172,7 +172,7 @@ export default function ForgotPassword() {
       <div className="neu-card w-full max-w-md mx-auto justify-center">
         {/* Title */}
         <div className="flex flex-col items-center mb-6 mt-2">
-          <span className="font-extrabold text-4xl text-center mb-2">
+          <span className="text-[#4c4172] font-extrabold text-4xl text-center mb-2">
             Forgot Password
           </span>
           <span className="text-center text-md mb-2">
@@ -313,9 +313,9 @@ export default function ForgotPassword() {
         )}
 
         {/* Footer */}
-        <p className="mt-10 text-center text-sm">
+        <p className="mt-10 text-[#4c4172] text-center text-sm">
           Remember your password?{" "}
-          <a href="/auth/role-selection" className="font-semibold hover:underline">
+          <a href="/auth/role-selection" className="font-semibold text-[#4c4172] hover:underline">
             Back to Login
           </a>
         </p>

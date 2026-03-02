@@ -23,27 +23,42 @@ export async function GET(request: Request) {
     // Build where clause
     const where: any = {};
     
-    if (role && role !== "All") {
+    // Only filter by role if it's not "All" and has a value
+    if (role && role !== "All" && role !== "All Roles") {
       where.role = role.toUpperCase();
     }
 
-    if (dateFilter && dateFilter !== "All") {
+    // Date filtering
+    if (dateFilter && dateFilter !== "All" && dateFilter !== "All Dates") {
       const now = new Date();
       let startDate = new Date();
 
       switch (dateFilter) {
+        case "Last 7 days":
+          startDate.setDate(now.getDate() - 7);
+          where.createdAt = { gte: startDate };
+          break;
+        case "Last 30 days":
+          startDate.setDate(now.getDate() - 30);
+          where.createdAt = { gte: startDate };
+          break;
+        case "Last 3 months":
+          startDate.setMonth(now.getMonth() - 3);
+          where.createdAt = { gte: startDate };
+          break;
         case "Today":
           startDate.setHours(0, 0, 0, 0);
+          where.createdAt = { gte: startDate };
           break;
         case "This Week":
           startDate.setDate(now.getDate() - 7);
+          where.createdAt = { gte: startDate };
           break;
         case "This Month":
           startDate.setMonth(now.getMonth() - 1);
+          where.createdAt = { gte: startDate };
           break;
       }
-
-      where.createdAt = { gte: startDate };
     }
 
     // Get users with related data
@@ -61,44 +76,44 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    // Transform data
+    // Transform data to a consistent format
     const transformedUsers = users.map((u) => {
       let fullName = "";
       let username = "";
       let additionalInfo = {};
 
       if (u.student) {
-        fullName = u.student.fullName;
+        fullName = u.student.fullName || "";
         username = u.student.username || "";
         additionalInfo = {
-          studentNumber: u.student.studentNumber,
-          yearLevel: u.student.yearLevel,
-          section: u.student.section,
-          program: u.student.program,
-          gender: u.student.gender,
+          studentNumber: u.student.studentNumber || "",
+          yearLevel: u.student.yearLevel || "",
+          section: u.student.section || "",
+          program: u.student.program || "",
+          gender: u.student.gender || "",
           birthDate: u.student.birthDate,
         };
       } else if (u.educator) {
-        fullName = u.educator.fullName;
-        username = u.educator.username;
+        fullName = u.educator.fullName || "";
+        username = u.educator.username || "";
         additionalInfo = {
-          department: u.educator.department.name,
-          gender: u.educator.gender,
+          department: u.educator.department?.name || "",
+          gender: u.educator.gender || "",
           birthDate: u.educator.birthDate,
         };
       } else if (u.admin) {
-        fullName = u.admin.fullName;
-        username = u.admin.username;
+        fullName = u.admin.fullName || "";
+        username = u.admin.username || "";
       }
 
-      // Determine status from stored field, fallback to activity-based
+      // Use status from user model or default to "Active"
       const userStatus = u.status || "Active";
 
       return {
         id: u.id,
-        email: u.email,
-        phoneNumber: u.phoneNumber,
-        role: u.role,
+        email: u.email || "",
+        phoneNumber: u.phoneNumber || "",
+        role: u.role || "",
         fullName,
         username,
         status: userStatus,
@@ -108,9 +123,9 @@ export async function GET(request: Request) {
       };
     });
 
-    // Apply status filter after transformation
+    // Apply status filter after transformation (if needed)
     let filteredUsers = transformedUsers;
-    if (status && status !== "All") {
+    if (status && status !== "All" && status !== "All Status") {
       filteredUsers = transformedUsers.filter((u) => u.status === status);
     }
 
@@ -167,6 +182,41 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check if username exists for the specific role
+    if (username) {
+      if (role.toUpperCase() === "STUDENT") {
+        const existingStudent = await prisma.student.findUnique({
+          where: { username },
+        });
+        if (existingStudent) {
+          return NextResponse.json(
+            { error: "Username already exists" },
+            { status: 400 }
+          );
+        }
+      } else if (role.toUpperCase() === "EDUCATOR") {
+        const existingEducator = await prisma.educator.findUnique({
+          where: { username },
+        });
+        if (existingEducator) {
+          return NextResponse.json(
+            { error: "Username already exists" },
+            { status: 400 }
+          );
+        }
+      } else if (role.toUpperCase() === "ADMIN") {
+        const existingAdmin = await prisma.admin.findUnique({
+          where: { username },
+        });
+        if (existingAdmin) {
+          return NextResponse.json(
+            { error: "Username already exists" },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -177,6 +227,7 @@ export async function POST(request: Request) {
         password: hashedPassword,
         phoneNumber,
         role: role.toUpperCase(),
+        status: "Active", // Set default status
         ...(role.toUpperCase() === "STUDENT" && {
           student: {
             create: {
@@ -187,7 +238,7 @@ export async function POST(request: Request) {
               section: additionalData.section || "",
               program: additionalData.program || "",
               gender: additionalData.gender || "PREFER_NOT_TO_SAY",
-              birthDate: additionalData.birthDate || new Date(),
+              birthDate: additionalData.birthDate ? new Date(additionalData.birthDate) : new Date(),
             },
           },
         }),
@@ -197,7 +248,7 @@ export async function POST(request: Request) {
               fullName,
               username: username || email.split("@")[0],
               gender: additionalData.gender || "PREFER_NOT_TO_SAY",
-              birthDate: additionalData.birthDate || new Date(),
+              birthDate: additionalData.birthDate ? new Date(additionalData.birthDate) : new Date(),
               departmentId: additionalData.departmentId,
             },
           },
