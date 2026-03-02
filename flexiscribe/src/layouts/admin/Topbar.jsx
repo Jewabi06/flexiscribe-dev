@@ -149,13 +149,25 @@ export default function TopBar({ onMenuClick }) {
   const handleSignOut = async () => {
     closeAll();
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
       localStorage.clear();
       sessionStorage.clear();
-      window.location.href = "/auth/admin/login";
+      // Redirect based on the role returned by the server
+      const role = data.role;
+      if (role === "STUDENT") {
+        window.location.href = "/auth/student/login";
+      } else if (role === "EDUCATOR") {
+        window.location.href = "/auth/educator/login";
+      } else {
+        // Admin login is gated — go to landing page
+        window.location.href = "/";
+      }
     } catch (error) {
       console.error("Logout error:", error);
-      window.location.href = "/auth/admin/login";
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = "/";
     }
   };
 

@@ -60,12 +60,24 @@ export default function EducatorHeader({ userName = "Educator" }) {
 
   async function handleSignOut() {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
       localStorage.clear();
       sessionStorage.clear();
-      window.location.href = "/auth/educator/login";
+      // Redirect based on the role returned by the server
+      const role = data.role;
+      if (role === "STUDENT") {
+        window.location.href = "/auth/student/login";
+      } else if (role === "ADMIN") {
+        // Admin login is gated — go to landing page
+        window.location.href = "/";
+      } else {
+        window.location.href = "/auth/educator/login";
+      }
     } catch (error) {
       console.error("Logout error:", error);
+      localStorage.clear();
+      sessionStorage.clear();
       window.location.href = "/auth/educator/login";
     }
   }

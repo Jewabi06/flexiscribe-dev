@@ -269,6 +269,8 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
                   className="w-full mt-1 rounded-lg border px-3 py-2"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
+                  autoComplete="new-password"
+                  name="current-password-do-not-autofill"
                 />
               </div>
 
@@ -282,6 +284,8 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
                     className="w-full mt-1 rounded-lg border px-3 py-2"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    name="new-password"
                   />
                 </div>
 
@@ -294,6 +298,8 @@ export default function ProfileModal({ open, defaultTab, onClose }) {
                     className="w-full mt-1 rounded-lg border px-3 py-2"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                    name="confirm-password"
                   />
                 </div>
               </div>
