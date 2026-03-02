@@ -136,6 +136,35 @@ export function expandKeyConcepts(
   const expanded = [...keyConcepts];
   const seen = new Set(keyConcepts.map(k => normalizeText(k.term)));
 
+  // ── Extract full phrases from parenthesized acronym terms ──
+  // Terms like "UDP (User Datagram Protocol)" contain the full expansion
+  // inside parentheses. Add that expansion as an explicit variant so the
+  // deterministic generator can blank the *complete* phrase, not a fragment
+  // like "User Datagram".
+  for (const concept of keyConcepts) {
+    const parenMatch = concept.term.match(/\(([^)]+)\)/);
+    if (parenMatch) {
+      const fullPhrase = parenMatch[1].trim();
+      const normFull = normalizeText(fullPhrase);
+      // Only add if it's a multi-word phrase (single words inside parens
+      // are usually abbreviations like "(ACLs)", not useful as answers).
+      if (!seen.has(normFull) && fullPhrase.split(/\s+/).length >= 2) {
+        seen.add(normFull);
+        expanded.push({ term: fullPhrase, definition: concept.definition });
+      }
+    }
+    // Also add the part *before* the parentheses if it differs from the
+    // original term.  e.g. "TCP (Transmission Control Protocol)" → "TCP".
+    const beforeParen = concept.term.replace(/\s*\([^)]*\)\s*/g, '').trim();
+    if (beforeParen.length >= 2) {
+      const normBefore = normalizeText(beforeParen);
+      if (!seen.has(normBefore)) {
+        seen.add(normBefore);
+        expanded.push({ term: beforeParen, definition: concept.definition });
+      }
+    }
+  }
+
   // Words that must NOT appear at the first or last position of a variant.
   // Covers articles, conjunctions, prepositions, pronouns, auxiliaries,
   // be-verbs, question words, and common verbs whose 3rd-person form
@@ -164,6 +193,11 @@ export function expandKeyConcepts(
     'protect', 'protects', 'detect', 'detects', 'handle', 'handles',
     'manage', 'manages', 'define', 'defines', 'contain', 'contains',
     'represent', 'represents', 'describe', 'describes',
+    // numbers & ordinals — produce fragments like "TCP three" from
+    // "TCP three-way handshake"; the full compound is captured separately.
+    'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+    'nine', 'ten', 'first', 'second', 'third', 'fourth', 'fifth',
+    'single', 'double', 'triple', 'multiple', 'many', 'several',
   ]);
 
   // Collect the set of words that appear inside original key concept terms
@@ -192,7 +226,26 @@ export function expandKeyConcepts(
         new RegExp(`\\b(\\w+\\s+${esc}\\s+\\w+)\\b`, 'gi'), // X core Y
       ];
 
-      for (const pat of patterns) {
+      // ── Hyphenated-compound patterns ──
+      // \w in the basic patterns doesn't cross hyphens, so "TCP three-way
+      // handshake" is never captured as one phrase. These extra patterns
+      // look for phrases where the core word is followed (or preceded) by
+      // a hyphenated compound, e.g. "three-way handshake", "man-in-the-
+      // middle attack".
+      const hyphPatterns = [
+        // core + hyphenated-word + word:  "TCP three-way handshake"
+        new RegExp(`\\b(${esc}\\s+\\w+-\\w+\\s+\\w+)\\b`, 'gi'),
+        // word + hyphenated-word + core:  "man-in-the-middle attack"
+        new RegExp(`\\b(\\w+-\\w+(?:-\\w+)*\\s+${esc})\\b`, 'gi'),
+        // core + hyphenated-word:  "three-way"
+        new RegExp(`\\b(${esc}\\s+\\w+-\\w+(?:-\\w+)*)\\b`, 'gi'),
+        // hyphenated-word + core:  "cross-site scripting"
+        new RegExp(`\\b(\\w+-\\w+(?:-\\w+)*\\s+${esc})\\b`, 'gi'),
+      ];
+
+      const allPatterns = [...patterns, ...hyphPatterns];
+
+      for (const pat of allPatterns) {
         let m: RegExpExecArray | null;
         while ((m = pat.exec(summary)) !== null) {
           const variant = m[1].trim();
@@ -204,20 +257,30 @@ export function expandKeyConcepts(
           if (/\bnon[-\s]?\w/i.test(variant) && !/\bnon[-\s]?\w/i.test(concept.term)) continue;
 
           // ── Edge-word filter ──
+          // Split on whitespace (keep hyphenated parts together as one word)
           const words = variant.split(/\s+/);
-          const firstWord = words[0].toLowerCase().replace(/[^a-z]/g, '');
-          const lastWord = words[words.length - 1].toLowerCase().replace(/[^a-z]/g, '');
-          if (edgeJunk.has(firstWord) || edgeJunk.has(lastWord)) continue;
+          const firstWord = words[0].toLowerCase().replace(/[^a-z-]/g, '');
+          const lastWord = words[words.length - 1].toLowerCase().replace(/[^a-z-]/g, '');
+          // For edge-junk check, strip hyphens so "three-way" checks "threeway"
+          // but also check each sub-part of hyphenated words.
+          const firstBase = firstWord.replace(/-/g, '');
+          const lastBase = lastWord.replace(/-/g, '');
+          const firstParts = firstWord.split('-');
+          const lastParts = lastWord.split('-');
+          if (edgeJunk.has(firstBase) || edgeJunk.has(lastBase)) continue;
+          // Check individual parts of hyphenated words at edges
+          if (firstParts.length === 1 && edgeJunk.has(firstParts[0])) continue;
+          if (lastParts.length === 1 && edgeJunk.has(lastParts[0])) continue;
 
           // Reject trailing adverbs (-ly, length > 3)
-          if (lastWord.length > 3 && lastWord.endsWith('ly')) continue;
+          if (lastBase.length > 3 && lastBase.endsWith('ly')) continue;
 
           // Reject leading gerunds/verbs (-ing) unless the word is part of
           // an original key concept (e.g. "Processing" in "Data Processing").
-          if (firstWord.endsWith('ing') && firstWord.length > 4 && !keyConceptWordSet.has(firstWord)) continue;
+          if (firstBase.endsWith('ing') && firstBase.length > 4 && !keyConceptWordSet.has(firstBase)) continue;
 
           // Reject trailing -ing words that are not known concept words
-          if (lastWord.endsWith('ing') && lastWord.length > 4 && !keyConceptWordSet.has(lastWord)) continue;
+          if (lastBase.endsWith('ing') && lastBase.length > 4 && !keyConceptWordSet.has(lastBase)) continue;
 
           seen.add(normV);
           expanded.push({ term: variant, definition: concept.definition });
@@ -323,8 +386,16 @@ function generateDeterministicFIB(
     }
   }
 
-  // Shuffle for variety
-  const shuffled = shuffleArray(candidates);
+  // Shuffle for variety, then sort by term length descending so that
+  // longer (more complete) phrases are tried first.  For EASY difficulty,
+  // sort *ascending* so shorter / single-word terms are preferred.
+  let sorted = shuffleArray(candidates);
+  if (difficulty === 'EASY') {
+    sorted.sort((a, b) => a.term.length - b.term.length);
+  } else {
+    sorted.sort((a, b) => b.term.length - a.term.length);
+  }
+  const shuffled = sorted;
 
   // Greeting / off-topic patterns to skip
   const greetingPatterns = [
@@ -1645,8 +1716,22 @@ export async function generateQuizWithGemma(
     const deterministicItems = generateDeterministicFIB(summary, keyConcepts, count, difficulty);
     if (deterministicItems && deterministicItems.length >= count) {
       const elapsed = Date.now() - startTime;
-      console.log(`\n=== Deterministic FIB Complete (${elapsed}ms) ===`);
-      console.log(`Produced ${deterministicItems.length} items for ${count} requested — zero API calls.`);
+      const elapsedSeconds = Math.floor(elapsed / 1000);
+      const minutes = Math.floor(elapsedSeconds / 60);
+      const seconds = elapsedSeconds % 60;
+      const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
+
+      console.log(`\n=== Generation Complete ===`);
+      console.log(`Requested: ${count} (deterministic fast-path)`);
+      console.log(`Total verified items generated: ${deterministicItems.length}`);
+      console.log(`Final items returned: ${Math.min(deterministicItems.length, count)}`);
+      console.log(`Rejected items: 0`);
+      console.log(`Total waves: 0 (0 API calls)`);
+      console.log(`Success rate: 100%`);
+      console.log(`JSON parse errors (possible truncations): 0`);
+      console.log(`Time elapsed: ${timeString}`);
+      console.log(`===========================\n`);
+
       return {
         type: 'fill_blank',
         difficulty: difficulty.toLowerCase(),
