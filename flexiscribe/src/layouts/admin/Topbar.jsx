@@ -218,7 +218,7 @@ export default function TopBar({ onMenuClick }) {
             <Menu size={22} className="text-[#4c4172]" />
           </button>
 
-          {/* SEARCH - FIXED AUTOCOMPLETE ISSUE */}
+          {/* SEARCH */}
           <div className="relative flex-1 max-w-[900px]" ref={searchRef}>
             <Search
               size={18}
@@ -233,7 +233,6 @@ export default function TopBar({ onMenuClick }) {
               onFocus={() => {
                 if (searchResults.length > 0) setSearchOpen(true);
               }}
-              // FIX: Multiple attributes to prevent browser autofill
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
@@ -300,17 +299,17 @@ export default function TopBar({ onMenuClick }) {
             )}
           </div>
 
-          {/* RIGHT */}
+          {/* RIGHT SECTION - ICONS */}
           <div className="ml-auto flex items-center">
-
-            {/* NOTIFICATIONS */}
-            <div className="relative mx-2">
+            
+            {/* NOTIFICATIONS - Added left margin for space */}
+            <div className="relative ml-2 sm:ml-3">
               <button
                 onClick={() => {
                   setNotifOpen(!notifOpen);
                   setUserOpen(false);
                 }}
-                className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-white"
+                className="w-10 h-9 flex items-center justify-center rounded-md hover:bg-white relative"
               >
                 <Bell size={18} className="text-[#6f63a6]" />
                 {unreadCount > 0 && (
@@ -318,60 +317,70 @@ export default function TopBar({ onMenuClick }) {
                 )}
               </button>
 
+              {/* NOTIFICATIONS DROPDOWN */}
               {notifOpen && (
-                <div className="absolute right-0 top-12 w-[320px] sm:w-[360px] rounded-xl bg-white border shadow-lg">
-                  <div className="px-4 py-3 border-b">
-                    <p className="text-sm font-semibold text-[#4c4172]">
-                      Notifications {unreadCount > 0 && `(${unreadCount} unread)`}
-                    </p>
-                  </div>
+                <>
+                  {/* Backdrop for mobile */}
+                  <div 
+                    className="fixed inset-0 bg-black/20 z-40 md:hidden"
+                    onClick={() => setNotifOpen(false)}
+                  />
+                  
+                  {/* Dropdown - appears below bell on all devices */}
+                  <div className="absolute right-0 top-12 z-50 w-[320px] sm:w-[360px] max-w-[calc(100vw-32px)] rounded-xl bg-white border shadow-lg">
+                    <div className="px-4 py-3 border-b">
+                      <p className="text-sm font-semibold text-[#4c4172]">
+                        Notifications {unreadCount > 0 && `(${unreadCount} unread)`}
+                      </p>
+                    </div>
 
-                  <div className="divide-y max-h-[300px] overflow-y-auto">
-                    {recentNotifications.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-sm text-[#9d8adb]">
-                        No notifications
-                      </div>
-                    ) : (
-                      recentNotifications.map((n) => (
-                        <div
-                          key={n.id}
-                          className={`px-4 py-3 hover:bg-[#f7f6fc] cursor-pointer ${
-                            !n.read ? "bg-blue-50/30" : ""
-                          }`}
-                          onClick={() => {
-                            if (!n.read) {
-                              markAsRead([n.id]);
-                            }
-                          }}
-                        >
-                          <p className="text-sm font-medium text-[#4c4172]">
-                            {n.title}
-                          </p>
-                          <p className="text-xs text-[#6f63a6]">
-                            {n.message}
-                          </p>
-                          <p className="text-xs text-[#9d8adb] mt-1">
-                            {formatTimeAgo(n.createdAt)}
-                          </p>
+                    <div className="divide-y max-h-[400px] overflow-y-auto">
+                      {recentNotifications.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-[#9d8adb]">
+                          No notifications
                         </div>
-                      ))
+                      ) : (
+                        recentNotifications.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`px-4 py-3 hover:bg-[#f7f6fc] cursor-pointer ${
+                              !n.read ? "bg-blue-50/30" : ""
+                            }`}
+                            onClick={() => {
+                              if (!n.read) {
+                                markAsRead([n.id]);
+                              }
+                            }}
+                          >
+                            <p className="text-sm font-medium text-[#4c4172] break-words pr-6">
+                              {n.title}
+                            </p>
+                            <p className="text-xs text-[#6f63a6] mt-1 break-words">
+                              {n.message}
+                            </p>
+                            <p className="text-xs text-[#9d8adb] mt-1">
+                              {formatTimeAgo(n.createdAt)}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {notifications.length > 0 && (
+                      <div className="px-4 py-3 border-t text-center">
+                        <button
+                          onClick={() => {
+                            setNotifOpen(false);
+                            setViewAllOpen(true);
+                          }}
+                          className="text-sm text-[#6f63a6] hover:underline w-full py-2"
+                        >
+                          View all notifications
+                        </button>
+                      </div>
                     )}
                   </div>
-
-                  {notifications.length > 0 && (
-                    <div className="px-4 py-3 border-t text-center">
-                      <button
-                        onClick={() => {
-                          setNotifOpen(false);
-                          setViewAllOpen(true);
-                        }}
-                        className="text-sm text-[#6f63a6] hover:underline"
-                      >
-                        View all notifications
-                      </button>
-                    </div>
-                  )}
-                </div>
+                </>
               )}
             </div>
 
@@ -395,37 +404,49 @@ export default function TopBar({ onMenuClick }) {
                 <ChevronDown size={14} className="text-[#6f63a6]" />
               </button>
 
+              {/* USER MENU DROPDOWN */}
               {userOpen && (
-                <div className="absolute right-0 top-12 w-56 rounded-xl bg-white border shadow-lg p-2">
-                  <MenuItem
-                    icon={<User size={16} />}
-                    label="View Profile"
-                    onClick={() => {
-                      setProfileTab("profile");
-                      setProfileOpen(true);
-                      closeAll();
-                    }}
+                <>
+                  {/* Backdrop for mobile */}
+                  <div 
+                    className="fixed inset-0 bg-black/20 z-40 md:hidden"
+                    onClick={() => setUserOpen(false)}
                   />
+                  
+                  {/* Dropdown - appears below user button on all devices */}
+                  <div className="absolute right-0 top-12 z-50 w-56 rounded-xl bg-white border shadow-lg">
+                    <div className="p-2">
+                      <MenuItem
+                        icon={<User size={16} />}
+                        label="View Profile"
+                        onClick={() => {
+                          setProfileTab("profile");
+                          setProfileOpen(true);
+                          closeAll();
+                        }}
+                      />
 
-                  <MenuItem
-                    icon={<Settings size={16} />}
-                    label="Account Settings"
-                    onClick={() => {
-                      setProfileTab("security");
-                      setProfileOpen(true);
-                      closeAll();
-                    }}
-                  />
+                      <MenuItem
+                        icon={<Settings size={16} />}
+                        label="Account Settings"
+                        onClick={() => {
+                          setProfileTab("security");
+                          setProfileOpen(true);
+                          closeAll();
+                        }}
+                      />
 
-                  <div className="my-2 h-px bg-[#ece9f6]" />
+                      <div className="my-2 h-px bg-[#ece9f6]" />
 
-                  <MenuItem
-                    icon={<LogOut size={16} />}
-                    label="Sign out"
-                    onClick={handleSignOut}
-                    danger
-                  />
-                </div>
+                      <MenuItem
+                        icon={<LogOut size={16} />}
+                        label="Sign out"
+                        onClick={handleSignOut}
+                        danger
+                      />
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -435,7 +456,7 @@ export default function TopBar({ onMenuClick }) {
       {/* SPACER */}
       <div className="h-[72px]" />
 
-      {/* MODALS */}
+      {/* ALL NOTIFICATIONS MODAL */}
       {viewAllOpen && (
         <Modal
           title="All Notifications"
@@ -449,7 +470,7 @@ export default function TopBar({ onMenuClick }) {
             notifications.map((n) => (
               <div
                 key={n.id}
-                className={`px-6 py-4 hover:bg-[#f7f6fc] cursor-pointer ${
+                className={`px-4 sm:px-6 py-4 hover:bg-[#f7f6fc] cursor-pointer ${
                   !n.read ? "bg-blue-50/30" : ""
                 }`}
                 onClick={() => {
@@ -458,10 +479,10 @@ export default function TopBar({ onMenuClick }) {
                   }
                 }}
               >
-                <p className="text-sm font-medium text-[#4c4172]">
+                <p className="text-sm font-medium text-[#4c4172] break-words pr-6">
                   {n.title}
                 </p>
-                <p className="text-xs text-[#6f63a6] mt-1">
+                <p className="text-xs text-[#6f63a6] mt-1 break-words">
                   {n.message}
                 </p>
                 <p className="text-xs text-[#9d8adb] mt-1">
@@ -473,20 +494,20 @@ export default function TopBar({ onMenuClick }) {
         </Modal>
       )}
 
+      {/* PROFILE MODAL */}
       <ProfileModal
         open={profileOpen}
         defaultTab={profileTab}
         onClose={() => {
           setProfileOpen(false);
-          fetchProfile(); // Refresh profile after closing modal
+          fetchProfile();
         }}
       />
     </>
   );
 }
 
-/* SMALL COMPONENTS */
-
+/* MENU ITEM COMPONENT */
 function MenuItem({ icon, label, onClick, danger }) {
   return (
     <button
@@ -503,28 +524,33 @@ function MenuItem({ icon, label, onClick, danger }) {
   );
 }
 
+/* MODAL COMPONENT */
 function Modal({ title, onClose, children }) {
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-2 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-white rounded-2xl shadow-xl"
+        className="w-full max-w-xl bg-white rounded-2xl shadow-xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <p className="text-lg font-semibold text-[#4c4172]">{title}</p>
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b flex-shrink-0">
+          <p className="text-base sm:text-lg font-semibold text-[#4c4172] truncate pr-2">
+            {title}
+          </p>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-full"
+            className="p-1 hover:bg-gray-100 rounded-full flex-shrink-0"
           >
             <X size={20} className="text-[#6f63a6]" />
           </button>
         </div>
 
-        <div className="max-h-[420px] overflow-y-auto divide-y">
-          {children}
+        <div className="overflow-y-auto flex-1">
+          <div className="divide-y">
+            {children}
+          </div>
         </div>
       </div>
     </div>
