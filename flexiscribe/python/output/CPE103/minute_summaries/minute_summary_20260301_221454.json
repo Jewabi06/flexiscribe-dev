@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "session_id": "e4eeb811-9508-48e0-b12e-3ae5c3763f49",
+    "run_id": "20260301_221454",
+    "course_code": "CPE103"
+  },
+  "summaries": [
+    {
+      "minute": 1,
+      "timestamp": "22:16:02",
+      "summary": "The lecture is a mic test, with CPU limitations during model loading. The speaker is recording a test session with three tests, and asks 'Como sta?' (How are you?).",
+      "key_points": [
+        "Mic test, CPU limitations during model loading.",
+        "Recording a test session with three tests.",
+        "Asking 'Como sta?' (How are you?)."
+      ]
+    }
+  ]
+}

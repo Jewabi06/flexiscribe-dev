@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "session_id": "e4eeb811-9508-48e0-b12e-3ae5c3763f49",
+    "run_id": "20260301_221454",
+    "course_code": "CPE103",
+    "educator_id": "cml4um9rr0001hc9dxuemv126",
+    "started_at": "2026-03-01 22:14:54",
+    "duration": "5m 12s"
+  },
+  "chunks": [
+    {
+      "minute": 1,
+      "timestamp": "22:16:02",
+      "text": "This is a mic test, test 1, 2, 3. Loading whisper models is small on CPU while waiting for speech. This is recording in progress my test test one two three My test test, one, two, three. Ma? So what I'm doing right now, Como sta? Anong gina gala?"
+    },
+    {
+      "minute": 2,
+      "timestamp": "22:20:06",
+      "text": "Keyboard, mouse, mic test, test, one, two, three. Recording. Recording. Recording. Okay. Okay. Hello. Hello. Hello. Good evening, everyone. Good day."
+    }
+  ]
+}

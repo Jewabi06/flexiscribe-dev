@@ -4,6 +4,11 @@ import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
+// Allow up to 3 minutes for stop — FastAPI must wait for Whisper to finish
+// the current chunk, process remaining audio, summarise final text, and
+// generate the Cornell summary (all on Jetson Orin Nano).
+export const maxDuration = 180;
+
 /**
  * POST /api/transcribe/stop
  * Stop a running transcription session.
@@ -27,11 +32,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Call FastAPI backend to stop transcription
+    // 3-minute timeout: Whisper finishes current chunk + remaining buffer,
+    // then summarizer processes remaining text + Cornell summary on CPU.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180_000);
+
     const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     if (!response.ok) {
       let errorMsg = "Failed to stop transcription";
@@ -173,6 +186,7 @@ export async function POST(request: NextRequest) {
         chunks_count: chunks.length,
         has_summary: !!data.final_summary,
         transcript: data.transcript,
+        live_transcript: data.live_transcript || null,
         final_summary: data.final_summary,
       },
       { status: 200 }

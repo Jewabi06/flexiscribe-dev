@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "session_id": "e12cae67-d8bb-4586-bfb8-6214f701dc46",
+    "run_id": "20260301_225654",
+    "course_code": "CPE103"
+  },
+  "summaries": [
+    {
+      "minute": 1,
+      "timestamp": "22:57:54",
+      "summary": "This is a mic test, focusing on Chromium and Whisperm. The audio device is set to 44,100 Hz and the application has completed startup.",
+      "key_points": [
+        "Test 1, 2, and 3 are being conducted.",
+        "The model is using a native audio device at 44,100 Hz.",
+        "Application startup is complete."
+      ]
+    }
+  ]
+}
