@@ -5,10 +5,10 @@ import { sendVerificationCodeEmail } from "@/lib/email";
 import bcrypt from "bcrypt";
 
 /**
- * POST /api/students/change-password
+ * POST /api/educator/change-password
  *
  * Step 1 (action: "send-code"):
- *   Validates current password, sends verification code to student's email.
+ *   Validates current password, sends verification code to educator's email.
  *   Body: { action: "send-code", currentPassword, newPassword }
  *
  * Step 2 (action: "verify-and-change"):
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-    if (user.role !== "STUDENT") {
+    if (user.role !== "EDUCATOR") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Get student name for email
-    const student = await prisma.student.findUnique({
+    // Get educator name for email
+    const educator = await prisma.educator.findUnique({
       where: { userId: user.userId },
       select: { fullName: true },
     });
@@ -103,8 +103,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Also store the new password hash temporarily in the User token field
-      // so we can retrieve it when verifying
+      // Store the new password hash temporarily in the User token field
       await prisma.user.update({
         where: { id: dbUser.id },
         data: {
@@ -117,7 +116,7 @@ export async function POST(request: NextRequest) {
       const emailResult = await sendVerificationCodeEmail(
         dbUser.email,
         code,
-        student?.fullName || "Student",
+        educator?.fullName || "Educator",
         "password-change"
       );
 
@@ -211,7 +210,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
-    console.error("Change password error:", error);
+    console.error("Educator change password error:", error);
     return NextResponse.json(
       { error: "An error occurred while processing your request" },
       { status: 500 }
