@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import crypto from "crypto";
-import { sendPasswordResetEmail } from "@/lib/email";
+import { sendVerificationCodeEmail } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,22 +37,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           message:
-            "If an account with that email exists, a password reset link has been sent.",
+            "If an account with that email exists, a verification code has been sent.",
         },
         { status: 200 }
       );
     }
 
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+    // Invalidate any existing unused codes for this user/purpose
+    await prisma.verificationCode.updateMany({
+      where: {
+        userId: user.id,
+        purpose: "password-reset",
+        used: false,
+      },
+      data: { used: true },
+    });
 
-    // Save token to database
-    await prisma.user.update({
-      where: { id: user.id },
+    // Generate 6-digit verification code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save code to database
+    await prisma.verificationCode.create({
       data: {
-        token: resetToken,
-        tokenExpiry: resetTokenExpiry,
+        userId: user.id,
+        code,
+        purpose: "password-reset",
+        expiresAt,
       },
     });
 
@@ -65,11 +75,12 @@ export async function POST(request: NextRequest) {
       userName = user.educator.fullName;
     }
 
-    // Send password reset email
-    const emailResult = await sendPasswordResetEmail(
+    // Send verification code email
+    const emailResult = await sendVerificationCodeEmail(
       user.email,
-      resetToken,
-      userName
+      code,
+      userName,
+      "password-reset"
     );
 
     if (!emailResult.success) {
@@ -80,7 +91,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         message:
-          "If an account with that email exists, a password reset link has been sent.",
+          "If an account with that email exists, a verification code has been sent.",
       },
       { status: 200 }
     );

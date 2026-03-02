@@ -244,13 +244,7 @@ export default function StudentProfile() {
         return false;
       }
       
-      // In development, the code is returned directly — auto-fill it
-      if (data.devCode) {
-        setPasswordData(prev => ({ ...prev, verificationCode: data.devCode }));
-        setModalInfo({ isOpen: true, title: "Dev Mode — Code Auto-filled", message: `Email sending is skipped in development. Your verification code (${data.devCode}) has been auto-filled.`, type: "info" });
-      } else {
-        setModalInfo({ isOpen: true, title: "Verification Code Sent", message: `A verification code has been sent to ${formData.email}. Please check your inbox.`, type: "info" });
-      }
+      setModalInfo({ isOpen: true, title: "Verification Code Sent", message: `A 6-digit verification code has been sent to ${formData.email}. Please check your inbox.`, type: "info" });
       return true;
     } catch (error) {
       console.error('Error sending verification code:', error);
@@ -578,7 +572,7 @@ export default function StudentProfile() {
                 <div className="password-form verification-step">
                   <p className="verification-text">
                     A verification code has been sent to <strong>{formData.email}</strong>. 
-                    Please enter the 4-digit code below to complete the password change.
+                    Please enter the 6-digit code below to complete the password change.
                   </p>
                   
                   <div className="form-group">
@@ -589,13 +583,13 @@ export default function StudentProfile() {
                       name="verificationCode"
                       value={passwordData.verificationCode}
                       onChange={(e) => {
-                        const value = e.target.value.replace(/\D/g, "").slice(0, 4);
+                        const value = e.target.value.replace(/\D/g, "").slice(0, 6);
                         setPasswordData(prev => ({ ...prev, verificationCode: value }));
                         setPasswordErrors(prev => ({ ...prev, verificationCode: "" }));
                       }}
                       className={passwordErrors.verificationCode ? "error" : ""}
-                      placeholder="0000"
-                      maxLength={4}
+                      placeholder="000000"
+                      maxLength={6}
                       style={{ textAlign: 'center', fontSize: '24px', letterSpacing: '8px' }}
                     />
                     {passwordErrors.verificationCode && (

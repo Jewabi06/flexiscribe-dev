@@ -5,11 +5,11 @@ import bcrypt from "bcrypt";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { token, password } = body;
+    const { email, code, password } = body;
 
-    if (!token || !password) {
+    if (!email || !code || !password) {
       return NextResponse.json(
-        { error: "Token and new password are required" },
+        { error: "Email, verification code, and new password are required" },
         { status: 400 }
       );
     }
@@ -22,22 +22,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find user by reset token
+    // Find user by email
     const user = await prisma.user.findUnique({
-      where: { token: token },
+      where: { email },
     });
 
     if (!user) {
       return NextResponse.json(
-        { error: "Invalid or expired reset token" },
+        { error: "Invalid email or verification code" },
         { status: 400 }
       );
     }
 
-    // Check if token is expired
-    if (!user.tokenExpiry || user.tokenExpiry < new Date()) {
+    // Find matching verification code
+    const verificationCode = await prisma.verificationCode.findFirst({
+      where: {
+        userId: user.id,
+        code,
+        purpose: "password-reset",
+        used: false,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!verificationCode) {
       return NextResponse.json(
-        { error: "Reset token has expired" },
+        { error: "Invalid verification code" },
+        { status: 400 }
+      );
+    }
+
+    // Check if code is expired
+    if (verificationCode.expiresAt < new Date()) {
+      // Mark as used since it's expired
+      await prisma.verificationCode.update({
+        where: { id: verificationCode.id },
+        data: { used: true },
+      });
+      return NextResponse.json(
+        { error: "Verification code has expired. Please request a new one." },
         { status: 400 }
       );
     }
@@ -45,15 +68,21 @@ export async function POST(request: NextRequest) {
     // Hash new password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Update password and clear reset token
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: hashedPassword,
-        token: null,
-        tokenExpiry: null,
-      },
-    });
+    // Update password and mark code as used
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+          token: null,
+          tokenExpiry: null,
+        },
+      }),
+      prisma.verificationCode.update({
+        where: { id: verificationCode.id },
+        data: { used: true },
+      }),
+    ]);
 
     // Audit log - password reset
     try {
