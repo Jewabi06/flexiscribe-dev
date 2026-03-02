@@ -225,16 +225,16 @@ export default function ReviewersPage() {
 
           {/* Enrolled Classes Section */}
           <div className="section-container">
-            <h2 className="section-title">Enrolled Classes</h2>
+            <h2 className="section-title">Summaries</h2>
             {loadingClasses ? (
               <div className="empty-state-container">
-                <p className="empty-state-text">Loading classes...</p>
+                <p className="empty-state-text">Loading summaries...</p>
               </div>
             ) : enrolledClasses.length === 0 ? (
               <div className="empty-state-container">
                 <FaFolderOpen className="empty-state-icon" />
-                <h3 className="empty-state-heading">No Enrolled Classes</h3>
-                <p className="empty-state-text">Enter a class code above to join a class and view reviewers.</p>
+                <h3 className="empty-state-heading">No Summaries Available</h3>
+                <p className="empty-state-text">Enter a class code above to join a class and view summaries.</p>
               </div>
             ) : (
               <div className="folders-grid">
