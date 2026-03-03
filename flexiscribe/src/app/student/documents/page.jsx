@@ -169,14 +169,35 @@ export default function ReviewersPage() {
     }
   };
 
-  const handleClassClick = (classItem) => {
-    router.push(`/student/documents/${classItem.classCode}`);
+  const handleClassClick = (classItem, type) => {
+    router.push(`/student/documents/${classItem.classCode}?type=${type}`);
   };
 
   const handleTranscriptClick = (transcript) => {
     const code = transcript.class?.classCode || transcript.course;
     router.push(`/student/documents/transcripts/${code}`);
   };
+
+  // Group transcripts by class and sessionType for Reviewers (lecture) and MOTM (meeting)
+  const groupByClassAndType = (transcripts, type) => {
+    const grouped = {};
+    transcripts.filter((t) => t.sessionType === type).forEach((t) => {
+      const key = t.class?.classCode || t.course;
+      if (!grouped[key]) {
+        grouped[key] = {
+          classCode: key,
+          subject: t.class?.subject || t.course,
+          section: t.class?.section || "",
+          count: 0,
+        };
+      }
+      grouped[key].count++;
+    });
+    return Object.values(grouped);
+  };
+
+  const reviewerGroups = groupByClassAndType(rawTranscripts, "lecture");
+  const motmGroups = groupByClassAndType(rawTranscripts, "meeting");
 
   // Don't render until mounted and data is loaded to avoid flash of default data
   if (!mounted || !currentTime || loadingClasses || loadingTranscripts) {
@@ -224,29 +245,31 @@ export default function ReviewersPage() {
           {/* Reviewers Section */}
           <div className="section-container">
             <h2 className="section-title">Reviewers</h2>
-            {loadingClasses ? (
+            {loadingTranscripts ? (
               <div className="empty-state-container">
-                <p className="empty-state-text">Loading summaries...</p>
+                <p className="empty-state-text">Loading reviewers...</p>
               </div>
-            ) : enrolledClasses.length === 0 ? (
+            ) : reviewerGroups.length === 0 ? (
               <div className="empty-state-container">
                 <FaFolderOpen className="empty-state-icon" />
-                <h3 className="empty-state-heading">No Summaries Available</h3>
-                <p className="empty-state-text">Enter a class code above to join a class and view summaries.</p>
+                <h3 className="empty-state-heading">No Reviewers Available</h3>
+                <p className="empty-state-text">There are no reviewers available for your enrolled classes yet.</p>
               </div>
             ) : (
               <div className="folders-grid">
-                {enrolledClasses.map((classItem) => (
+                {reviewerGroups.map((group) => (
                   <div
-                    key={classItem.id}
+                    key={group.classCode}
                     className="folder-card"
-                    onClick={() => handleClassClick(classItem)}
+                    onClick={() => handleClassClick({ classCode: group.classCode }, "lecture")}
                   >
                     <div className="folder-icon-wrapper">
                       <FaFolderOpen className="folder-icon" />
                     </div>
-                    <div className="folder-label">{classItem.subject}</div>
-                    <div className="folder-sublabel">Section {classItem.section}</div>
+                    <div className="folder-label">{group.subject}</div>
+                    <div className="folder-sublabel">
+                      {group.section ? `Section ${group.section} \u2022 ` : ""}{group.count} reviewer{group.count !== 1 ? "s" : ""}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -256,29 +279,31 @@ export default function ReviewersPage() {
           {/* MOTM Section */}
           <div className="section-container">
             <h2 className="section-title">Minutes of the Meeting</h2>
-            {loadingClasses ? (
+            {loadingTranscripts ? (
               <div className="empty-state-container">
                 <p className="empty-state-text">Loading...</p>
               </div>
-            ) : enrolledClasses.length === 0 ? (
+            ) : motmGroups.length === 0 ? (
               <div className="empty-state-container">
                 <FaFolderOpen className="empty-state-icon" />
                 <h3 className="empty-state-heading">No MOTM Available</h3>
-                <p className="empty-state-text">Enter a class code above to join a class and view minutes of the meeting.</p>
+                <p className="empty-state-text">There are no minutes of the meeting for your enrolled classes yet.</p>
               </div>
             ) : (
               <div className="folders-grid">
-                {enrolledClasses.map((classItem) => (
+                {motmGroups.map((group) => (
                   <div
-                    key={classItem.id}
+                    key={group.classCode}
                     className="folder-card"
-                    onClick={() => handleClassClick(classItem)}
+                    onClick={() => handleClassClick({ classCode: group.classCode }, "meeting")}
                   >
                     <div className="folder-icon-wrapper">
                       <FaFolderOpen className="folder-icon" />
                     </div>
-                    <div className="folder-label">{classItem.subject}</div>
-                    <div className="folder-sublabel">Section {classItem.section}</div>
+                    <div className="folder-label">{group.subject}</div>
+                    <div className="folder-sublabel">
+                      {group.section ? `Section ${group.section} \u2022 ` : ""}{group.count} MOTM{group.count !== 1 ? "s" : ""}
+                    </div>
                   </div>
                 ))}
               </div>

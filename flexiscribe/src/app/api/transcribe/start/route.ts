@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     // Create a PENDING transcription record in the database
     const transcription = await prisma.transcription.create({
       data: {
-        title: title || `${courseCode} - Lecture ${new Date().toLocaleDateString()}`,
+        title: title || `${courseCode} - ${validSessionType === "meeting" ? "Meeting" : "Lecture"} ${new Date().toLocaleDateString()}`,
         course: courseCode,
         date: new Date().toLocaleDateString("en-US", {
           year: "numeric",
@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
         duration: "0m 0s",
         content: "",
         status: "PENDING",
+        sessionType: validSessionType,
         sessionId: data.session_id,
         classId: classRecord.id,
         educatorId: educator.id,

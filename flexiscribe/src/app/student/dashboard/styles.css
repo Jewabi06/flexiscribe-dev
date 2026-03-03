@@ -2515,6 +2515,15 @@ body {
   color: var(--accent-secondary);
 }
 
+.search-bar input[type="search"]::-webkit-search-cancel-button,
+.search-bar input[type="search"]::-webkit-search-decoration,
+.search-bar input[type="search"]::-webkit-search-results-button,
+.search-bar input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
 .clear-search-btn {
   position: absolute;
   right: 12px;

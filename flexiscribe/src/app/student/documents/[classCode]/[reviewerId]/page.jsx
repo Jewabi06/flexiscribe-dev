@@ -11,13 +11,67 @@ import LoadingScreen from "@/components/shared/LoadingScreen";
 import "./styles.css";
 
 /**
- * Convert summaryJson (Cornell Notes) to editable HTML for TinyMCE
+ * Convert summaryJson to editable HTML for TinyMCE.
+ * Supports both Cornell Notes (lecture) and MOTM (meeting) formats.
  */
 function summaryJsonToHtml(summaryJson) {
   if (!summaryJson) return "<p>No summary data available.</p>";
 
   const s = typeof summaryJson === "string" ? JSON.parse(summaryJson) : summaryJson;
   const title = s.title || "Untitled";
+
+  // ─── Detect MOTM format (meeting) ───────────────────────────────
+  const isMOTM = !!(s.agenda || s.decisions || s.action_items);
+
+  if (isMOTM) {
+    const agenda = s.agenda || s.topics || [];
+    const decisions = s.decisions || [];
+    const actionItems = s.action_items || [];
+    const summary = s.summary || "";
+
+    let html = `<table style="width:100%; border-collapse:collapse; margin:20px 0;">`;
+    // Header
+    html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:linear-gradient(135deg,#3b82f6,#1d4ed8); color:white; font-weight:700; font-size:18px; text-align:center;">📋 ${title} — Minutes of the Meeting</td></tr>`;
+
+    // Agenda
+    if (agenda.length > 0) {
+      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#eff6ff;"><strong style="color:#1d4ed8;">📌 Agenda / Topics</strong><ul style="margin:8px 0 0 16px;">`;
+      agenda.forEach((item) => {
+        html += `<li style="margin-bottom:4px;">${typeof item === "string" ? item : item.topic || item.title || JSON.stringify(item)}</li>`;
+      });
+      html += `</ul></td></tr>`;
+    }
+
+    // Decisions
+    if (decisions.length > 0) {
+      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#f0fdf4;"><strong style="color:#16a34a;">✅ Decisions</strong><ul style="margin:8px 0 0 16px;">`;
+      decisions.forEach((item) => {
+        html += `<li style="margin-bottom:4px;">${typeof item === "string" ? item : item.decision || item.text || JSON.stringify(item)}</li>`;
+      });
+      html += `</ul></td></tr>`;
+    }
+
+    // Action Items
+    if (actionItems.length > 0) {
+      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#fefce8;"><strong style="color:#ca8a04;">⚡ Action Items</strong><ul style="margin:8px 0 0 16px;">`;
+      actionItems.forEach((item) => {
+        const text = typeof item === "string" ? item : item.task || item.action || item.text || JSON.stringify(item);
+        const assignee = typeof item === "object" && item.assignee ? ` <em>(${item.assignee})</em>` : "";
+        html += `<li style="margin-bottom:4px;">${text}${assignee}</li>`;
+      });
+      html += `</ul></td></tr>`;
+    }
+
+    // Summary
+    if (summary) {
+      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#faf5ff;"><strong style="color:#7c3aed;">Summary:</strong><br/>${summary}</td></tr>`;
+    }
+
+    html += `</table>`;
+    return html;
+  }
+
+  // ─── Cornell Notes format (lecture — default) ──────────────────
   const cueQuestions = s.cue_questions || [];
   const notes = s.notes || [];
   const summary = s.summary || "";
@@ -50,6 +104,7 @@ export default function ReviewerEditorPage() {
   
   const [editorContent, setEditorContent] = useState("");
   const [loading, setLoading] = useState(true);
+  const [tinymceReady, setTinymceReady] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
@@ -206,7 +261,7 @@ export default function ReviewerEditorPage() {
 
   return (
     <div className={`reviewer-editor-container ${darkMode ? 'dark-mode' : ''}`}>
-      {loading && <LoadingScreen />}
+      {(loading || !tinymceReady) && <LoadingScreen />}
       {/* Toolbar */}
       <div className="editor-toolbar">
         <div className="toolbar-left">
@@ -246,8 +301,7 @@ export default function ReviewerEditorPage() {
               onInit={(evt, editor) => {
                 editorRef.current = editor;
                 contentInitialized.current = true;
-                console.log("TinyMCE initialized, editor ready");
-                console.log("Content loaded:", contentLoaded, "Content length:", initialContentRef.current?.length || 0);
+                setTinymceReady(true);
               }}
               onEditorChange={(content) => {
                 isTyping.current = true;
