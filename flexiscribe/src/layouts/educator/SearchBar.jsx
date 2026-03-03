@@ -69,19 +69,20 @@ export default function SearchBar({ placeholder = "Search transcriptions..." }) 
 
   return (
     <div className="relative w-full" ref={searchRef}>
-      {/* INPUT */}
+      {/* INPUT - Light grayish theme with purple icon */}
       <div
         className="
           w-full flex items-center gap-3
           px-5 py-3 lg:px-6 lg:py-4
           rounded-full
-          bg-gradient-to-b from-[#9d8adb] to-[#4c4172] dark:bg-[#2d2640]
-          shadow-[0_4px_20px_rgba(0,0,0,0.08)]
+          bg-gray-100 dark:bg-gray-800
+          shadow-[0_2px_10px_rgba(0,0,0,0.03)]
           transition-all duration-300
-          hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)]
+          hover:shadow-[0_4px_15px_rgba(0,0,0,0.05)]
+          border border-gray-200 dark:border-gray-700
         "
       >
-        <Search size={22} className="text-white shrink-0" />
+        <Search size={22} className="text-[#9d8adb] dark:text-[#9d8adb] shrink-0" />
 
         <input
           type="text"
@@ -92,37 +93,38 @@ export default function SearchBar({ placeholder = "Search transcriptions..." }) 
           aria-label="Search"
           className="
             flex-1 bg-transparent outline-none
-            text-sm lg:text-base text-white placeholder:text-white
+            text-sm lg:text-base text-gray-700 dark:text-gray-200 
+            placeholder:text-gray-400 dark:placeholder:text-gray-500
           "
         />
 
         {query && (
           <button
             onClick={() => { setQuery(""); setIsOpen(false); }}
-            className="text-white/70 hover:text-white transition"
+            className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition"
           >
             <X size={18} />
           </button>
         )}
       </div>
 
-      {/* DROPDOWN */}
+      {/* DROPDOWN - Light grayish theme */}
       {isOpen && (
         <div
           className="
             absolute top-full left-0 right-0 mt-2
-            bg-white dark:bg-[#2d2640]
-            rounded-xl shadow-lg border border-[#e3def4] dark:border-[#3d3560]
+            bg-white dark:bg-gray-800
+            rounded-xl shadow-lg border border-gray-200 dark:border-gray-700
             max-h-[300px] overflow-y-auto z-50
           "
         >
           {isSearching ? (
-            <div className="flex items-center justify-center py-8 text-sm text-[#6b6396]">
+            <div className="flex items-center justify-center py-8 text-sm text-gray-500 dark:text-gray-400">
               Searching...
             </div>
           ) : results.length > 0 ? (
             <div className="py-2">
-              <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#9d8adb]">
+              <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#9d8adb] dark:text-[#9d8adb]">
                 Transcriptions
               </div>
               {results.map((item) => (
@@ -131,16 +133,16 @@ export default function SearchBar({ placeholder = "Search transcriptions..." }) 
                   onClick={() => handleResultClick(item)}
                   className="
                     w-full flex items-center gap-3 px-4 py-2.5
-                    hover:bg-[#f3f1fa] dark:hover:bg-[#3d3560]
+                    hover:bg-gray-50 dark:hover:bg-gray-700/50
                     transition text-left
                   "
                 >
-                  <FileText size={16} className="text-[#9d8adb] shrink-0" />
+                  <FileText size={16} className="text-[#9d8adb] dark:text-[#9d8adb] shrink-0" />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-[#3f3764] dark:text-white truncate">
+                    <div className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">
                       {item.title}
                     </div>
-                    <div className="text-xs text-[#6b6396] dark:text-white/60 truncate">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {item.subject}
                     </div>
                   </div>
@@ -148,8 +150,8 @@ export default function SearchBar({ placeholder = "Search transcriptions..." }) 
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-[#6b6396]">
-              <Search size={24} className="mb-2 opacity-40" />
+            <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
+              <Search size={24} className="mb-2 opacity-40 text-[#9d8adb] dark:text-[#9d8adb]" />
               <p className="text-sm">No results found</p>
               <p className="text-xs opacity-70">Try a different search term</p>
             </div>

@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 
 /* ---------------- CLOCK ---------------- */
 
-function AnalogClock({ size = 140 }) {
+function AnalogClock({ size = 160 }) {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -80,7 +80,7 @@ function AnalogClock({ size = 140 }) {
 
 /* ---------------- SIDEBAR ---------------- */
 
-export default function Sidebar() {
+export default function Sidebar({ width = "350px" }) {
   const pathname = usePathname();
   const [openClasses, setOpenClasses] = useState(false);
   const [time, setTime] = useState("");
@@ -123,18 +123,21 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <aside className="edu-sidebar h-screen w-[300px] bg-gradient-to-b from-[#9d8adb] to-[#4c4172] text-white flex flex-col px-5 overflow-y-auto">
+    <aside 
+      className="edu-sidebar h-screen bg-gradient-to-b from-[#9d8adb] to-[#4c4172] text-white flex flex-col px-6 overflow-y-auto"
+      style={{ width: width }}
+    >
       
       {/* Logo */}
-      <div className="flex align-center gap-12px width-full py-6 px-2 mb-4">
+      <div className="flex items-center gap-2 w-full py-4 px-2 mb-2">
         <img
           src="/img/flexiscribe-logo.png"
           alt="fLexiScribe Logo"
-          className="h-16 w-16"
+          className="h-20 w-20"
         />
         <div className="flex flex-col items-start">
           <h1 className="text-2xl font-bold tracking-wide">fLexiScribe</h1>
-          <p className="text-xs">Your Note-Taking Assistant</p>
+          <p className="text-sm opacity-80 mt-1">Your Note-Taking Assistant</p>
         </div>
       </div>
 
@@ -158,14 +161,14 @@ export default function Sidebar() {
         {/* Classes */}
         <button
           onClick={() => setOpenClasses(!openClasses)}
-          className={`edu-nav-item flex items-center gap-4 px-6 py-4 rounded-xl transition-all duration-300 ${
-            openClasses ? "active" : ""
+          className={`flex items-center gap-4 px-7 py-5 rounded-xl transition-all duration-300 w-full ${
+            openClasses ? "active bg-white/15" : "hover:bg-white/10"
           }`}
         >
-          <GraduationCap size={24} className="opacity-90" />
-          <span className="text-[15px] flex-1 text-left">Classes</span>
+          <GraduationCap size={26} className="opacity-90" />
+          <span className="text-base flex-1 text-left font-medium">Classes</span>
           <ChevronDown
-            size={18}
+            size={20}
             className={`transition-transform duration-300 ${
               openClasses ? "rotate-180" : ""
             }`}
@@ -173,11 +176,11 @@ export default function Sidebar() {
         </button>
 
         {openClasses && (
-          <div className="ml-10 my-1 space-y-1">
+          <div className="ml-12 my-2 space-y-2">
             {loadingCourses ? (
-              <div className="px-4 py-3">
-                <div className="w-24 h-3 bg-white/20 rounded animate-pulse mb-2" />
-                <div className="w-20 h-3 bg-white/20 rounded animate-pulse" />
+              <div className="px-5 py-4">
+                <div className="w-28 h-4 bg-white/20 rounded animate-pulse mb-2" />
+                <div className="w-24 h-4 bg-white/20 rounded animate-pulse" />
               </div>
             ) : (
               <>
@@ -185,13 +188,13 @@ export default function Sidebar() {
                   <Link
                     key={course}
                     href={`/educator/classes/${course.toLowerCase()}`}
-                    className="edu-nav-sub-item block px-4 py-2.5 rounded-lg bg-white/10 text-sm"
+                    className="block px-5 py-3 rounded-lg bg-white/10 text-base hover:bg-white/20 transition-colors"
                   >
                     {course}
                   </Link>
                 ))}
                 {courses.length === 0 && (
-                  <p className="px-4 py-3 text-sm text-white/60">
+                  <p className="px-5 py-4 text-base text-white/60">
                     No classes assigned yet
                   </p>
                 )}
@@ -209,9 +212,9 @@ export default function Sidebar() {
       </nav>
 
       {/* Clock */}
-      <div className="edu-clock-widget mt-auto mb-8">
-        <AnalogClock size={130} />
-        <p className="edu-clock-time mt-3">
+      <div className="mt-auto mb-10 flex flex-col items-center">
+        <AnalogClock size={160} />
+        <p className="mt-4 text-xl font-medium">
           {time}, {day}
         </p>
       </div>
@@ -225,12 +228,12 @@ function NavItem({ icon: Icon, label, href, active }) {
   return (
     <Link
       href={href}
-      className={`edu-nav-item flex items-center gap-4 px-6 py-4 rounded-xl transition-all duration-300 ${
-        active ? "active" : ""
+      className={`flex items-center gap-4 px-7 py-5 rounded-xl transition-all duration-300 ${
+        active ? "bg-white/20" : "hover:bg-white/10"
       }`}
     >
-      <Icon size={24} className="opacity-90" />
-      <span className="text-[15px]">{label}</span>
+      <Icon size={26} className="opacity-90" />
+      <span className="text-base font-medium">{label}</span>
     </Link>
   );
 }
