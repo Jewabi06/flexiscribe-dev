@@ -221,9 +221,9 @@ export default function ReviewersPage() {
             </button>
           </div>
 
-          {/* Enrolled Classes Section */}
+          {/* Reviewers Section */}
           <div className="section-container">
-            <h2 className="section-title">Summaries</h2>
+            <h2 className="section-title">Reviewers</h2>
             {loadingClasses ? (
               <div className="empty-state-container">
                 <p className="empty-state-text">Loading summaries...</p>
@@ -233,6 +233,38 @@ export default function ReviewersPage() {
                 <FaFolderOpen className="empty-state-icon" />
                 <h3 className="empty-state-heading">No Summaries Available</h3>
                 <p className="empty-state-text">Enter a class code above to join a class and view summaries.</p>
+              </div>
+            ) : (
+              <div className="folders-grid">
+                {enrolledClasses.map((classItem) => (
+                  <div
+                    key={classItem.id}
+                    className="folder-card"
+                    onClick={() => handleClassClick(classItem)}
+                  >
+                    <div className="folder-icon-wrapper">
+                      <FaFolderOpen className="folder-icon" />
+                    </div>
+                    <div className="folder-label">{classItem.subject}</div>
+                    <div className="folder-sublabel">Section {classItem.section}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* MOTM Section */}
+          <div className="section-container">
+            <h2 className="section-title">Minutes of the Meeting</h2>
+            {loadingClasses ? (
+              <div className="empty-state-container">
+                <p className="empty-state-text">Loading...</p>
+              </div>
+            ) : enrolledClasses.length === 0 ? (
+              <div className="empty-state-container">
+                <FaFolderOpen className="empty-state-icon" />
+                <h3 className="empty-state-heading">No MOTM Available</h3>
+                <p className="empty-state-text">Enter a class code above to join a class and view minutes of the meeting.</p>
               </div>
             ) : (
               <div className="folders-grid">
