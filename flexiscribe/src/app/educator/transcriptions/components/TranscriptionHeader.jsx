@@ -29,34 +29,39 @@ export default function TranscriptionHeader() {
       <div className="flex items-center justify-between gap-3">
 
         {/* LEFT */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1">
           <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#9b8ae0] flex items-center justify-center text-white shadow-md">
             <FileText size={18} />
           </div>
 
           <h1 className="text-base sm:text-lg lg:text-xl font-semibold text-[#6b5fcf] dark:text-[#c5b8f5]">
-            Transcriptions
+            Documents
           </h1>
 
           {/* DESKTOP SEARCH */}
-          <div className="hidden lg:block relative w-[300px] xl:w-[500px] 2xl:w-[600px]">
+          <div className="hidden lg:block relative flex-1 max-w-2xl ml-4">
             <Search
               size={20}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-[#ffffff]"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9b8ae0]"
             />
             <input
               type="text"
-              placeholder="Search"
+              placeholder="Search documents..."
               className="
                 w-full
                 pl-[48px] pr-4 py-3
                 rounded-full
-                bg-[#9d8adb]
+                bg-[#f3f4f6]
                 text-sm
-                text-[#ffffff]
-                placeholder:text-[#ffffff]
+                text-[#1f2937]
+                placeholder:text-[#9ca3af]
                 outline-none
+                border
+                border-gray-300
                 shadow-[0_3px_15px_rgba(0,0,0,0.05)]
+                focus:ring-2
+                focus:ring-[#9b8ae0]
+                transition-all
               "
             />
           </div>
@@ -70,21 +75,26 @@ export default function TranscriptionHeader() {
       <div className="relative w-full mt-3 lg:hidden">
         <Search
           size={20}
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-[#ffffff]"
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9b8ae0]"
         />
         <input
           type="text"
-          placeholder="Search"
+          placeholder="Search documents..."
           className="
             w-full
-            pl-[48px] pr-4 py-3
+            pl-[60px] pr-4 py-3
             rounded-full
-            bg-[#9d8adb]
+            bg-[#f3f4f6]
             text-sm
-            text-[#ffffff]
-            placeholder:text-[#ffffff]
+            text-[#1f2937]
+            placeholder:text-[#9ca3af]
             outline-none
+            border
+            border-gray-200
             shadow-[0_3px_15px_rgba(0,0,0,0.05)]
+            focus:ring-2
+            focus:ring-[#9b8ae0]
+            transition-all
           "
         />
       </div>
