@@ -313,7 +313,8 @@ export default function StudentDashboard() {
                           alignItems: 'center',
                           justifyContent: 'center',
                           gap: '12px', 
-                          width: '100%', 
+                          width: '100%',
+                          minWidth: 0, 
                           cursor: 'pointer' }}
                         onClick={() => router.push(`/student/quizzes/${q.id}`)}
                       >
@@ -327,7 +328,7 @@ export default function StudentDashboard() {
                             barProps={{ className: "bg-[var(--brand-tertiary)] text-[var(--accent-secondary)] font-semibold" }}
                           />
                         </div>
-                        <div style={{ width: '100%', textAlign: 'center' }}>
+                        <div style={{ width: '100%', minWidth: 0, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <p className="progress-label" title={q.lesson}>{q.lesson}</p>
                           <p className="progress-section">{q.quizType} • {q.answeredCount > 0 ? `${q.answeredCount}/${q.numQuestions} answered` : `${q.numQuestions} questions`}</p>
                         </div>

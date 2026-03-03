@@ -132,7 +132,7 @@ export default function ClassReviewersPage() {
           <div className="back-button-container">
             <button className="back-button" onClick={() => router.push('/student/reviewers')}>
               <FaArrowLeft className="back-icon" />
-              <span>Back to Reviewers</span>
+              <span>Back to Documents</span>
             </button>
           </div>
 
