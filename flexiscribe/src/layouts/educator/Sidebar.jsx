@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Home,
@@ -124,12 +123,11 @@ export default function Sidebar({ width = "350px" }) {
 
   return (
     <aside 
-      className="edu-sidebar h-screen bg-gradient-to-b from-[#9d8adb] to-[#4c4172] text-white flex flex-col px-6 overflow-y-auto"
+      className="h-screen bg-gradient-to-b from-[#9d8adb] to-[#4c4172] text-white flex flex-col px-6 overflow-y-auto"
       style={{ width: width }}
     >
-      
       {/* Logo */}
-      <div className="flex items-center gap-2 w-full py-4 px-2 mb-2">
+      <div className="flex items-center gap-1 w-full py-10 px-2 mb-0">
         <img
           src="/img/flexiscribe-logo.png"
           alt="fLexiScribe Logo"
@@ -143,7 +141,6 @@ export default function Sidebar({ width = "350px" }) {
 
       {/* Navigation */}
       <nav className="flex flex-col gap-1">
-
         <NavItem
           icon={Home}
           label="Dashboard"
@@ -211,10 +208,11 @@ export default function Sidebar({ width = "350px" }) {
         />
       </nav>
 
-      {/* Clock */}
+      {/* Clock - with smaller text below */}
       <div className="mt-auto mb-10 flex flex-col items-center">
         <AnalogClock size={160} />
-        <p className="mt-4 text-xl font-medium">
+        {/* Made the text smaller - changed from text-xl to text-base */}
+        <p className="mt-4 text-base font-medium">
           {time}, {day}
         </p>
       </div>
