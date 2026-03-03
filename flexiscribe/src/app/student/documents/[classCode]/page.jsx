@@ -13,7 +13,11 @@ export default function ClassReviewersPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const classCode = params.classCode;
+<<<<<<< HEAD
   const sessionType = searchParams.get('type') || 'lecture'; // 'lecture' or 'meeting'
+=======
+  const docType = searchParams.get("type") || "lecture"; // "lecture" or "meeting"
+>>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
   
   const [currentTime, setCurrentTime] = useState(null);
   const [mounted, setMounted] = useState(false);
@@ -73,10 +77,10 @@ export default function ClassReviewersPage() {
       }
     };
 
-    // Fetch transcriptions/reviewers for this class
+    // Fetch transcriptions/reviewers for this class filtered by session type
     const fetchReviewers = async () => {
       try {
-        const response = await fetch(`/api/students/transcriptions?classCode=${classCode}`);
+        const response = await fetch(`/api/students/transcriptions?classCode=${classCode}&sessionType=${docType}`);
         if (response.ok) {
           const data = await response.json();
           const all = data.transcriptions || [];
@@ -149,7 +153,11 @@ export default function ClassReviewersPage() {
             <h1 className="class-title">
               {classInfo ? `${classInfo.subject} — Section ${classInfo.section}` : classCode}
             </h1>
+<<<<<<< HEAD
             <p className="class-subtitle">{sessionType === 'meeting' ? 'Minutes of the Meeting' : 'Enrolled Classes - Reviewers'}</p>
+=======
+            <p className="class-subtitle">{docType === "meeting" ? "Minutes of the Meeting" : "Reviewers"}</p>
+>>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
           </div>
 
           {loadingReviewers ? (
@@ -159,8 +167,13 @@ export default function ClassReviewersPage() {
           ) : reviewers.length === 0 ? (
             <div className="empty-state">
               <FaBook className="empty-icon" />
+<<<<<<< HEAD
               <h3>No {sessionType === 'meeting' ? 'MOTM' : 'Reviewers'} Available</h3>
               <p>There are no {sessionType === 'meeting' ? 'minutes of the meeting' : 'reviewers'} uploaded for this class yet.</p>
+=======
+              <h3>No {docType === "meeting" ? "MOTM" : "Reviewers"} Available</h3>
+              <p>There are no {docType === "meeting" ? "minutes of the meeting" : "reviewers"} uploaded for this class yet.</p>
+>>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
             </div>
           ) : (
             <div className="reviewers-grid">

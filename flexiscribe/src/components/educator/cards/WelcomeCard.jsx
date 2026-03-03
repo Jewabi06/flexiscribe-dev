@@ -29,35 +29,37 @@ export default function WelcomeCard({
     }
     fetchProfile();
   }, []);
+  
   return (
     <div
       className="
         edu-welcome-banner
         relative
-        min-h-[90px] lg:min-h-[110px] xl:min-h-[130px]
+        min-h-[70px] lg:min-h-[85px] xl:min-h-[100px]
         w-full
         bg-gradient-to-br from-[#9d8adb] to-[#4c4172]
         rounded-[16px] md:rounded-[24px] lg:rounded-[30px]
         px-6 md:px-10 lg:px-12 xl:px-16
-        py-5 md:py-6 lg:py-7
+        py-4 md:py-5 lg:py-6
         flex items-center
         overflow-visible
         shadow-[0_4px_20px_rgba(0,0,0,0.08)]
+        -mt-1 md:-mt-2 lg:-mt-3
       "
     >
-      {/* TEXT */}
-      <div className="z-10">
-        <h2 className="text-lg md:text-xl lg:text-2xl xl:text-3xl font-bold text-white leading-tight">
+      {/* TEXT - moved further left with negative margin */}
+      <div className="z-10 md:-ml-4 lg:-ml-6 xl:-ml-8">
+        <h2 className="text-base md:text-lg lg:text-xl xl:text-2xl font-bold text-white leading-tight">
           {loading ? (
-            <span className="inline-block w-48 h-8 bg-white/20 rounded animate-pulse" />
+            <span className="inline-block w-40 h-6 bg-white/20 rounded animate-pulse" />
           ) : (
             <>Welcome, {name}!</>
           )}
         </h2>
 
-        <p className="text-xs md:text-sm lg:text-base text-white/90 mt-1 opacity-90">
+        <p className="text-xs md:text-sm lg:text-sm text-white/90 mt-1 opacity-90">
           {loading ? (
-            <span className="inline-block w-64 h-4 bg-white/15 rounded animate-pulse mt-1" />
+            <span className="inline-block w-56 h-3.5 bg-white/15 rounded animate-pulse mt-1" />
           ) : (
             subtitle
           )}
@@ -69,9 +71,9 @@ export default function WelcomeCard({
         <Image
           src="/owl-prof.png"
           alt="Welcome illustration"
-          width={200}
-          height={300}
-          className="lg:w-[140px] xl:w-[180px]"
+          width={160}
+          height={240}
+          className="lg:w-[120px] xl:w-[150px]"
           priority
         />
       </div>
@@ -81,8 +83,8 @@ export default function WelcomeCard({
         <Image
           src="/owl-prof.png"
           alt="Welcome illustration"
-          width={90}
-          height={120}
+          width={80}
+          height={100}
           className="object-contain"
           priority
         />

@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 export default function PreviewPanel({ transcript }) {
   const pdfRef = useRef(null);
   const [zoom, setZoom] = useState(1);
-  const [activeTab, setActiveTab] = useState("summary"); // "summary" | "transcript"
+  const [activeTab, setActiveTab] = useState("summary"); // "summary" | "transcript" | "minutes"
 
   const download = async () => {
     if (!pdfRef.current || !transcript) return;
@@ -25,17 +25,34 @@ export default function PreviewPanel({ transcript }) {
   const summaryData = transcript?.summaryJson || null;
   const transcriptData = transcript?.transcriptJson || null;
 
+  // Detect MOTM vs Cornell format
+  const isMOTM = !!(summaryData?.agenda || summaryData?.decisions || summaryData?.action_items);
+
   // Extract Cornell note fields from summaryJson
   const cornellTitle = summaryData?.title || transcript?.title || "Untitled";
   const cueQuestions = summaryData?.cue_questions || transcript?.cue || [];
   const notes = summaryData?.notes || [];
   const summaryText = summaryData?.summary || transcript?.summary || "";
 
+  // Extract MOTM fields
+  const motmAgenda = summaryData?.agenda || summaryData?.topics || [];
+  const motmDecisions = summaryData?.decisions || [];
+  const motmActionItems = summaryData?.action_items || [];
+
   // Extract transcript chunks with timestamps
   const chunks = transcriptData?.chunks || [];
 
+  // Extract minutes data (if available)
+  const minutesData = transcript?.minutesJson || null;
+  const minutesTitle = minutesData?.title || cornellTitle;
+  const attendees = minutesData?.attendees || [];
+  const agendaItems = minutesData?.agenda || [];
+  const decisions = minutesData?.decisions || [];
+  const actionItems = minutesData?.actionItems || [];
+  const nextMeeting = minutesData?.nextMeeting || null;
+
   // Determine if we have JSON-format data
-  const hasJsonData = !!(summaryData || transcriptData);
+  const hasJsonData = !!(summaryData || transcriptData || minutesData);
 
   return (
     <div className="h-full rounded-[20px] sm:rounded-[28px] lg:rounded-[42px] bg-gradient-to-br from-[#9d8adb] to-[#7d6ac4] p-4 sm:p-6 flex flex-col transition-all duration-300">
@@ -64,6 +81,16 @@ export default function PreviewPanel({ transcript }) {
                 }`}
               >
                 Transcript
+              </button>
+              <button
+                onClick={() => setActiveTab("minutes")}
+                className={`px-3 py-1 text-xs rounded-full transition-all duration-200 ${
+                  activeTab === "minutes"
+                    ? "bg-white/25 text-white font-semibold"
+                    : "text-white/60 hover:text-white/80"
+                }`}
+              >
+                Minutes
               </button>
             </div>
           )}
@@ -104,56 +131,114 @@ export default function PreviewPanel({ transcript }) {
                   ref={pdfRef}
                   className="bg-white w-full sm:w-[560px] min-h-[380px] sm:min-h-[560px] lg:min-h-[792px] border border-black shadow-[0_14px_40px_rgba(0,0,0,0.35)]"
                 >
-                  {/* ═══════ SUMMARY VIEW (Cornell Notes) ═══════ */}
+                  {/* ═══════ SUMMARY VIEW ═══════ */}
                   {activeTab === "summary" && (
                     <>
                       {/* TOP BAR */}
-                      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] bg-[#9d8adb] text-white font-semibold border-b border-black text-xs">
+                      <div className={`grid grid-cols-1 sm:grid-cols-[180px_1fr] ${isMOTM ? 'bg-gradient-to-r from-[#3b82f6] to-[#1d4ed8]' : 'bg-[#9d8adb]'} text-white font-semibold border-b border-black text-xs`}>
                         <div className="px-3 py-2 text-center sm:border-r border-black">
                           {transcript.date}
                         </div>
                         <div className="px-3 py-2 text-center">
-                          {cornellTitle}
+                          {isMOTM ? `📋 ${cornellTitle} — Minutes of the Meeting` : cornellTitle}
                         </div>
                       </div>
 
-                      {/* CONTENT – Cornell Note Layout */}
-                      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] min-h-[300px]">
-                        {/* CUE QUESTIONS */}
-                        <div className="p-4 sm:p-5 sm:border-r border-black">
-                          <p className="text-xs font-semibold uppercase mb-3 text-[#6b5fcf]">
-                            Cue / Questions
-                          </p>
-                          <ul className="list-disc list-inside space-y-2 text-[#6b5fcf] text-xs">
-                            {cueQuestions.map((q, i) => (
-                              <li key={i}>{q}</li>
-                            ))}
-                          </ul>
-                        </div>
+                      {isMOTM ? (
+                        /* ─── MOTM Layout ─── */
+                        <div className="p-4 sm:p-5">
+                          {/* Agenda */}
+                          {motmAgenda.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs font-semibold uppercase mb-2 text-[#1d4ed8]">📌 Agenda / Topics</p>
+                              <ul className="list-disc list-inside space-y-1.5 text-xs text-[#333]">
+                                {motmAgenda.map((item, i) => (
+                                  <li key={i}>{typeof item === "string" ? item : item.topic || item.title || JSON.stringify(item)}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
-                        {/* NOTES */}
-                        <div className="p-4 sm:p-5 text-[#6b5fcf] leading-relaxed text-xs">
-                          <p className="font-semibold uppercase mb-3">Notes</p>
-                          {Array.isArray(notes) ? (
-                            <ul className="space-y-2">
-                              {notes.map((note, i) => (
-                                <li key={i} className="flex items-start gap-2">
-                                  <span className="text-[#9d8adb] mt-0.5">•</span>
-                                  <span>{note}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p>{notes}</p>
+                          {/* Decisions */}
+                          {motmDecisions.length > 0 && (
+                            <div className="mb-4 bg-[#f0fdf4] rounded-lg p-3">
+                              <p className="text-xs font-semibold uppercase mb-2 text-[#16a34a]">✅ Decisions</p>
+                              <ul className="list-disc list-inside space-y-1.5 text-xs text-[#333]">
+                                {motmDecisions.map((item, i) => (
+                                  <li key={i}>{typeof item === "string" ? item : item.decision || item.text || JSON.stringify(item)}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Action Items */}
+                          {motmActionItems.length > 0 && (
+                            <div className="mb-4 bg-[#fefce8] rounded-lg p-3">
+                              <p className="text-xs font-semibold uppercase mb-2 text-[#ca8a04]">⚡ Action Items</p>
+                              <ul className="space-y-1.5 text-xs text-[#333]">
+                                {motmActionItems.map((item, i) => {
+                                  const text = typeof item === "string" ? item : item.task || item.action || item.text || JSON.stringify(item);
+                                  const assignee = typeof item === "object" && item.assignee ? ` — ${item.assignee}` : "";
+                                  return (
+                                    <li key={i} className="flex items-start gap-2">
+                                      <span className="text-[#ca8a04] mt-0.5">•</span>
+                                      <span>{text}<em className="text-[#6b7280]">{assignee}</em></span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Summary */}
+                          {summaryText && (
+                            <div className="border-t border-gray-200 pt-3 text-center text-xs">
+                              <p className="font-semibold uppercase mb-2 text-[#7c3aed]">Summary</p>
+                              <p className="text-[#333]">{summaryText}</p>
+                            </div>
                           )}
                         </div>
-                      </div>
+                      ) : (
+                        /* ─── Cornell Notes Layout ─── */
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] min-h-[300px]">
+                            {/* CUE QUESTIONS */}
+                            <div className="p-4 sm:p-5 sm:border-r border-black">
+                              <p className="text-xs font-semibold uppercase mb-3 text-[#6b5fcf]">
+                                Cue / Questions
+                              </p>
+                              <ul className="list-disc list-inside space-y-2 text-[#6b5fcf] text-xs">
+                                {cueQuestions.map((q, i) => (
+                                  <li key={i}>{q}</li>
+                                ))}
+                              </ul>
+                            </div>
 
-                      {/* SUMMARY */}
-                      <div className="border-t border-black p-4 sm:p-6 text-center text-xs">
-                        <p className="font-semibold uppercase mb-2 text-[#6b5fcf]">Summary</p>
-                        <p className="text-[#6b5fcf]">{summaryText}</p>
-                      </div>
+                            {/* NOTES */}
+                            <div className="p-4 sm:p-5 text-[#6b5fcf] leading-relaxed text-xs">
+                              <p className="font-semibold uppercase mb-3">Notes</p>
+                              {Array.isArray(notes) ? (
+                                <ul className="space-y-2">
+                                  {notes.map((note, i) => (
+                                    <li key={i} className="flex items-start gap-2">
+                                      <span className="text-[#9d8adb] mt-0.5">•</span>
+                                      <span>{note}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p>{notes}</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* SUMMARY */}
+                          <div className="border-t border-black p-4 sm:p-6 text-center text-xs">
+                            <p className="font-semibold uppercase mb-2 text-[#6b5fcf]">Summary</p>
+                            <p className="text-[#6b5fcf]">{summaryText}</p>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
 
@@ -193,6 +278,107 @@ export default function PreviewPanel({ transcript }) {
                               __html: transcript.content || "<p>No transcript data available.</p>",
                             }}
                           />
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* ═══════ MINUTES VIEW ═══════ */}
+                  {activeTab === "minutes" && (
+                    <>
+                      {/* HEADER */}
+                      <div className="bg-[#9d8adb] text-white font-semibold border-b border-black text-[10px] sm:text-xs px-3 sm:px-4 py-2 flex flex-wrap justify-between gap-x-3 gap-y-0.5">
+                        <span className="shrink-0">{transcript.date}</span>
+                        <span className="truncate min-w-0 flex-1 text-center px-1">
+                          {minutesTitle} - Meeting Minutes
+                        </span>
+                        <span className="shrink-0">{transcript.duration}</span>
+                      </div>
+
+                      {/* MINUTES CONTENT */}
+                      <div className="p-4 sm:p-6 space-y-6">
+                        {/* ATTENDEES */}
+                        {attendees.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Attendees</p>
+                            <div className="flex flex-wrap gap-2">
+                              {attendees.map((attendee, i) => (
+                                <span key={i} className="text-xs bg-[#9d8adb]/10 text-[#6b5fcf] px-2 py-1 rounded">
+                                  {attendee}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* AGENDA */}
+                        {agendaItems.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Agenda</p>
+                            <ul className="space-y-2">
+                              {agendaItems.map((item, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-[#9d8adb] font-bold text-xs">{i + 1}.</span>
+                                  <span className="text-xs text-[#333]">{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* DECISIONS */}
+                        {decisions.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Decisions</p>
+                            <ul className="space-y-2">
+                              {decisions.map((decision, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-[#9d8adb] text-xs">✓</span>
+                                  <span className="text-xs text-[#333]">{decision}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* ACTION ITEMS */}
+                        {actionItems.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Action Items</p>
+                            <ul className="space-y-2">
+                              {actionItems.map((item, i) => (
+                                <li key={i} className="flex items-start gap-2 border-l-2 border-[#9d8adb] pl-2">
+                                  <span className="text-xs text-[#333]">
+                                    <span className="font-semibold">{item.owner}:</span> {item.task}
+                                    {item.dueDate && <span className="text-[#9d8adb] text-[10px] ml-1">(Due: {item.dueDate})</span>}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* NEXT MEETING */}
+                        {nextMeeting && (
+                          <div className="border-t border-gray-200 pt-4">
+                            <p className="text-xs font-semibold uppercase mb-1 text-[#6b5fcf]">Next Meeting</p>
+                            <p className="text-xs text-[#333]">
+                              {nextMeeting.date && <span className="font-semibold">Date:</span>} {nextMeeting.date}
+                              {nextMeeting.topics && (
+                                <>
+                                  <br />
+                                  <span className="font-semibold">Topics:</span> {nextMeeting.topics}
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* PLACEHOLDER IF NO MINUTES DATA */}
+                        {attendees.length === 0 && agendaItems.length === 0 && decisions.length === 0 && actionItems.length === 0 && !nextMeeting && (
+                          <div className="text-center py-8">
+                            <p className="text-xs text-[#6b5fcf] italic">No meeting minutes available.</p>
+                          </div>
                         )}
                       </div>
                     </>

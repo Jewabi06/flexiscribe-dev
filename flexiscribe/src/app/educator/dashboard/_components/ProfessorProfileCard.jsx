@@ -349,7 +349,7 @@ function NotifItem({ title, message, time, unread }) {
   );
 }
 
-/* ================= EDIT PROFILE ================= */
+/* ================= EDIT PRgit OFILE ================= */
 
 function EditProfile({ setEditOpen, educator, setEducator, setName }) {
   const [formData, setFormData] = useState({

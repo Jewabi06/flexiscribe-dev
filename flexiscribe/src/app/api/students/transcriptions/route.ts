@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const course = searchParams.get("course");
     const classCode = searchParams.get("classCode");
+    const sessionType = searchParams.get("sessionType");
 
     // Get student's enrolled class IDs
     const enrollments = await prisma.studentClass.findMany({
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
           ? classIdFilter
           : { in: enrolledClassIds.length > 0 ? enrolledClassIds : ["__none__"] },
         ...(course && { course }),
+        ...(sessionType && { sessionType }),
       },
       select: {
         id: true,
@@ -80,6 +82,7 @@ export async function GET(request: NextRequest) {
         transcriptJson: true,
         summaryJson: true,
         status: true,
+        sessionType: true,
         createdAt: true,
         educator: {
           select: {

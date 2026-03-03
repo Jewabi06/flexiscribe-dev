@@ -89,11 +89,11 @@ export default function EducatorHeader({ userName = "Educator" }) {
       {/* Notification Button */}
       <button
         onClick={() => setOpenNotif(!openNotif)}
-        className="w-11 h-11 lg:w-[50px] lg:h-[50px] rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] flex items-center justify-center shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-all duration-300 hover:scale-105 active:scale-95 relative"
+        className="w-11 h-11 lg:w-[50px] lg:h-[50px] rounded-full bg-gradient-to-br from-[#9d8adb] to-[#9d8adb] flex items-center justify-center shadow-[0_2px_10px_rgba(157,138,219,0.3)] transition-all duration-300 hover:scale-105 active:scale-95 relative"
       >
         <Bell size={18} className="text-white" />
         {notifications.filter((n) => !n.read).length > 0 && (
-          <span className="edu-notif-badge absolute top-[2px] right-[2px] w-2.5 h-2.5 bg-[#e74c3c] rounded-full border-2 border-white" />
+          <span className="absolute top-[2px] right-[2px] w-2.5 h-2.5 bg-[#e74c3c] rounded-full border-2 border-white" />
         )}
       </button>
 
@@ -115,29 +115,31 @@ export default function EducatorHeader({ userName = "Educator" }) {
         />
       )}
 
-      {/* Profile Button */}
+      {/* Profile Button - Text aligned left and close to profile */}
       <div className="relative">
         <button
           onClick={() => setOpenProfile(!openProfile)}
-          className="flex items-center gap-2.5 cursor-pointer group"
+          className="flex items-center gap-2 cursor-pointer group"
         >
-          <div className="text-right hidden md:block">
-            <div className="text-sm lg:text-base font-semibold text-[var(--edu-text-primary,#4c4172)] transition-colors">
+          <div className="w-11 h-11 lg:w-[50px] lg:h-[50px] rounded-full bg-gradient-to-br from-[#9d8adb] to-[#9d8adb] flex items-center justify-center text-white font-bold shadow-[0_2px_10px_rgba(157,138,219,0.3)] transition-all duration-300 group-hover:scale-105">
+            {initial}
+          </div>
+          
+          <div className="hidden md:block text-left">
+            <div className="text-sm lg:text-base font-semibold text-[#4c4172] transition-colors leading-tight">
               {userName}
             </div>
-            <div className="text-xs lg:text-sm text-[var(--edu-text-secondary,#666)] transition-colors">Instructor</div>
-          </div>
-
-          <div className="w-11 h-11 lg:w-[50px] lg:h-[50px] rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] flex items-center justify-center text-white font-bold shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all duration-300 group-hover:scale-105">
-            {initial}
+            <div className="text-xs lg:text-sm text-[#666] transition-colors leading-tight">
+              Instructor
+            </div>
           </div>
         </button>
 
         {openProfile && (
-          <div className="edu-dropdown-animate absolute right-0 top-14 min-w-[200px] bg-white dark:bg-[#2d2640] dark:border-[rgba(139,127,199,0.25)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] border border-[rgba(157,138,219,0.15)] z-50 overflow-hidden">
+          <div className="absolute right-0 top-14 min-w-[200px] bg-white rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] border border-[rgba(157,138,219,0.15)] z-50 overflow-hidden">
             <button
               onClick={handleSignOut}
-              className="w-full px-5 py-3.5 text-left text-sm hover:bg-[rgba(231,76,60,0.1)] dark:hover:bg-[rgba(231,76,60,0.15)] flex items-center gap-3 text-[#e74c3c] transition-colors duration-200"
+              className="w-full px-5 py-3.5 text-left text-sm hover:bg-[rgba(231,76,60,0.1)] flex items-center gap-3 text-[#e74c3c] transition-colors duration-200"
             >
               <LogOut size={16} />
               Sign Out
@@ -171,9 +173,9 @@ function NotifDropdown({ notifications = [], onMarkAllRead, onViewAll, onClose }
         className="fixed inset-0 z-40"
         onClick={onClose}
       />
-      <div className="edu-dropdown-animate edu-notification-dropdown absolute right-0 top-14 w-[320px] sm:w-[380px] bg-white dark:bg-[#2d2640] dark:text-[#e8e8e8] text-gray-800 rounded-xl border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-50 overflow-hidden">
-        <div className="px-4 py-3 flex justify-between items-center border-b border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.2)]">
-          <h3 className="text-sm font-semibold text-[var(--edu-text-primary,#4c4172)] dark:text-[#e8e8e8]">Notifications</h3>
+      <div className="absolute right-0 top-14 w-[320px] sm:w-[380px] bg-white text-gray-800 rounded-xl border border-[rgba(157,138,219,0.15)] shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-50 overflow-hidden">
+        <div className="px-4 py-3 flex justify-between items-center border-b border-[rgba(157,138,219,0.2)]">
+          <h3 className="text-sm font-semibold text-[#4c4172]">Notifications</h3>
 
           <button
             onClick={onMarkAllRead}
@@ -183,9 +185,9 @@ function NotifDropdown({ notifications = [], onMarkAllRead, onViewAll, onClose }
           </button>
         </div>
 
-        <div className="max-h-[350px] overflow-y-auto edu-scrollbar">
+        <div className="max-h-[350px] overflow-y-auto">
           {notifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-[var(--edu-text-secondary,#666)]">
+            <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-[#666]">
               <span style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔔</span>
               <span className="text-sm">No notifications</span>
             </div>
@@ -202,7 +204,7 @@ function NotifDropdown({ notifications = [], onMarkAllRead, onViewAll, onClose }
           )}
         </div>
 
-        <div className="px-4 py-2 text-center border-t">
+        <div className="px-4 py-2 text-center border-t border-[rgba(157,138,219,0.2)]">
           <button
             onClick={onViewAll}
             className="text-xs text-gray-500 hover:text-gray-700"
@@ -232,16 +234,16 @@ function AllNotificationsModal({ notifications = [], loading, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center edu-modal-overlay">
-      <div className="edu-modal-content bg-white dark:bg-[#2d2640] rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.25)] w-full max-w-[700px] mx-4 max-h-[80vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.25)] w-full max-w-[700px] mx-4 max-h-[80vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.2)]">
-          <h2 className="text-base font-semibold text-[#4c4172] dark:text-[#e8e8e8]">All Notifications</h2>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(157,138,219,0.2)]">
+          <h2 className="text-base font-semibold text-[#4c4172]">All Notifications</h2>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-full hover:bg-[rgba(157,138,219,0.1)] flex items-center justify-center transition-colors duration-200"
           >
-            <X size={18} className="text-[var(--edu-text-secondary,#666)]" />
+            <X size={18} className="text-[#666]" />
           </button>
         </div>
 
@@ -274,7 +276,7 @@ function NotifItem({ title, message, time, unread }) {
   return (
     <div
       className={`
-        edu-notif-item flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.08)] transition-all duration-200 cursor-pointer
+        flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.08)] transition-all duration-200 cursor-pointer
         ${unread ? "bg-[rgba(157,138,219,0.06)]" : "bg-white"}
       `}
     >
@@ -284,14 +286,16 @@ function NotifItem({ title, message, time, unread }) {
 
       <div className="flex-1 min-w-0">
         <p className="text-sm">
-          <span className="font-medium text-[var(--edu-text-primary,#4c4172)]">{title}</span>{" "}
-          <span className="text-[var(--edu-text-secondary,#666)]">{message}</span>
+          <span className="font-medium text-[#4c4172]">{title}</span>{" "}
+          <span className="text-[#666]">{message}</span>
         </p>
 
         <p className="text-xs text-gray-400 mt-1">{time}</p>
       </div>
 
-      {unread && <span className="w-2 h-2 bg-[#9d8adb] rounded-full mt-2 shrink-0" style={{ animation: 'eduPulse 2s ease-in-out infinite' }} />}
+      {unread && (
+        <span className="w-2 h-2 bg-[#9d8adb] rounded-full mt-2 shrink-0 animate-pulse" />
+      )}
     </div>
   );
 }
