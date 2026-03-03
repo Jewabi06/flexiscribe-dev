@@ -29,31 +29,31 @@ fLexiScribe is a full-stack educational platform that captures live lectures via
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Client (Browser)                             │
-│   Student / Educator / Admin dashboards (Next.js React/JSX)        │
+│   Student / Educator / Admin dashboards (Next.js React/JSX)         │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │ HTTPS
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   Next.js App (Vercel / localhost:3000)             │
-│   • App Router (src/app/)                                          │
-│   • API Routes (src/app/api/)                                      │
-│   • Prisma ORM → PostgreSQL                                        │
-│   • Ollama client (src/lib/ollama.ts) → quiz generation            │
+│   • App Router (src/app/)                                           │
+│   • API Routes (src/app/api/)                                       │
+│   • Prisma ORM → PostgreSQL                                         │
+│   • Ollama client (src/lib/ollama.ts) → quiz generation             │
 └────────────┬────────────────────────────┬───────────────────────────┘
              │ SQL                        │ HTTP (Ollama API)
              ▼                            ▼
 ┌────────────────────────┐  ┌─────────────────────────────────────────┐
 │  PostgreSQL Database   │  │  Ollama Server (Google Cloud VM)        │
-│  (Neon / Supabase /    │  │  • Gemma 3 4B (quiz generation)        │
-│   local)               │  │  • Runs on GPU-enabled GCE instance    │
+│  (Neon / Supabase /    │  │  • Gemma 3 4B (quiz generation)         │
+│   local)               │  │  • Runs on GPU-enabled GCE instance     │
 └────────────────────────┘  └─────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │           Python FastAPI Backend (Jetson Orin Nano)                 │
-│   • Whisper "small" on CUDA (sm_87) — live speech-to-text          │
-│   • Ollama Gemma 3 1B on CPU — minute + Cornell summarization      │
-│   • Audio capture via PulseAudio (USB mic)                         │
-│   • SSE streaming for real-time transcript updates                 │
+│   • Whisper "small" on CUDA (sm_87) — live speech-to-text           │
+│   • Ollama Gemma 3 1B on CPU — minute + Cornell summarization       │
+│   • Audio capture via PulseAudio (USB mic)                          │ 
+│   • SSE streaming for real-time transcript updates                  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
