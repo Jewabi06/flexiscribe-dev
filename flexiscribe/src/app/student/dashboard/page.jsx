@@ -1,8 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FaMoon, FaSun } from "react-icons/fa";
-import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
+import { Progress } from '@material-tailwind/react';
 import 'react-circular-progressbar/dist/styles.css';
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
@@ -308,23 +307,28 @@ export default function StudentDashboard() {
                     inProgressQuizzes.map((q) => (
                       <div
                         key={q.id}
-                        style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', cursor: 'pointer' }}
+                        style={{ 
+                          display: 'flex', 
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '12px', 
+                          width: '100%', 
+                          cursor: 'pointer' }}
                         onClick={() => router.push(`/student/quizzes/${q.id}`)}
                       >
-                        <div className="progress-circle">
-                          <CircularProgressbar
+                        <div className="flex flex-col w-full gap-4">
+                          <Progress
                             value={q.progressPercent || 0}
-                            text={`${q.progressPercent || 0}%`}
-                            styles={buildStyles({
-                              textSize: '28px',
-                              pathColor: q.progressPercent > 0 ? 'var(--brand-secondary)' : 'rgba(255,255,255,0.3)',
-                              textColor: 'var(--accent-secondary)',
-                              trailColor: 'rgba(255,255,255,0.2)',
-                            })}
+                            label="Progress"
+                            size="md"
+                            color="primary"
+                            className="progress-bar"
+                            barProps={{ className: "bg-[var(--brand-tertiary)] text-[var(--accent-secondary)] font-semibold" }}
                           />
                         </div>
-                        <div>
-                          <p className="progress-label">{q.lesson}</p>
+                        <div style={{ width: '100%', textAlign: 'center' }}>
+                          <p className="progress-label" title={q.lesson}>{q.lesson}</p>
                           <p className="progress-section">{q.quizType} • {q.answeredCount > 0 ? `${q.answeredCount}/${q.numQuestions} answered` : `${q.numQuestions} questions`}</p>
                         </div>
                       </div>

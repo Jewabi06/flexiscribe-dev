@@ -664,38 +664,41 @@ body {
 
 .jump-back-content {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: normal;
   flex: 2;
   gap: 30px;
 }
 
-.progress-circle {
-  width: 100px;
-  height: 100px;
-  justify-content: center;
+.progress-bar {
+  width: 100%;
+  flex-shrink: 0;
+  background-color: var(--accent-secondary);
+  color: var(--brand-tertiary);
 }
 
 .progress-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   margin: 0;
-  white-space: nowrap;
-  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
   max-width: 100%;
 }
 
 .progress-section {
-  font-size: 11px;
-  margin-top: 4px;
+  font-size: 12px;
+  margin: 4px 0 0;
   opacity: 0.8;
-  white-space: nowrap;
-  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
   max-width: 100%;
 }
 
