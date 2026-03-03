@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
     // e.g. "JOIN Operation" → also adds "INNER JOIN", "LEFT JOIN" etc.
     // This lets the deterministic FIB generator produce items with correct,
     // verbatim answers instead of mismatching broad terms to specific sentences.
+    // Keep the original (pre-expansion) list for Easy MCQ — expanded variants
+    // produce fragment terms like "learning discovers" that are not valid concepts.
+    const originalKeyConcepts = [...keyConcepts];
     if (keyConcepts.length > 0) {
       keyConcepts = expandKeyConcepts(keyConcepts, quizContent);
     }
@@ -147,7 +150,8 @@ export async function POST(request: NextRequest) {
       difficulty as 'EASY' | 'MEDIUM' | 'HARD',
       count,
       resolvedModel,
-      keyConcepts
+      keyConcepts,
+      originalKeyConcepts
     );
 
     // Compute the sequence number: count existing quizzes of the same lesson + type + student, then +1

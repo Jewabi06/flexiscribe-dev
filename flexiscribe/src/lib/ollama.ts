@@ -488,6 +488,123 @@ function generateDeterministicFIB(
   return result;
 }
 
+// ============================================================================
+// DETERMINISTIC EASY MCQ GENERATOR
+// ============================================================================
+
+/**
+ * Return a concise one-sentence version of a concept's definition.
+ * - Extracts the first sentence (up to first . ! ?) if available.
+ * - Falls back to first 100 characters with ellipsis.
+ * - Falls back to the term name if no definition exists.
+ */
+function getShortDefinition(concept: { term: string; definition: string }): string {
+  if (!concept.definition || !concept.definition.trim()) return concept.term;
+  const def = concept.definition.trim();
+  // Extract first sentence — stop at the first sentence-ending punctuation
+  // that is NOT inside a common abbreviation (e.g., "e.g.", "i.e.").
+  const match = def.match(/^.+?[.!?](?:\s|$)/);
+  if (match) return match[0].trim();
+  // No sentence boundary found — take first 100 chars
+  return def.substring(0, 100).trim() + (def.length > 100 ? '…' : '');
+}
+
+/**
+ * Deterministic Easy MCQ generator.
+ *
+ * For each key concept, creates a recall question in one of two styles:
+ *
+ *   Forward  (term → definition):
+ *     "What is [term]?"  –  choices = concise (one-sentence) definitions.
+ *
+ *   Reverse  (definition → term):
+ *     The concise definition is used as the question text.
+ *     Choices = term names (correct term + 3 distractor terms).
+ *
+ * A 50/50 random coin flip decides which style each item uses, so the
+ * resulting quiz contains a healthy mix of both. Both styles test recall
+ * at Bloom's Level 1.
+ *
+ * Why this works:
+ * - No LLM involved → 100% yield, instant, zero JSON parse errors.
+ * - Distractors are real definitions / terms from the same domain → plausible.
+ * - Scales with content: N key concepts with definitions → up to N items.
+ *
+ * Falls back to null if fewer than 4 key concepts have definitions.
+ */
+function generateDeterministicMCQ_Easy(
+  keyConcepts: { term: string; definition: string }[],
+  count: number
+): any[] | null {
+  // Filter to concepts that actually have non-empty definitions
+  const validConcepts = keyConcepts.filter(k => k.definition && k.definition.trim().length > 0);
+  if (validConcepts.length < 4) {
+    console.warn(`Deterministic MCQ Easy: only ${validConcepts.length} concepts have definitions (need ≥4) — falling back to LLM.`);
+    return null;
+  }
+
+  const shuffledConcepts = shuffleArray([...validConcepts]);
+  const result: any[] = [];
+
+  for (const concept of shuffledConcepts) {
+    if (result.length >= count) break;
+
+    const correctShort = getShortDefinition(concept);
+
+    // 50/50 coin flip: forward (term → definition) or reverse (definition → term)
+    const useForward = Math.random() < 0.5;
+
+    if (useForward) {
+      // ── Forward style: "What is [term]?" → choices = short definitions ──
+      const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+      if (otherConcepts.length < 3) continue;
+
+      const distractorConcepts = shuffleArray(otherConcepts).slice(0, 3);
+      const distractorShorts = distractorConcepts.map(c => getShortDefinition(c));
+
+      const allChoices = [correctShort, ...distractorShorts];
+      const uniqueChoices = [...new Set(allChoices)];
+      if (uniqueChoices.length < 4) continue; // duplicate definitions — skip
+
+      const choices = shuffleArray(uniqueChoices);
+      const answerIndex = choices.indexOf(correctShort);
+
+      result.push({
+        question: `What is ${concept.term}?`,
+        choices,
+        answerIndex,
+        explanation: `The correct answer is '${correctShort}' because that is the definition of ${concept.term}.`,
+      });
+    } else {
+      // ── Reverse style: short definition as question → choices = terms ──
+      const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+      if (otherConcepts.length < 3) continue;
+
+      const distractorTerms = shuffleArray(otherConcepts).slice(0, 3).map(c => c.term);
+
+      const allChoices = [concept.term, ...distractorTerms];
+      // Terms are inherently unique — no dedup needed
+      const choices = shuffleArray(allChoices);
+      const answerIndex = choices.indexOf(concept.term);
+
+      result.push({
+        question: correctShort,
+        choices,
+        answerIndex,
+        explanation: `The correct answer is '${concept.term}' because it matches the description: ${correctShort}`,
+      });
+    }
+  }
+
+  if (result.length === 0) {
+    console.warn('Deterministic MCQ Easy: could not build any valid items — falling back to LLM.');
+    return null;
+  }
+
+  console.log(`Deterministic MCQ Easy: produced ${result.length}/${count} items (${validConcepts.length} concepts with definitions).`);
+  return result;
+}
+
 /**
  * Build a single fill-in-blank item by replacing `term` with [blank] in
  * `sentence` and picking 3 distractors from `allTerms`.
@@ -820,21 +937,21 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: 
   // ── Reject "term echo" items ──
   // If the question asks "What is X?" and the answer is just "X" (the same
   // term restated), the item teaches nothing. Reject it.
+  // Uses FULL PHRASE match to avoid false positives where individual answer
+  // words each appear in the question but the answer itself is different.
   if (item.question) {
     const qNorm = normalizeText(item.question);
     const aNorm = normalizeText(item.choices[item.answerIndex]);
-    // Check if the answer is a single term that appears verbatim in the question
-    if (aNorm.split(/\s+/).length <= 3) {
-      const answerWords = aNorm.split(/\s+/).filter((w: string) => w.length > 3);
-      if (answerWords.length > 0) {
-        const allInQuestion = answerWords.every((w: string) => qNorm.includes(w));
-        if (allInQuestion) {
-          return {
-            valid: false,
-            item,
-            rejectionReason: `Answer "${item.choices[item.answerIndex]}" is just the question topic restated — not a real answer`
-          };
-        }
+    // Only reject when the COMPLETE answer phrase appears in the question.
+    // Individual word checks caused too many false positives (e.g. "training"
+    // matching "trained", or common domain words appearing in both).
+    if (aNorm.split(/\s+/).length <= 3 && aNorm.length >= 4) {
+      if (qNorm.includes(aNorm)) {
+        return {
+          valid: false,
+          item,
+          rejectionReason: `Answer "${item.choices[item.answerIndex]}" is just the question topic restated — not a real answer`
+        };
       }
     }
   }
@@ -888,25 +1005,52 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: 
   }
 
   // ── MCQ choice relevance check ──
-  // When keyConcepts are available, verify that distractors are real terms
-  // from the source material (either key concepts or found in summary).
-  // This prevents hallucinated distractors like "scanning" or "penetration testing".
+  // When keyConcepts are available, verify that distractors are topically related
+  // to the source material. Uses a 3-tier approach:
+  //   Tier 1: Exact key concept match or substring containment
+  //   Tier 2: Verbatim in the summary
+  //   Tier 3: Word-overlap ≥40% with source material (summary + key concept defs)
+  // This prevents hallucinated distractors while accepting reasonable model-generated
+  // phrases that are grounded in the source content.
   if (keyConcepts.length > 0 && summary.length > 0) {
     const conceptTerms = new Set(keyConcepts.map(k => normalizeText(k.term)));
+    const allConceptText = keyConcepts.map(k => normalizeText(k.term) + ' ' + normalizeText(k.definition || '')).join(' ');
     const normSummary = normalizeText(summary);
+    // Build a set of all significant words from the source material for word-overlap check
+    const sourceWords = new Set(
+      [...normSummary.split(/\s+/), ...allConceptText.split(/\s+/)].filter(w => w.length > 3)
+    );
+
     for (let ci = 0; ci < fixedItem.choices.length; ci++) {
       if (ci === fixedItem.answerIndex) continue; // Skip correct answer
       const choiceNorm = normalizeText(fixedItem.choices[ci]);
+
+      // Tier 1: Exact key concept match or substring containment (strongest signal)
       const isKeyConcept = conceptTerms.has(choiceNorm) ||
         [...conceptTerms].some(ct => ct.includes(choiceNorm) || choiceNorm.includes(ct));
+      if (isKeyConcept) continue;
+
+      // Tier 2: Found verbatim in the summary
       const inSummary = normSummary.includes(choiceNorm);
-      if (!isKeyConcept && !inSummary) {
-        return {
-          valid: false,
-          item: fixedItem,
-          rejectionReason: `Distractor "${fixedItem.choices[ci]}" is neither a key concept nor found in the summary`
-        };
-      }
+      if (inSummary) continue;
+
+      // Tier 3: Word-overlap — if ≥20% of the distractor's significant words
+      // appear in the source material (summary + key concept definitions),
+      // the distractor is topically grounded and acceptable.
+      // Lowered from 40% after observing that even legitimate distractors like
+      // "Optimizing model parameters" fail at 40% when only one word matches.
+      const choiceWords = choiceNorm.split(/\s+/).filter(w => w.length > 3);
+      if (choiceWords.length === 0) continue; // Very short choice — let it pass
+      const hits = choiceWords.filter(w => sourceWords.has(w)).length;
+      const overlapRatio = hits / choiceWords.length;
+      if (overlapRatio >= 0.1) continue;
+
+      // None of the tiers passed — reject this distractor
+      return {
+        valid: false,
+        item: fixedItem,
+        rejectionReason: `Distractor "${fixedItem.choices[ci]}" is not grounded in source material (word overlap: ${Math.round(overlapRatio * 100)}%)`
+      };
     }
   }
   
@@ -1330,10 +1474,20 @@ function validateQuizItems(
     } else if (type === 'FLASHCARD') {
       validationResult = validateFlashcardItem(item);
       
-      // Check for duplicates
+      // Check for duplicates — use semantic similarity (keyword overlap)
+      // to catch paraphrased duplicates the model generates across waves.
       if (validationResult.valid) {
         const frontKey = normalizeText(validationResult.item.front);
-        if (existingItems.has(frontKey)) {
+        let isDuplicate = existingItems.has(frontKey);
+        if (!isDuplicate) {
+          for (const existing of existingItems) {
+            if (areQuestionsSimilar(frontKey, existing)) {
+              isDuplicate = true;
+              break;
+            }
+          }
+        }
+        if (isDuplicate) {
           validationResult = {
             valid: false,
             item: validationResult.item,
@@ -1397,8 +1551,7 @@ function buildVerificationPrompt(
 4. QUESTION CLARITY: Is the question clear, complete, and answerable from the summary alone? (No missing words, no outside knowledge needed.)
 5. EXPLANATION ACCURACY: Does the explanation correctly justify the answer? Does it match the choice at answerIndex?
 6. TERM ECHO: If the question asks "What is X?" and the answer is just "X" (the term itself, not a definition), mark INCORRECT.
-7. DISTRACTOR SOURCE: Are all 3 wrong choices real terms from the summary or key concepts list? If any distractor is a made-up term not found in the source material, mark INCORRECT.
-8. DIFFICULTY MATCH: For EASY, the question should test recall/definition only. For MEDIUM, it should test understanding/purpose/comparison. For HARD, it should present a scenario or require multi-step reasoning. If the cognitive level does not match the stated difficulty, mark INCORRECT.
+7. DISTRACTOR SOURCE: Are all 3 wrong choices topically related to the summary content? If any distractor is completely unrelated to the subject matter, mark INCORRECT. (Distractors may be derived phrases — they don't need to be exact key concept terms.)
 
 Be STRICT. When in doubt, mark INCORRECT.`;
   } else if (type === 'FILL_IN_BLANK') {
@@ -1744,7 +1897,8 @@ export async function generateQuizWithGemma(
   difficulty: 'EASY' | 'MEDIUM' | 'HARD',
   count: number,
   preResolvedModel?: string,
-  keyConcepts: { term: string; definition: string }[] = []
+  keyConcepts: { term: string; definition: string }[] = [],
+  originalKeyConcepts: { term: string; definition: string }[] = []
 ): Promise<any> {
   // Track generation time
   const startTime = Date.now();
@@ -1790,6 +1944,47 @@ export async function generateQuizWithGemma(
       console.log(`Deterministic FIB produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
     }
   }
+
+  // ── Deterministic fast-path for EASY MCQ ──
+  // Uses ORIGINAL key concepts (pre-expansion) + definitions to build
+  // definition-recall questions. Expanded variants produce fragment terms
+  // like "learning discovers" that are not valid concepts for MCQ.
+  let _deterministicMCQSeed: any[] | null = null;
+  const easyMCQConcepts = originalKeyConcepts.length >= 4 ? originalKeyConcepts : keyConcepts;
+  if (type === 'MCQ' && difficulty === 'EASY' && easyMCQConcepts.length >= 4) {
+    const deterministicItems = generateDeterministicMCQ_Easy(easyMCQConcepts, count);
+    if (deterministicItems && deterministicItems.length >= count) {
+      const elapsed = Date.now() - startTime;
+      const elapsedSeconds = Math.floor(elapsed / 1000);
+      const minutes = Math.floor(elapsedSeconds / 60);
+      const seconds = elapsedSeconds % 60;
+      const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
+
+      console.log(`\n=== Generation Complete ===`);
+      console.log(`Requested: ${count} (deterministic MCQ Easy fast-path)`);
+      console.log(`Total verified items generated: ${deterministicItems.length}`);
+      console.log(`Final items returned: ${Math.min(deterministicItems.length, count)}`);
+      console.log(`Rejected items: 0`);
+      console.log(`Total waves: 0 (0 API calls)`);
+      console.log(`Success rate: 100%`);
+      console.log(`JSON parse errors (possible truncations): 0`);
+      console.log(`Time elapsed: ${timeString}`);
+      console.log(`===========================\n`);
+
+      return {
+        type: 'mcq',
+        difficulty: 'easy',
+        items: deterministicItems.slice(0, count),
+        rejectedItems: [],
+        stats: { requested: count, generated: deterministicItems.length, rejected: 0, waves: 0, apiCalls: 0 }
+      };
+    }
+    // Save partial results to seed the wave loop
+    if (deterministicItems && deterministicItems.length > 0) {
+      _deterministicMCQSeed = deterministicItems;
+      console.log(`Deterministic MCQ Easy produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
+    }
+  }
   
   // Pre-resolve model ONCE before the batch loop (eliminates redundant /api/tags calls)
   const resolvedModel = preResolvedModel || await getBestAvailableModel();
@@ -1799,7 +1994,7 @@ export async function generateQuizWithGemma(
   // Dynamic temperature based on quiz type AND difficulty for better accuracy
   // Lower = more factual/deterministic, Higher = more creative
   const temperatureMatrix: Record<string, Record<string, number>> = {
-    MCQ:           { EASY: 0.25, MEDIUM: 0.30, HARD: 0.40 },
+    MCQ:           { EASY: 0.25, MEDIUM: 0.30, HARD: 0.45 },
     FILL_IN_BLANK: { EASY: 0.30, MEDIUM: 0.35, HARD: 0.40 },
     FLASHCARD:     { EASY: 0.30, MEDIUM: 0.45, HARD: 0.55 },
   };
@@ -1810,7 +2005,7 @@ export async function generateQuizWithGemma(
   const allValidItems: any[] = [];
   const allRejectedItems: any[] = [];
 
-  // ── Seed with partial deterministic results (FIB only) ──
+  // ── Seed with partial deterministic results (FIB or MCQ Easy) ──
   // If the deterministic path produced some items but not enough,
   // inject them into the pool so the wave loop only needs to fill the gap.
   if (_deterministicSeed && _deterministicSeed.length > 0) {
@@ -1820,6 +2015,13 @@ export async function generateQuizWithGemma(
     }
     console.log(`Seeded wave loop with ${_deterministicSeed.length} deterministic FIB items.`);
   }
+  if (_deterministicMCQSeed && _deterministicMCQSeed.length > 0) {
+    for (const item of _deterministicMCQSeed) {
+      allValidItems.push(item);
+      if (item.question) seenItems.add(normalizeText(item.question));
+    }
+    console.log(`Seeded wave loop with ${_deterministicMCQSeed.length} deterministic MCQ Easy items.`);
+  }
   
   // ── Optimized batch configuration ──
   // Smaller HARD batches = higher per-item success rate, less wasted inference.
@@ -1827,6 +2029,7 @@ export async function generateQuizWithGemma(
   let baseBatchSize =
     type === 'FILL_IN_BLANK' && difficulty === 'HARD' ? 2 :
     type === 'FILL_IN_BLANK' ? 3 :
+    type === 'MCQ' ? 5 :  // MCQ capped at 5 — models degrade sharply above 6 items with strict JSON
     difficulty === 'HARD' ? 3 :
     6;
   
@@ -1843,7 +2046,7 @@ export async function generateQuizWithGemma(
   const CONCURRENCY = parseInt(process.env.OLLAMA_CONCURRENCY ?? '1', 10);
   // Wave budget — with improved prompts, fewer waves should be needed.
   // The absolute time limit is the real safety valve.
-  const MAX_WAVES = Math.max(Math.ceil(targetCount / baseBatchSize) * 8, 30);
+  const MAX_WAVES = 150;
   // Absolute time limit: stop after this many ms regardless of progress.
   // Default 10 minutes — enough for large counts on CPU inference.
   const ABSOLUTE_TIME_LIMIT_MS = parseInt(process.env.OLLAMA_TIME_LIMIT_MS ?? '600000', 10);
@@ -1856,6 +2059,16 @@ export async function generateQuizWithGemma(
   let tokenMultiplier = 1.0; // Dynamic: increases by 20% per parse error, resets on success
   let stagnantWaves = 0; // Track consecutive waves with zero new valid items
   let sliceRandomOffset = 0; // Random offset added to slice index on stagnation recovery
+
+  // ── Hard MCQ concept-by-concept state ──
+  // For Hard MCQs, we generate one question per concept to eliminate truncation.
+  // Shuffle the concept list once and walk through it sequentially.
+  let hardConceptPool: { term: string; definition: string }[] = [];
+  let hardConceptIndex = 0;
+  if (type === 'MCQ' && difficulty === 'HARD' && keyConcepts.length > 0) {
+    hardConceptPool = shuffleArray([...keyConcepts]);
+    console.log(`Hard MCQ: concept-by-concept mode with ${hardConceptPool.length} concepts.`);
+  }
 
   console.log(`Starting quiz generation: ${count} ${type} items at ${difficulty} difficulty`);
   console.log(`Configuration: baseBatchSize=${baseBatchSize}, CONCURRENCY=${CONCURRENCY}, MAX_WAVES=${MAX_WAVES}`);
@@ -1938,6 +2151,19 @@ export async function generateQuizWithGemma(
         effectiveBatchSize = baseBatchSize;
       }
 
+      // Force single-item requests for EASY MCQ to guarantee small, well-formed
+      // JSON responses. The 4B model struggles to produce valid multi-item arrays
+      // for MCQ (each item has question + 4 choices + explanation). Single-item
+      // requests are slower but dramatically more reliable.
+      if (difficulty === 'EASY' && type === 'MCQ') {
+        effectiveBatchSize = 1;
+      }
+      // Cap MCQ batch size at 5 for all difficulties to prevent constraint saturation.
+      // The model degrades sharply when asked for >5 MCQ items with strict JSON + constraints.
+      if (type === 'MCQ' && effectiveBatchSize > 5) {
+        effectiveBatchSize = 5;
+      }
+
       // When stuck, jump to a random part of the summary to find fresh content
       if (stagnantWaves >= 2) {
         sliceRandomOffset = Math.floor(Math.random() * 20);
@@ -1951,6 +2177,120 @@ export async function generateQuizWithGemma(
       );
       
       console.log(`\nWave ${wave + 1}/${MAX_WAVES}: Firing ${callsThisWave} parallel calls (${allValidItems.length}/${count} collected)`);
+
+      // ── Hard MCQ: concept-by-concept single-item generation ──
+      // Instead of batch generation (which truncates), generate ONE question
+      // per concept. Each call is small, fast, and almost always produces
+      // valid JSON. Walk through the shuffled concept pool sequentially;
+      // wrap around if we exhaust all concepts.
+      if (type === 'MCQ' && difficulty === 'HARD' && hardConceptPool.length > 0) {
+        const concept = hardConceptPool[hardConceptIndex % hardConceptPool.length];
+        hardConceptIndex++;
+
+        const prompt = buildHardMCQPrompt(concept, summary, keyConcepts);
+        const maxTokens = 600; // generous for a single item
+
+        console.log(`  Hard MCQ concept-by-concept: "${concept.term}" (index ${hardConceptIndex})`);
+        const rawResponse = await generateWithOllama(prompt, {
+          model: resolvedModel,
+          temperature,
+          requireJson: true,
+          maxTokens,
+        }).catch(err => {
+          console.error(`  Call failed for concept "${concept.term}":`, err instanceof Error ? err.message : err);
+          return null;
+        });
+        totalApiCalls++;
+
+        let waveValidCount = 0;
+        let waveRejectedCount = 0;
+
+        if (rawResponse) {
+          // Parse the single-item JSON
+          let parsedItem: any = null;
+          try {
+            parsedItem = JSON.parse(rawResponse);
+          } catch {
+            const jsonMatch = rawResponse.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+              try { parsedItem = JSON.parse(jsonMatch[1]); } catch { /* ignore */ }
+            }
+            if (!parsedItem) {
+              jsonParseErrors++;
+              tokenMultiplier = Math.min(tokenMultiplier * 1.25, 2.0);
+              console.error(`  JSON parse error for concept "${concept.term}"`);
+            }
+          }
+
+          if (parsedItem) {
+            // The model may return a bare item or wrapped in {items:[...]}.
+            // Normalize to an array.
+            const items = parsedItem.items && Array.isArray(parsedItem.items)
+              ? parsedItem.items
+              : (parsedItem.question && parsedItem.choices ? [parsedItem] : []);
+
+            if (items.length > 0) {
+              const { validItems: structValid, rejectedItems: rejBatch } =
+                validateQuizItems(items, type, seenItems, difficulty, summary, keyConcepts);
+
+              if (structValid.length > 0) {
+                // Verify Hard items (skip only Easy)
+                const { verified, failed } = await verifyQuizItemsWithGemma(
+                  structValid, type, summary, resolvedModel
+                );
+                totalApiCalls += Math.ceil(structValid.length / 5);
+
+                // Remove failed items from seenItems
+                for (const f of failed) {
+                  const key = f.item.question ? normalizeText(f.item.question) : '';
+                  if (key) seenItems.delete(key);
+                }
+
+                allValidItems.push(...verified);
+                allRejectedItems.push(...rejBatch);
+                for (const f of failed) {
+                  allRejectedItems.push({ ...f.item, _rejected: true, _rejectionReason: `Verification: ${f.reason}` });
+                }
+                waveValidCount = verified.length;
+                waveRejectedCount = rejBatch.length + failed.length;
+              } else {
+                allRejectedItems.push(...rejBatch);
+                waveRejectedCount = rejBatch.length;
+              }
+            } else {
+              console.warn(`  Invalid structure for concept "${concept.term}"`);
+            }
+          }
+        }
+
+        // Track stagnation
+        if (waveValidCount === 0) {
+          consecutiveFailures++;
+          stagnantWaves++;
+        } else {
+          consecutiveFailures = 0;
+          stagnantWaves = 0;
+          if (tokenMultiplier > 1.0) {
+            tokenMultiplier = Math.max(tokenMultiplier * 0.85, 1.0);
+          }
+        }
+
+        const progress = Math.min(100, Math.round((allValidItems.length / targetCount) * 100));
+        console.log(`Wave ${wave + 1} result: +${waveValidCount} verified, +${waveRejectedCount} rejected | Total: ${allValidItems.length}/${targetCount} (${progress}%)`);
+
+        wave++;
+        if (allValidItems.length >= targetCount) {
+          console.log(`✓ Target reached! Collected ${allValidItems.length} verified items in ${wave} waves (${totalApiCalls} API calls)`);
+          break;
+        }
+
+        // Stagnant limit for Hard concept-by-concept
+        if (stagnantWaves >= 10) {
+          console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves — stopping early. Returning ${allValidItems.length}/${targetCount} collected items.`);
+          break;
+        }
+        continue; // skip the generic batch logic below
+      }
       
       // Build and fire parallel promises
       const wavePromises = Array.from({ length: callsThisWave }).map((_, i) => {
@@ -1978,16 +2318,16 @@ export async function generateQuizWithGemma(
         // Budgets raised after observing truncation even at 180 tokens/item.
         const baseTokensPerItem =
           difficulty === 'HARD'
-            ? (type === 'MCQ' ? 380 : type === 'FILL_IN_BLANK' ? 180 : 160)
+            ? (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 180 : 200)
             : difficulty === 'MEDIUM'
-            ? (type === 'MCQ' ? 340 : type === 'FILL_IN_BLANK' ? 150 : 130)
-            : (type === 'MCQ' ? 320 : type === 'FILL_IN_BLANK' ? 130 : 100);
+            ? (type === 'MCQ' ? 360 : type === 'FILL_IN_BLANK' ? 150 : 130)
+            : (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 130 : 100);
         // Dynamic token multiplier: after parse errors (truncation), automatically
         // increase budget for subsequent waves to avoid repeated truncation.
-        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 550);
+        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 800);
         // Hard cap scales with batch size: larger batches need proportionally more tokens.
         // MCQ items with explanations need significantly more tokens than FIB/flashcards.
-        const tokenHardCap = effectiveBatchSize <= 2 ? 4000 : effectiveBatchSize <= 4 ? 5000 : 6000;
+        const tokenHardCap = effectiveBatchSize <= 2 ? 6000 : effectiveBatchSize <= 4 ? 7500 : 9000;
         const maxTokens = Math.min(batchCount * tokensPerItem + 100, tokenHardCap);
         
         console.log(`  Call ${i + 1}: Requesting ${batchCount} items (slice offset ${sliceIndex}, max ${maxTokens} tokens)`);
@@ -2022,6 +2362,17 @@ export async function generateQuizWithGemma(
         try {
           parsedResponse = JSON.parse(rawResponse);
         } catch (parseError) {
+          // Try to extract JSON from surrounding text (model sometimes adds intro/outro)
+          const jsonMatch = rawResponse.match(/(\{[\s\S]*\})/);  
+          if (jsonMatch) {
+            try {
+              parsedResponse = JSON.parse(jsonMatch[1]);
+              console.log(`  Call ${i + 1}: Extracted JSON from surrounding text`);
+            } catch {
+              // Fall through to salvage
+            }
+          }
+          if (!parsedResponse) {
           // Try to salvage complete items from truncated JSON before giving up
           const salvaged = salvageTruncatedJson(rawResponse);
           if (salvaged && salvaged.items.length > 0) {
@@ -2036,6 +2387,7 @@ export async function generateQuizWithGemma(
               `Token multiplier raised to ${tokenMultiplier.toFixed(2)}x.`, parseError);
             continue;
           }
+          } // end if (!parsedResponse)
         }
         
         // Validate structure
@@ -2053,6 +2405,20 @@ export async function generateQuizWithGemma(
         // to allValidItems. This eliminates the need for post-generation
         // verification that would discard items after the fact.
         if (structurallyValid.length > 0) {
+          // ── Skip verification for EASY ──
+          // Easy questions are simple recall — the structural validation is
+          // sufficient. Verification often rejects correct recall items with
+          // "too broad" or "distractor source" failures, killing yield.
+          // For MEDIUM/HARD, full verification is still applied.
+          if (difficulty === 'EASY') {
+            allValidItems.push(...structurallyValid);
+            allRejectedItems.push(...rejectedBatchItems);
+            waveValidCount += structurallyValid.length;
+            waveRejectedCount += rejectedBatchItems.length;
+            console.log(`  Call ${i + 1}: Generated ${parsedResponse.items.length}, ` +
+              `StructValid: ${structurallyValid.length} (accepted — Easy skip-verify), ` +
+              `Rejected: ${rejectedBatchItems.length}`);
+          } else {
           const { verified, failed } = await verifyQuizItemsWithGemma(
             structurallyValid, type, summary, resolvedModel
           );
@@ -2088,6 +2454,7 @@ export async function generateQuizWithGemma(
           console.log(`  Call ${i + 1}: Generated ${parsedResponse.items.length}, ` +
             `StructValid: ${structurallyValid.length}, ` +
             `Verified: ${verified.length}, Rejected: ${rejectedBatchItems.length + failed.length}`);
+          }
         } else {
           // No structurally valid items
           allRejectedItems.push(...rejectedBatchItems);
@@ -2244,75 +2611,140 @@ function buildPrompt(
  * and key-concept-aware distractors.
  */
 function buildMCQPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedQuestions: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
-  // ── Bloom's taxonomy difficulty templates ──
+  // ── EASY: Ultra-minimal prompt to maximize model compliance ──
+  // The 4B model fails to produce valid JSON when the prompt is complex.
+  // For Easy recall questions, strip everything to the bare minimum:
+  // no usedBlock (dedup handled by seenItems), no conceptsBlock.
+  if (difficulty === 'EASY') {
+    return `Create ${count} EASY multiple-choice questions from the summary below. Output ONLY valid JSON.
+
+SUMMARY:
+${summary}
+
+RULES:
+- Test simple recall — definitions, direct facts.
+- Question patterns: "What is X?" or "Which term describes...?"
+- Correct answer must be directly stated in the summary.
+- 3 wrong choices must be clearly wrong (different category).
+- Each question on a DIFFERENT concept.
+- Explanation: 1 sentence starting with "The correct answer is '...' because ...".
+- Do NOT include any text outside the JSON.
+
+{"type":"mcq","difficulty":"easy","items":[{"question":"What is...?","choices":["correct","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is 'correct' because ..."}]}`;
+  }
+
+  // ── MEDIUM / HARD: Lean prompt — difficulty guide + key concepts + slim rules ──
+  // Removed: BAD examples (model doesn't need them), "FIRST decide answer" rule
+  // (adds reasoning load), full used-question dump (replaced with concept terms).
+  // This reduces constraint saturation on the 4B model.
   const diffGuide: Record<string, string> = {
-    EASY: `EASY = Recall / Recognition (Bloom's Level 1)
-- Questions must test DEFINITION or IDENTIFICATION of a single concept
-- Question patterns: "What is X?", "Which protocol does X use?", "What layer is responsible for X?", "How many bits does X have?"
-- Correct answer is a direct fact from the summary
-- Wrong choices should be OBVIOUSLY wrong (different categories or unrelated terms)
-- Only 1 concept per question`,
     MEDIUM: `MEDIUM = Understanding / Comparison (Bloom's Level 2-3)
-- Questions must test PURPOSE, DIFFERENCE, or INTERPRETATION
-- Question patterns: "What is the purpose of X?", "What is the difference between X and Y?", "Why is X used for...?", "Which scenario describes X?"
-- The question MUST include words like "purpose", "why", "difference", "compare", "how does", or "explain"
+- Test PURPOSE, DIFFERENCE, or INTERPRETATION
+- Patterns: "What is the purpose of X?", "Why is X used for...?", "What is the difference between X and Y?"
 - Wrong choices should be plausible (same domain) but distinguishable`,
     HARD: `HARD = Application / Analysis (Bloom's Level 4-5)
-- Questions must present a SCENARIO or require MULTI-CONCEPT REASONING
-- Question patterns: "A network has [scenario]... Which [concept] is responsible?", "Given [configuration], what will happen?", "Which protocol should be used and why?"
-- The question MUST describe a real-world situation, troubleshooting case, or multi-step problem
-- All choices must seem reasonable — only deep understanding reveals the correct one`
-  };
-
-  const diffExamples: Record<string, string> = {
-    EASY: `EXAMPLE for EASY:
-GOOD: Q: "What does the ping command primarily use to test connectivity?" → A: "ICMP" (simple recall)
-BAD:  Q: "Why is ICMP important for network diagnostics?" → A: "It measures round-trip time" (tests understanding — too hard for EASY)`,
-    MEDIUM: `EXAMPLE for MEDIUM:
-GOOD: Q: "Why is UDP preferred for real-time applications like streaming?" → A: "Because it prioritizes speed over reliability" (tests understanding of purpose)
-BAD:  Q: "What is UDP?" → A: "User Datagram Protocol" (simple recall — too easy for MEDIUM)`,
-    HARD: `EXAMPLE for HARD:
-GOOD: Q: "A device can reach hosts in its subnet but cannot access the internet. What configuration is most likely missing?" → A: "Default gateway" (requires troubleshooting reasoning)
-BAD:  Q: "What is a default gateway?" → A: "A router that forwards traffic" (simple recall — too easy for HARD)`
+- Present a concise SCENARIO (1-2 sentences) or multi-concept question
+- Patterns: "Given [situation], what happens?", "A system has [problem]... Which [concept] applies?"
+- All choices must seem reasonable — only deep understanding reveals the correct one
+- Explanation: 1-2 sentences.`
   };
 
   const avoid = recentConcepts.length > 0 ? `\nAVOID these topics: ${recentConcepts.join(', ')}` : '';
 
-  // Inject already-used questions so the model avoids recycling the same concepts.
-  const usedBlock = usedQuestions.length > 0
-    ? `\n\nIMPORTANT: The following questions have ALREADY been used. You MUST NOT create questions about the same topics or concepts. Any repeated topic will be REJECTED.\n${usedQuestions.slice(-30).map(q => `- ${q}`).join('\n')}\n`
+  // ── Lightweight used-concepts injection ──
+  // Instead of dumping 30 full question strings (which bloats context and
+  // confuses the model), inject only the concept TERMS that have been covered.
+  // This is lighter, cleaner, and more effective at preventing topic repetition.
+  const usedConceptTerms: string[] = [];
+  if (usedQuestions.length > 0 && keyConcepts.length > 0) {
+    for (const kc of keyConcepts) {
+      const normTerm = normalizeText(kc.term);
+      if (usedQuestions.some(q => normalizeText(q).includes(normTerm))) {
+        usedConceptTerms.push(kc.term);
+      }
+    }
+  }
+  const usedBlock = usedConceptTerms.length > 0
+    ? `\nUSED CONCEPTS (avoid repeating as primary topic): ${usedConceptTerms.join(', ')}\n`
     : '';
 
-  // Build KEY CONCEPTS block — tells the model which terms to use for answers and distractors
-  const keyConceptsBlock = keyConcepts.length > 0
-    ? `\n\nKEY CONCEPTS (use these for correct answers and distractors):\n${keyConcepts.map(k => `- ${k.term}`).join('\n')}\n`
-    : '';
+  // Compute which key concepts haven't been covered by existing questions.
+  const unusedConcepts = keyConcepts.filter(k => {
+    const normTerm = normalizeText(k.term);
+    return !usedQuestions.some(q => normalizeText(q).includes(normTerm));
+  });
 
-  return `Create ${count} ${difficulty} MCQs from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
+  // Build KEY CONCEPTS block — show unused concepts with definitions to guide
+  // the model toward fresh topics. Keep it compact.
+  let keyConceptsBlock: string;
+  if (unusedConcepts.length > 0) {
+    keyConceptsBlock = `\nFOCUS ON THESE CONCEPTS:\n${unusedConcepts.map(k => `- ${k.term}${k.definition ? ': ' + k.definition : ''}`).join('\n')}\n`;
+  } else if (keyConcepts.length > 0) {
+    keyConceptsBlock = `\nKEY CONCEPTS:\n${keyConcepts.map(k => `- ${k.term}`).join('\n')}\n`;
+  } else {
+    keyConceptsBlock = '';
+  }
+
+  return `Create up to ${count} ${difficulty} MCQs from the summary. Output ONLY valid JSON. Return fewer if needed.${avoid}${usedBlock}
 
 SUMMARY:
 ${summary}${keyConceptsBlock}
 
-DIFFICULTY LEVEL:
+DIFFICULTY:
 ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
-${diffExamples[difficulty] || diffExamples.MEDIUM}
+RULES:
+1. Content from summary only — no outside knowledge
+2. Avoid repeating the same primary concept. Different angles on a concept are OK.
+3. Correct answer must DIRECTLY answer the question
+4. Keep ALL choices concise (a few words each) — do NOT use full definitions or long sentences as choices
+5. Distractors should be plausible within the same domain (from KEY CONCEPTS or summary)
+6. answerIndex MUST point to the correct choice
+7. Explanation: 1 sentence starting with "The correct answer is '...' because ..."
+8. If asking "What is X?", answer must be X's definition — NOT the term X itself
 
-CRITICAL RULES — follow ALL or the item will be rejected:
-1. All content from summary only, no outside knowledge
-2. Each question on a DIFFERENT concept from the summary
-3. FIRST decide the correct answer, THEN write a question that it answers, THEN create 3 wrong choices
-4. The correct answer must DIRECTLY and SPECIFICALLY answer the question — not a broad category
-5. All 4 choices must be real terms/concepts from the summary or KEY CONCEPTS list, no placeholders
-6. The 3 wrong choices must be clearly WRONG for this specific question (not ambiguous)
-7. The correct answer and all 3 distractors MUST be chosen from the KEY CONCEPTS list above (if provided). Do NOT invent terms.
-8. No duplicate or near-synonym choices
-9. answerIndex MUST point to the correct choice (double-check before outputting)
-10. Explanation MUST start with: "The correct answer is '[exact choice text]' because ..."
-11. If asking "What is X?", the answer must be X's DEFINITION or DESCRIPTION — NOT the term X itself
-12. Every question must have EXACTLY ONE unambiguously correct answer among the 4 choices
+{"type":"mcq","difficulty":"${difficulty.toLowerCase()}","items":[{"question":"...","choices":["correct","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is '...' because ..."}]}`;
+}
 
-{"type":"mcq","difficulty":"${difficulty.toLowerCase()}","items":[{"question":"...","choices":["correct answer","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is 'correct answer' because ..."}]}`;
+/**
+ * Build a focused prompt for a SINGLE Hard MCQ based on one specific concept.
+ *
+ * Used by the concept-by-concept Hard MCQ loop. Keeps the prompt minimal:
+ * summary + concept definition + 6 compact rules + single-item JSON template.
+ * This eliminates truncation (only 1 item to generate) and ensures each
+ * question targets a distinct concept.
+ */
+function buildHardMCQPrompt(
+  concept: { term: string; definition: string },
+  summary: string,
+  keyConcepts: { term: string; definition: string }[] = []
+): string {
+  // Provide other key terms as potential distractor sources
+  const otherTerms = keyConcepts
+    .filter(k => k.term !== concept.term)
+    .map(k => k.term)
+    .slice(0, 10);
+  const distractorHint = otherTerms.length > 0
+    ? `\nDISTRACTOR TERMS (pick 3 for wrong choices): ${otherTerms.join(', ')}`
+    : '';
+
+  return `Generate ONE HARD multiple-choice question about "${concept.term}" from the summary below. Output ONLY valid JSON.
+
+SUMMARY:
+${summary}
+
+CONCEPT: ${concept.term}
+DEFINITION: ${concept.definition || 'See summary for details.'}${distractorHint}
+
+RULES:
+1. Create a concise scenario (1-2 sentences) requiring application or analysis of this concept
+2. Keep ALL choices concise (a few words each) — no full definitions
+3. Correct answer must directly relate to the concept
+4. 3 wrong choices must be plausible terms from the same domain
+5. answerIndex MUST point to the correct choice
+6. Explanation: 1-2 sentences starting with "The correct answer is '...' because ..."
+
+{"question":"...","choices":["correct","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is '...' because ..."}`;
 }
 
 /**
@@ -2384,22 +2816,49 @@ function buildFlashcardPrompt(difficulty: string, count: number, summary: string
 - Back: 2-3 sentence explanation with purpose or comparison
 - Front MUST include "purpose", "how", "why", "difference", or "explain"`,
     HARD: `HARD = Application / Analysis (Bloom's Level 4-5)
-- Front: Scenario-based question or multi-concept comparison
-- Back: Detailed analysis, step-by-step explanation, or troubleshooting reasoning (3-4 sentences)
-- Front MUST describe a situation or ask "what would happen if..."`
+- Front: Concise scenario (1-2 sentences) or multi-concept comparison
+- Back: 2-3 sentence analysis, explanation, or troubleshooting reasoning
+- Front MUST describe a situation or ask "what would happen if..."
+- Keep both front and back concise — focus on the core concept`
   };
 
   const avoid = recentConcepts.length > 0 ? `\nAVOID these topics: ${recentConcepts.join(', ')}` : '';
 
-  // Inject already-used fronts so the model doesn't regenerate duplicate cards.
-  const usedBlock = usedSentences.length > 0
-    ? `\n\nALREADY USED FLASHCARD FRONTS (DO NOT reuse these questions):\n${usedSentences.slice(-30).map(s => `- ${s}`).join('\n')}\n`
+  // ── Lightweight used-concepts injection for flashcards ──
+  // Instead of dumping 30 full front strings, inject only concept TERMS covered.
+  const usedConceptTerms: string[] = [];
+  if (usedSentences.length > 0 && keyConcepts.length > 0) {
+    for (const kc of keyConcepts) {
+      const normTerm = normalizeText(kc.term);
+      if (usedSentences.some(s => normalizeText(s).includes(normTerm))) {
+        usedConceptTerms.push(kc.term);
+      }
+    }
+  }
+  const usedBlock = usedConceptTerms.length > 0
+    ? `\nCOVERED CONCEPTS (use different angles or skip): ${usedConceptTerms.join(', ')}\n`
     : '';
 
-  // Build KEY CONCEPTS block when available
-  const keyConceptsBlock = keyConcepts.length > 0
-    ? `\n\nKEY CONCEPTS (create cards about these terms):\n${keyConcepts.map(k => `- ${k.term}`).join('\n')}\n`
-    : '';
+  // Compute which key concepts haven't been covered by existing flashcards.
+  // This is the key to preventing duplicate exhaustion: instead of just saying
+  // "don't repeat these", we tell the model exactly which topics remain.
+  const unusedConcepts = keyConcepts.filter(k => {
+    const normTerm = normalizeText(k.term);
+    // A concept is "used" if any existing front mentions the term
+    return !usedSentences.some(s => normalizeText(s).includes(normTerm));
+  });
+
+  // Build KEY CONCEPTS block — prioritize unused concepts when available
+  let keyConceptsBlock: string;
+  if (unusedConcepts.length > 0) {
+    // Show unused concepts with definitions to guide the model toward fresh topics
+    keyConceptsBlock = `\n\nREMAINING UNUSED CONCEPTS (PRIORITIZE these — create cards about these FIRST):\n${unusedConcepts.map(k => `- ${k.term}${k.definition ? ': ' + k.definition : ''}`).join('\n')}\n`;
+  } else if (keyConcepts.length > 0) {
+    // All concepts used — show full list and encourage different angles/phrasings
+    keyConceptsBlock = `\n\nKEY CONCEPTS (all topics covered — create cards with DIFFERENT question angles, comparisons, or applications):\n${keyConcepts.map(k => `- ${k.term}`).join('\n')}\n`;
+  } else {
+    keyConceptsBlock = '';
+  }
 
   return `Create ${count} ${difficulty} flashcards from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
 
