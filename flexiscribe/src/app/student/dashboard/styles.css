@@ -2341,7 +2341,9 @@ body {
 @media (max-width: 768px) {
   .notification-dropdown {
     width: 320px;
-    right: -60px;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
     max-height: 400px;
   }
 

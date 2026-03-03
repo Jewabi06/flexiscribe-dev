@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
-import { FaArrowLeft, FaEye, FaFilePdf } from "react-icons/fa";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { FaArrowLeft, FaEye, FaFilePdf, FaBook } from "react-icons/fa";
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
 import LoadingScreen from "@/components/shared/LoadingScreen";
@@ -11,7 +11,9 @@ import "./styles.css";
 export default function ClassReviewersPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const classCode = params.classCode;
+  const sessionType = searchParams.get('type') || 'lecture'; // 'lecture' or 'meeting'
   
   const [currentTime, setCurrentTime] = useState(null);
   const [mounted, setMounted] = useState(false);
@@ -77,7 +79,14 @@ export default function ClassReviewersPage() {
         const response = await fetch(`/api/students/transcriptions?classCode=${classCode}`);
         if (response.ok) {
           const data = await response.json();
-          setReviewers(data.transcriptions || []);
+          const all = data.transcriptions || [];
+          // Filter by session type based on title
+          const filtered = all.filter((t) => {
+            const title = (t.title || '').toLowerCase();
+            if (sessionType === 'meeting') return title.includes('meeting');
+            return !title.includes('meeting');
+          });
+          setReviewers(filtered);
         }
       } catch (error) {
         console.error('Error fetching reviewers:', error);
@@ -140,7 +149,7 @@ export default function ClassReviewersPage() {
             <h1 className="class-title">
               {classInfo ? `${classInfo.subject} — Section ${classInfo.section}` : classCode}
             </h1>
-            <p className="class-subtitle">Enrolled Classes - Reviewers</p>
+            <p className="class-subtitle">{sessionType === 'meeting' ? 'Minutes of the Meeting' : 'Enrolled Classes - Reviewers'}</p>
           </div>
 
           {loadingReviewers ? (
@@ -150,8 +159,8 @@ export default function ClassReviewersPage() {
           ) : reviewers.length === 0 ? (
             <div className="empty-state">
               <FaBook className="empty-icon" />
-              <h3>No Reviewers Available</h3>
-              <p>There are no reviewers uploaded for this class yet.</p>
+              <h3>No {sessionType === 'meeting' ? 'MOTM' : 'Reviewers'} Available</h3>
+              <p>There are no {sessionType === 'meeting' ? 'minutes of the meeting' : 'reviewers'} uploaded for this class yet.</p>
             </div>
           ) : (
             <div className="reviewers-grid">
