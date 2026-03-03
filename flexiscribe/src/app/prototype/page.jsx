@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook } from "react-icons/fa";
+import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import "./styles.css";
 
@@ -22,6 +22,7 @@ export default function PrototypeDashboard() {
   const [isStopping, setIsStopping] = useState(false);
   const [duration, setDuration] = useState("0m 0s");
   const [showCourseSelect, setShowCourseSelect] = useState(false);
+  const [sessionType, setSessionType] = useState("lecture"); // "lecture" | "meeting"
 
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -192,7 +193,8 @@ export default function PrototypeDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseCode: selectedCourse,
-          title: `${selectedCourse} - Lecture ${new Date().toLocaleDateString()}`,
+          sessionType: sessionType,
+          title: `${selectedCourse} - ${sessionType === "meeting" ? "Meeting" : "Lecture"} ${new Date().toLocaleDateString()}`,
         }),
       });
 
@@ -534,7 +536,7 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Course Selector Bar */}
+        {/* Course & Session Type Selector Bar */}
         <div className="course-selector-bar">
           <button
             className={`course-select-btn ${selectedCourse ? "has-course" : ""}`}
@@ -544,13 +546,36 @@ export default function PrototypeDashboard() {
             <FaBook />
             <span>{selectedCourse || "Select Course"}</span>
           </button>
+
+          {/* Session Type Toggle */}
+          <div className="session-type-toggle">
+            <button
+              className={`session-type-btn ${sessionType === "lecture" ? "active" : ""}`}
+              onClick={() => setSessionType("lecture")}
+              disabled={isRecording}
+            >
+              <FaBook />
+              <span>Lecture</span>
+            </button>
+            <button
+              className={`session-type-btn ${sessionType === "meeting" ? "active" : ""}`}
+              onClick={() => setSessionType("meeting")}
+              disabled={isRecording}
+            >
+              <FaUsers />
+              <span>Meeting</span>
+            </button>
+          </div>
+
           {selectedCourse && !isRecording && (
-            <span className="course-ready-label">Ready to record for {selectedCourse}</span>
+            <span className="course-ready-label">
+              Ready to record {sessionType === "meeting" ? "meeting" : "lecture"} for {selectedCourse}
+            </span>
           )}
           {isRecording && (
             <div className="recording-info">
               <span className="recording-dot"></span>
-              <span className="recording-label">REC &mdash; {selectedCourse}</span>
+              <span className="recording-label">REC &mdash; {selectedCourse} ({sessionType === "meeting" ? "Meeting" : "Lecture"})</span>
               <span className="recording-duration">{duration}</span>
             </div>
           )}

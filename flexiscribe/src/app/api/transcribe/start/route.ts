@@ -26,11 +26,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Educator profile not found" }, { status: 404 });
     }
 
-    const { courseCode, title } = await request.json();
+    const { courseCode, title, sessionType } = await request.json();
 
     if (!courseCode) {
       return NextResponse.json({ error: "Course code is required" }, { status: 400 });
     }
+
+    // Validate session type (default to "lecture")
+    const validSessionType = ["lecture", "meeting"].includes(sessionType) ? sessionType : "lecture";
 
     // Verify the educator has this class with students
     const classRecord = await prisma.class.findFirst({
@@ -57,7 +60,8 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         course_code: courseCode,
         educator_id: educator.id,
-        title: title || `${courseCode} - Lecture`,
+        title: title || `${courseCode} - ${validSessionType === "meeting" ? "Meeting" : "Lecture"}`,
+        session_type: validSessionType,
       }),
     });
 

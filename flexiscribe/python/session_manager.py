@@ -13,10 +13,11 @@ from config import OUTPUT_DIR
 class TranscriptionSession:
     """Represents a single live transcription session."""
 
-    def __init__(self, session_id: str, course_code: str, educator_id: str):
+    def __init__(self, session_id: str, course_code: str, educator_id: str, session_type: str = "lecture"):
         self.session_id = session_id
         self.course_code = course_code
         self.educator_id = educator_id
+        self.session_type = session_type  # "lecture" | "meeting"
         self.run_id = time.strftime("%Y%m%d_%H%M%S")
         self.stop_event = threading.Event()
         self.whisper_done = threading.Event()  # Set when whisper finishes
@@ -162,12 +163,12 @@ class SessionManager:
         self._lock = threading.Lock()
 
     def create_session(
-        self, session_id: str, course_code: str, educator_id: str
+        self, session_id: str, course_code: str, educator_id: str, session_type: str = "lecture"
     ) -> TranscriptionSession:
         with self._lock:
             if session_id in self._sessions:
                 raise ValueError(f"Session {session_id} already exists")
-            session = TranscriptionSession(session_id, course_code, educator_id)
+            session = TranscriptionSession(session_id, course_code, educator_id, session_type)
             self._sessions[session_id] = session
             return session
 
