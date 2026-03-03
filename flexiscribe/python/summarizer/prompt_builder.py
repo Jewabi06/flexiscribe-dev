@@ -2,6 +2,12 @@ def build_minute_summary_prompt(text: str) -> str:
     return f"""
 You are summarizing a university lecture segment. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Preserve the language style of the original — if the lecture uses Taglish, summarize in Taglish.
 
+IMPORTANT — Uniqueness rules:
+- Vary your wording and sentence structure each time you generate a summary.
+- Do NOT repeat identical phrases or sentences from any prior output.
+- Produce a fresh, original summary that captures the essence of the lesson without copying previous responses.
+- All key points must still be covered accurately and remain faithful to the lecture content.
+
 Return ONLY valid JSON with no extra text:
 {{
   "summary": "A concise 2-3 sentence summary of this segment",
@@ -15,14 +21,31 @@ Lecture segment:
 
 def build_cornell_prompt(text: str) -> str:
     return f"""
-Create a comprehensive Cornell Notes summary of this full lecture. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Write the summary preserving the language style used in the lecture.
+Create a comprehensive Cornell Notes reviewer from this full lecture transcript. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Write all content preserving the language style used in the lecture.
+
+Rules:
+- All content must be factually based on the lecture text only.
+- Organize by topic in the order they appear in the transcript.
+- Cover all major topics — ensure every significant concept from the transcript appears in the reviewer.
+
+Uniqueness rules:
+- Vary your wording, sentence structure, and phrasing each time you generate a reviewer.
+- Avoid repeating identical phrases or paragraphs from any prior output.
+- The output must be a fresh, original reviewer that faithfully captures the lesson without copying previous responses.
+- All key concepts and terms must still be fully covered and accurate.
 
 Return ONLY valid JSON with no extra text:
 {{
   "title": "A descriptive title for the lecture topic",
-  "cue_questions": ["Question 1 about key concept", "Question 2", "Question 3"],
-  "notes": ["Important note or concept 1", "Important note 2", "Important note 3"],
-  "summary": "A comprehensive 3-5 sentence summary of the entire lecture"
+  "key_concepts": ["Important keyword or concept 1", "Important keyword or concept 2"],
+  "notes": [
+    {{
+      "term": "Term or concept name",
+      "definition": "Clear definition of the term based on the lecture",
+      "example": "An example or application mentioned or implied in the lecture"
+    }}
+  ],
+  "summary": ["Concise takeaway point 1", "Concise takeaway point 2", "Concise takeaway point 3"]
 }}
 
 Full lecture transcript:

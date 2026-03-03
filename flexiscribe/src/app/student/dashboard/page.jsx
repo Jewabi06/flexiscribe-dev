@@ -1,7 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Progress } from '@material-tailwind/react';
 import 'react-circular-progressbar/dist/styles.css';
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
@@ -148,6 +147,36 @@ export default function StudentDashboard() {
       }
     };
 
+    // Re-read localStorage progress when user switches back to this tab
+    const refreshProgressFromStorage = () => {
+      setInProgressQuizzes((prev) => {
+        if (prev.length === 0) return prev;
+        const updated = prev.map((q) => {
+          const savedProgress = localStorage.getItem(`quiz-progress-${q.id}`);
+          if (savedProgress) {
+            const progress = JSON.parse(savedProgress);
+            return {
+              ...q,
+              answeredCount: progress.answeredCount || 0,
+              progressPercent: Math.round((progress.answeredCount / q.numQuestions) * 100),
+            };
+          }
+          return q;
+        });
+        updated.sort((a, b) => b.progressPercent - a.progressPercent);
+        return updated;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshProgressFromStorage();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Also refresh on window focus (covers same-window tab navigation)
+    window.addEventListener('focus', refreshProgressFromStorage);
+
     // Fetch recently added reviewers (transcriptions created within 24 hours)
     const fetchRecentReviewers = async () => {
       try {
@@ -169,7 +198,11 @@ export default function StudentDashboard() {
     fetchInProgressQuizzes();
     fetchRecentReviewers();
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', refreshProgressFromStorage);
+    };
   }, []);
 
   /* ============================================
@@ -319,14 +352,14 @@ export default function StudentDashboard() {
                         onClick={() => router.push(`/student/quizzes/${q.id}`)}
                       >
                         <div className="flex flex-col w-full gap-4">
-                          <Progress
-                            value={q.progressPercent || 0}
-                            label="Progress"
-                            size="md"
-                            color="primary"
-                            className="progress-bar"
-                            barProps={{ className: "bg-[var(--brand-tertiary)] text-[var(--accent-secondary)] font-semibold" }}
-                          />
+                          <div className="progress-bar w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                            <div
+                              className="bg-[var(--brand-tertiary)] text-[var(--accent-secondary)] font-semibold h-full rounded-full flex items-center justify-center text-[10px] leading-none transition-all duration-300"
+                              style={{ width: `${q.progressPercent || 0}%`, minWidth: q.progressPercent > 0 ? '2rem' : '0' }}
+                            >
+                              {q.progressPercent > 0 ? `${q.progressPercent}%` : ''}
+                            </div>
+                          </div>
                         </div>
                         <div style={{ width: '100%', minWidth: 0, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <p className="progress-label" title={q.lesson}>{q.lesson}</p>
@@ -385,7 +418,7 @@ export default function StudentDashboard() {
                         key={r.id}
                         className="document-preview"
                         style={{ cursor: 'pointer' }}
-                        onClick={() => router.push(`/student/reviewers/${r.class?.classCode || ''}/${r.id}`)}
+                        onClick={() => router.push(`/student/documents/${r.class?.classCode || ''}/${r.id}`)}
                       >
                         <div className="doc-icon">📄</div>
                         <div className="doc-info">

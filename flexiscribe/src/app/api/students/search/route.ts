@@ -115,8 +115,8 @@ export async function GET(request: NextRequest) {
         title: t.title,
         subject,
         link: classCode
-          ? `/student/reviewers/${classCode}/${t.id}`
-          : `/student/reviewers`,
+          ? `/student/documents/${classCode}/${t.id}`
+          : `/student/documents`,
       });
 
       // As a raw transcript
@@ -126,8 +126,8 @@ export async function GET(request: NextRequest) {
         title: t.title,
         subject,
         link: classCode
-          ? `/student/reviewers/transcripts/${classCode}/${t.id}`
-          : `/student/reviewers`,
+          ? `/student/documents/transcripts/${classCode}/${t.id}`
+          : `/student/documents`,
       });
     }
 

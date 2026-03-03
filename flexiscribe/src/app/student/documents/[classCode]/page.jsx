@@ -108,7 +108,7 @@ export default function ClassReviewersPage() {
   };
 
   const handleReviewerClick = (reviewer) => {
-    router.push(`/student/reviewers/${classCode}/${reviewer.id}`);
+    router.push(`/student/documents/${classCode}/${reviewer.id}`);
   };
 
 
@@ -130,7 +130,7 @@ export default function ClassReviewersPage() {
         
         <div className="class-content">
           <div className="back-button-container">
-            <button className="back-button" onClick={() => router.push('/student/reviewers')}>
+            <button className="back-button" onClick={() => router.push('/student/documents')}>
               <FaArrowLeft className="back-icon" />
               <span>Back to Documents</span>
             </button>

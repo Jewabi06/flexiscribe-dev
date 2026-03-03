@@ -53,7 +53,7 @@ export default function StudentSidebar({
             <FaHome className="nav-icon" />
             <span>Dashboard</span>
           </div>
-          <div className={`nav-item ${isActive('/student/reviewers') ? 'active' : ''}`} onClick={() => handleNavigation('/student/reviewers')}>
+          <div className={`nav-item ${isActive('/student/documents') ? 'active' : ''}`} onClick={() => handleNavigation('/student/documents')}>
             <FaBook className="nav-icon" />
             <span>Documents</span>
           </div>
