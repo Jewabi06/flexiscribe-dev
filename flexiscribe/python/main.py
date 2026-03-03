@@ -68,6 +68,7 @@ class StartRequest(BaseModel):
     course_code: str
     educator_id: str
     title: Optional[str] = None
+    session_type: Optional[str] = "lecture"  # "lecture" | "meeting"
 
 
 class StopRequest(BaseModel):
@@ -125,6 +126,7 @@ def start_transcription(req: StartRequest):
             session_id=session_id,
             course_code=req.course_code,
             educator_id=req.educator_id,
+            session_type=req.session_type or "lecture",
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -154,6 +156,7 @@ def start_transcription(req: StartRequest):
     return {
         "session_id": session_id,
         "course_code": req.course_code,
+        "session_type": req.session_type or "lecture",
         "status": "running",
         "message": "Transcription started successfully",
     }

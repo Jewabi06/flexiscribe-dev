@@ -23,7 +23,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from summarizer.summarizer import summarize_minute, summarize_cornell
+from summarizer.summarizer import summarize_minute, summarize_cornell, summarize_motm
 from utils.json_writer import write_json
 from config import BUFFER_INTERVAL
 
@@ -110,26 +110,51 @@ def summarization_worker(stop_event: threading.Event, session):
             session, last_processed_idx, minute_counter,
         )
 
-        # ── Generate final Cornell summary ────────────────────────────
+        # ── Generate final summary based on session type ─────────────
         if session.transcript_chunks:
-            print("[INFO] Generating final Cornell summary...")
             full_text = "\n".join(c["text"] for c in session.transcript_chunks)
-            try:
-                cornell = summarize_cornell(full_text)
-                session.final_summary = cornell
-                write_json(
-                    session.get_final_summary_json(),
-                    session.final_summary_path,
-                )
-                print("[INFO] Final Cornell summary generated.")
-            except Exception as e:
-                print(f"[ERROR] Final Cornell summary failed: {e}")
-                session.final_summary = {
-                    "title": f"Lecture - {session.course_code}",
-                    "cue_questions": [],
-                    "notes": ["Summary generation failed. Raw text available."],
-                    "summary": full_text[:500],
-                }
+
+            if getattr(session, "session_type", "lecture") == "meeting":
+                # Generate Minutes of the Meeting (MOTM)
+                print("[INFO] Generating Minutes of the Meeting (MOTM)...")
+                try:
+                    motm = summarize_motm(full_text)
+                    session.final_summary = motm
+                    write_json(
+                        session.get_final_summary_json(),
+                        session.final_summary_path,
+                    )
+                    print("[INFO] MOTM generated successfully.")
+                except Exception as e:
+                    print(f"[ERROR] MOTM generation failed: {e}")
+                    session.final_summary = {
+                        "meeting_title": f"Meeting - {session.course_code}",
+                        "date": "Not specified",
+                        "time": "Not specified",
+                        "speaker": "",
+                        "agendas": [],
+                        "next_meeting": {"date": "To be announced", "time": "To be announced"},
+                        "prepared_by": "To be determined",
+                    }
+            else:
+                # Generate Cornell Notes summary (default for lectures)
+                print("[INFO] Generating final Cornell summary...")
+                try:
+                    cornell = summarize_cornell(full_text)
+                    session.final_summary = cornell
+                    write_json(
+                        session.get_final_summary_json(),
+                        session.final_summary_path,
+                    )
+                    print("[INFO] Final Cornell summary generated.")
+                except Exception as e:
+                    print(f"[ERROR] Final Cornell summary failed: {e}")
+                    session.final_summary = {
+                        "title": f"Lecture - {session.course_code}",
+                        "cue_questions": [],
+                        "notes": ["Summary generation failed. Raw text available."],
+                        "summary": full_text[:500],
+                    }
 
         session.status = "completed"
         print(f"[INFO] Session {session.session_id} completed.")

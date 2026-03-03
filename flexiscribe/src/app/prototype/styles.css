@@ -1004,6 +1004,51 @@
   border-color: rgba(197, 166, 249, 0.5);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Session Type Toggle (Lecture / Meeting)
+   ═══════════════════════════════════════════════════════════════════════ */
+.session-type-toggle {
+  display: flex;
+  gap: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.session-type-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.session-type-btn:first-child {
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.session-type-btn:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.session-type-btn.active {
+  background: rgba(197, 166, 249, 0.3);
+  color: var(--accent-secondary);
+}
+
+.session-type-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .course-ready-label {
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.8rem;

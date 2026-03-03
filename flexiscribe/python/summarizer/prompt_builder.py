@@ -1,6 +1,9 @@
+from summarizer.motm import build_motm_prompt  # noqa: F401
+
+
 def build_minute_summary_prompt(text: str) -> str:
     return f"""
-You are summarizing a university lecture segment. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Preserve the language style of the original — if the lecture uses Taglish, summarize in Taglish.
+You are summarizing a university lecture segment. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Preserve the language style of the original — if the lecture uses Taglish, summarize in English.
 
 Return ONLY valid JSON with no extra text:
 {{
