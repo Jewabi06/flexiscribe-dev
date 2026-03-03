@@ -493,19 +493,41 @@ function generateDeterministicFIB(
 // ============================================================================
 
 /**
+ * Return a concise one-sentence version of a concept's definition.
+ * - Extracts the first sentence (up to first . ! ?) if available.
+ * - Falls back to first 100 characters with ellipsis.
+ * - Falls back to the term name if no definition exists.
+ */
+function getShortDefinition(concept: { term: string; definition: string }): string {
+  if (!concept.definition || !concept.definition.trim()) return concept.term;
+  const def = concept.definition.trim();
+  // Extract first sentence — stop at the first sentence-ending punctuation
+  // that is NOT inside a common abbreviation (e.g., "e.g.", "i.e.").
+  const match = def.match(/^.+?[.!?](?:\s|$)/);
+  if (match) return match[0].trim();
+  // No sentence boundary found — take first 100 chars
+  return def.substring(0, 100).trim() + (def.length > 100 ? '…' : '');
+}
+
+/**
  * Deterministic Easy MCQ generator.
  *
- * For each key concept, creates a definition-recall question:
- *   "What is [term]?"
- * Correct answer = the definition of the term.
- * Distractors = definitions of 3 other key concepts.
- * Choices are full definitions — this tests whether the student can
- * identify the correct definition among plausible alternatives.
+ * For each key concept, creates a recall question in one of two styles:
+ *
+ *   Forward  (term → definition):
+ *     "What is [term]?"  –  choices = concise (one-sentence) definitions.
+ *
+ *   Reverse  (definition → term):
+ *     The concise definition is used as the question text.
+ *     Choices = term names (correct term + 3 distractor terms).
+ *
+ * A 50/50 random coin flip decides which style each item uses, so the
+ * resulting quiz contains a healthy mix of both. Both styles test recall
+ * at Bloom's Level 1.
  *
  * Why this works:
  * - No LLM involved → 100% yield, instant, zero JSON parse errors.
- * - Each question is a valid Bloom's Level 1 (recall) item.
- * - Distractors are real definitions from the same domain → plausible.
+ * - Distractors are real definitions / terms from the same domain → plausible.
  * - Scales with content: N key concepts with definitions → up to N items.
  *
  * Falls back to null if fewer than 4 key concepts have definitions.
@@ -527,36 +549,51 @@ function generateDeterministicMCQ_Easy(
   for (const concept of shuffledConcepts) {
     if (result.length >= count) break;
 
-    const correctTerm = concept.term;
-    const correctDef = concept.definition.trim();
+    const correctShort = getShortDefinition(concept);
 
-    // Pick 3 distractor definitions from other concepts
-    const otherConcepts = validConcepts.filter(k => k.term !== correctTerm);
-    if (otherConcepts.length < 3) continue; // safety
+    // 50/50 coin flip: forward (term → definition) or reverse (definition → term)
+    const useForward = Math.random() < 0.5;
 
-    const distractorConcepts = shuffleArray(otherConcepts).slice(0, 3);
-    const distractorDefs = distractorConcepts.map(k => k.definition.trim());
+    if (useForward) {
+      // ── Forward style: "What is [term]?" → choices = short definitions ──
+      const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+      if (otherConcepts.length < 3) continue;
 
-    // Choices: correct definition + 3 distractor definitions, shuffled
-    const allChoices = [correctDef, ...distractorDefs];
-    // Safety: ensure all 4 choices are unique (expanded variants can share
-    // the same definition, causing duplicate options)
-    const uniqueChoices = [...new Set(allChoices)];
-    if (uniqueChoices.length < 4) {
-      // Not enough unique definitions — skip this concept
-      continue;
+      const distractorConcepts = shuffleArray(otherConcepts).slice(0, 3);
+      const distractorShorts = distractorConcepts.map(c => getShortDefinition(c));
+
+      const allChoices = [correctShort, ...distractorShorts];
+      const uniqueChoices = [...new Set(allChoices)];
+      if (uniqueChoices.length < 4) continue; // duplicate definitions — skip
+
+      const choices = shuffleArray(uniqueChoices);
+      const answerIndex = choices.indexOf(correctShort);
+
+      result.push({
+        question: `What is ${concept.term}?`,
+        choices,
+        answerIndex,
+        explanation: `The correct answer is '${correctShort}' because that is the definition of ${concept.term}.`,
+      });
+    } else {
+      // ── Reverse style: short definition as question → choices = terms ──
+      const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+      if (otherConcepts.length < 3) continue;
+
+      const distractorTerms = shuffleArray(otherConcepts).slice(0, 3).map(c => c.term);
+
+      const allChoices = [concept.term, ...distractorTerms];
+      // Terms are inherently unique — no dedup needed
+      const choices = shuffleArray(allChoices);
+      const answerIndex = choices.indexOf(concept.term);
+
+      result.push({
+        question: correctShort,
+        choices,
+        answerIndex,
+        explanation: `The correct answer is '${concept.term}' because it matches the description: ${correctShort}`,
+      });
     }
-    const choices = shuffleArray(uniqueChoices);
-    const answerIndex = choices.indexOf(correctDef);
-
-    const explanation = `The correct answer is '${correctDef}' because that is the definition of ${correctTerm}.`;
-
-    result.push({
-      question: `What is ${correctTerm}?`,
-      choices,
-      answerIndex,
-      explanation,
-    });
   }
 
   if (result.length === 0) {
