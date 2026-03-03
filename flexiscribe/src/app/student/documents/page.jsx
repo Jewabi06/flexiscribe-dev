@@ -169,13 +169,8 @@ export default function ReviewersPage() {
     }
   };
 
-<<<<<<< HEAD
-  const handleClassClick = (classItem, sessionType) => {
-    router.push(`/student/documents/${classItem.classCode}?type=${sessionType}`);
-=======
   const handleClassClick = (classItem, type) => {
     router.push(`/student/documents/${classItem.classCode}?type=${type}`);
->>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
   };
 
   const handleTranscriptClick = (transcript) => {
@@ -184,9 +179,14 @@ export default function ReviewersPage() {
   };
 
   // Group transcripts by class and sessionType for Reviewers (lecture) and MOTM (meeting)
+  const getSessionType = (t) => {
+    const title = (t.title || "").toLowerCase();
+    return title.includes("meeting") ? "meeting" : "lecture";
+  };
+
   const groupByClassAndType = (transcripts, type) => {
     const grouped = {};
-    transcripts.filter((t) => t.sessionType === type).forEach((t) => {
+    transcripts.filter((t) => getSessionType(t) === type).forEach((t) => {
       const key = t.class?.classCode || t.course;
       if (!grouped[key]) {
         grouped[key] = {
@@ -208,24 +208,6 @@ export default function ReviewersPage() {
   if (!mounted || !currentTime || loadingClasses || loadingTranscripts) {
     return <LoadingScreen />;
   }
-
-  // Calculate clock hand angles
-  // Format time and date
-
-  // Helper: determine session type from transcription title
-  const getSessionType = (t) => {
-    const title = (t.title || "").toLowerCase();
-    return title.includes("meeting") ? "meeting" : "lecture";
-  };
-
-  // Compute per-class file counts by session type
-  const classCounts = {};
-  rawTranscripts.forEach((t) => {
-    const code = t.class?.classCode || t.course;
-    if (!classCounts[code]) classCounts[code] = { lecture: 0, meeting: 0 };
-    const type = getSessionType(t);
-    classCounts[code][type]++;
-  });
 
   return (
     <div className="dashboard-container">
@@ -277,27 +259,6 @@ export default function ReviewersPage() {
               </div>
             ) : (
               <div className="folders-grid">
-<<<<<<< HEAD
-                {enrolledClasses.map((classItem) => {
-                  const counts = classCounts[classItem.classCode];
-                  const lectureCount = counts ? counts.lecture : 0;
-                  return (
-                    <div
-                      key={classItem.id}
-                      className="folder-card"
-                      onClick={() => handleClassClick(classItem, 'lecture')}
-                    >
-                      <div className="folder-icon-wrapper">
-                        <FaFolderOpen className="folder-icon" />
-                      </div>
-                      <div className="folder-label">{classItem.subject}</div>
-                      <div className="folder-sublabel">
-                        Section {classItem.section}{lectureCount > 0 ? ` • ${lectureCount} file${lectureCount !== 1 ? 's' : ''}` : ''}
-                      </div>
-                    </div>
-                  );
-                })}
-=======
                 {reviewerGroups.map((group) => (
                   <div
                     key={group.classCode}
@@ -313,7 +274,6 @@ export default function ReviewersPage() {
                     </div>
                   </div>
                 ))}
->>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
               </div>
             )}
           </div>
@@ -333,27 +293,6 @@ export default function ReviewersPage() {
               </div>
             ) : (
               <div className="folders-grid">
-<<<<<<< HEAD
-                {enrolledClasses.map((classItem) => {
-                  const counts = classCounts[classItem.classCode];
-                  const meetingCount = counts ? counts.meeting : 0;
-                  return (
-                    <div
-                      key={classItem.id}
-                      className="folder-card"
-                      onClick={() => handleClassClick(classItem, 'meeting')}
-                    >
-                      <div className="folder-icon-wrapper">
-                        <FaFolderOpen className="folder-icon" />
-                      </div>
-                      <div className="folder-label">{classItem.subject}</div>
-                      <div className="folder-sublabel">
-                        Section {classItem.section}{meetingCount > 0 ? ` • ${meetingCount} file${meetingCount !== 1 ? 's' : ''}` : ''}
-                      </div>
-                    </div>
-                  );
-                })}
-=======
                 {motmGroups.map((group) => (
                   <div
                     key={group.classCode}
@@ -369,7 +308,6 @@ export default function ReviewersPage() {
                     </div>
                   </div>
                 ))}
->>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
               </div>
             )}
           </div>
