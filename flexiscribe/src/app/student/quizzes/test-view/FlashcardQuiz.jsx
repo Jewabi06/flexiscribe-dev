@@ -100,7 +100,7 @@ export default function FlashcardQuiz({ quiz, questions }) {
         </div>
         <nav className="nav-menu">
           <div className="nav-item" onClick={() => router.push('/student/dashboard')}><FaHome className="nav-icon" /><span>Dashboard</span></div>
-          <div className="nav-item" onClick={() => router.push('/student/reviewers')}><FaBook className="nav-icon" /><span>Reviewers</span></div>
+          <div className="nav-item" onClick={() => router.push('/student/documents')}><FaBook className="nav-icon" /><span>Documents</span></div>
           <div className="nav-item active" onClick={() => router.push('/student/quizzes')}><FaGamepad className="nav-icon" /><span>Quizzes</span></div>
           <div className="nav-item" onClick={() => router.push('/student/leaderboard')}><FaTrophy className="nav-icon" /><span>Leaderboard</span></div>
         </nav>
