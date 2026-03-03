@@ -147,6 +147,36 @@ export default function StudentDashboard() {
       }
     };
 
+    // Re-read localStorage progress when user switches back to this tab
+    const refreshProgressFromStorage = () => {
+      setInProgressQuizzes((prev) => {
+        if (prev.length === 0) return prev;
+        const updated = prev.map((q) => {
+          const savedProgress = localStorage.getItem(`quiz-progress-${q.id}`);
+          if (savedProgress) {
+            const progress = JSON.parse(savedProgress);
+            return {
+              ...q,
+              answeredCount: progress.answeredCount || 0,
+              progressPercent: Math.round((progress.answeredCount / q.numQuestions) * 100),
+            };
+          }
+          return q;
+        });
+        updated.sort((a, b) => b.progressPercent - a.progressPercent);
+        return updated;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshProgressFromStorage();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Also refresh on window focus (covers same-window tab navigation)
+    window.addEventListener('focus', refreshProgressFromStorage);
+
     // Fetch recently added reviewers (transcriptions created within 24 hours)
     const fetchRecentReviewers = async () => {
       try {
@@ -168,7 +198,11 @@ export default function StudentDashboard() {
     fetchInProgressQuizzes();
     fetchRecentReviewers();
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', refreshProgressFromStorage);
+    };
   }, []);
 
   /* ============================================

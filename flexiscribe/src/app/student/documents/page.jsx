@@ -117,8 +117,6 @@ export default function ReviewersPage() {
   const handleAddClass = async () => {
     if (!classCode.trim()) return;
 
-    setJoinError("");
-    setJoinSuccess("");
     setJoining(true);
 
     try {
