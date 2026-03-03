@@ -25,11 +25,19 @@ export default function PreviewPanel({ transcript }) {
   const summaryData = transcript?.summaryJson || null;
   const transcriptData = transcript?.transcriptJson || null;
 
+  // Detect MOTM vs Cornell format
+  const isMOTM = !!(summaryData?.agenda || summaryData?.decisions || summaryData?.action_items);
+
   // Extract Cornell note fields from summaryJson
   const cornellTitle = summaryData?.title || transcript?.title || "Untitled";
   const cueQuestions = summaryData?.cue_questions || transcript?.cue || [];
   const notes = summaryData?.notes || [];
   const summaryText = summaryData?.summary || transcript?.summary || "";
+
+  // Extract MOTM fields
+  const motmAgenda = summaryData?.agenda || summaryData?.topics || [];
+  const motmDecisions = summaryData?.decisions || [];
+  const motmActionItems = summaryData?.action_items || [];
 
   // Extract transcript chunks with timestamps
   const chunks = transcriptData?.chunks || [];
@@ -104,56 +112,114 @@ export default function PreviewPanel({ transcript }) {
                   ref={pdfRef}
                   className="bg-white w-full sm:w-[560px] min-h-[380px] sm:min-h-[560px] lg:min-h-[792px] border border-black shadow-[0_14px_40px_rgba(0,0,0,0.35)]"
                 >
-                  {/* ═══════ SUMMARY VIEW (Cornell Notes) ═══════ */}
+                  {/* ═══════ SUMMARY VIEW ═══════ */}
                   {activeTab === "summary" && (
                     <>
                       {/* TOP BAR */}
-                      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] bg-[#9d8adb] text-white font-semibold border-b border-black text-xs">
+                      <div className={`grid grid-cols-1 sm:grid-cols-[180px_1fr] ${isMOTM ? 'bg-gradient-to-r from-[#3b82f6] to-[#1d4ed8]' : 'bg-[#9d8adb]'} text-white font-semibold border-b border-black text-xs`}>
                         <div className="px-3 py-2 text-center sm:border-r border-black">
                           {transcript.date}
                         </div>
                         <div className="px-3 py-2 text-center">
-                          {cornellTitle}
+                          {isMOTM ? `📋 ${cornellTitle} — Minutes of the Meeting` : cornellTitle}
                         </div>
                       </div>
 
-                      {/* CONTENT – Cornell Note Layout */}
-                      <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] min-h-[300px]">
-                        {/* CUE QUESTIONS */}
-                        <div className="p-4 sm:p-5 sm:border-r border-black">
-                          <p className="text-xs font-semibold uppercase mb-3 text-[#6b5fcf]">
-                            Cue / Questions
-                          </p>
-                          <ul className="list-disc list-inside space-y-2 text-[#6b5fcf] text-xs">
-                            {cueQuestions.map((q, i) => (
-                              <li key={i}>{q}</li>
-                            ))}
-                          </ul>
-                        </div>
+                      {isMOTM ? (
+                        /* ─── MOTM Layout ─── */
+                        <div className="p-4 sm:p-5">
+                          {/* Agenda */}
+                          {motmAgenda.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs font-semibold uppercase mb-2 text-[#1d4ed8]">📌 Agenda / Topics</p>
+                              <ul className="list-disc list-inside space-y-1.5 text-xs text-[#333]">
+                                {motmAgenda.map((item, i) => (
+                                  <li key={i}>{typeof item === "string" ? item : item.topic || item.title || JSON.stringify(item)}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
-                        {/* NOTES */}
-                        <div className="p-4 sm:p-5 text-[#6b5fcf] leading-relaxed text-xs">
-                          <p className="font-semibold uppercase mb-3">Notes</p>
-                          {Array.isArray(notes) ? (
-                            <ul className="space-y-2">
-                              {notes.map((note, i) => (
-                                <li key={i} className="flex items-start gap-2">
-                                  <span className="text-[#9d8adb] mt-0.5">•</span>
-                                  <span>{note}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p>{notes}</p>
+                          {/* Decisions */}
+                          {motmDecisions.length > 0 && (
+                            <div className="mb-4 bg-[#f0fdf4] rounded-lg p-3">
+                              <p className="text-xs font-semibold uppercase mb-2 text-[#16a34a]">✅ Decisions</p>
+                              <ul className="list-disc list-inside space-y-1.5 text-xs text-[#333]">
+                                {motmDecisions.map((item, i) => (
+                                  <li key={i}>{typeof item === "string" ? item : item.decision || item.text || JSON.stringify(item)}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Action Items */}
+                          {motmActionItems.length > 0 && (
+                            <div className="mb-4 bg-[#fefce8] rounded-lg p-3">
+                              <p className="text-xs font-semibold uppercase mb-2 text-[#ca8a04]">⚡ Action Items</p>
+                              <ul className="space-y-1.5 text-xs text-[#333]">
+                                {motmActionItems.map((item, i) => {
+                                  const text = typeof item === "string" ? item : item.task || item.action || item.text || JSON.stringify(item);
+                                  const assignee = typeof item === "object" && item.assignee ? ` — ${item.assignee}` : "";
+                                  return (
+                                    <li key={i} className="flex items-start gap-2">
+                                      <span className="text-[#ca8a04] mt-0.5">•</span>
+                                      <span>{text}<em className="text-[#6b7280]">{assignee}</em></span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Summary */}
+                          {summaryText && (
+                            <div className="border-t border-gray-200 pt-3 text-center text-xs">
+                              <p className="font-semibold uppercase mb-2 text-[#7c3aed]">Summary</p>
+                              <p className="text-[#333]">{summaryText}</p>
+                            </div>
                           )}
                         </div>
-                      </div>
+                      ) : (
+                        /* ─── Cornell Notes Layout ─── */
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] min-h-[300px]">
+                            {/* CUE QUESTIONS */}
+                            <div className="p-4 sm:p-5 sm:border-r border-black">
+                              <p className="text-xs font-semibold uppercase mb-3 text-[#6b5fcf]">
+                                Cue / Questions
+                              </p>
+                              <ul className="list-disc list-inside space-y-2 text-[#6b5fcf] text-xs">
+                                {cueQuestions.map((q, i) => (
+                                  <li key={i}>{q}</li>
+                                ))}
+                              </ul>
+                            </div>
 
-                      {/* SUMMARY */}
-                      <div className="border-t border-black p-4 sm:p-6 text-center text-xs">
-                        <p className="font-semibold uppercase mb-2 text-[#6b5fcf]">Summary</p>
-                        <p className="text-[#6b5fcf]">{summaryText}</p>
-                      </div>
+                            {/* NOTES */}
+                            <div className="p-4 sm:p-5 text-[#6b5fcf] leading-relaxed text-xs">
+                              <p className="font-semibold uppercase mb-3">Notes</p>
+                              {Array.isArray(notes) ? (
+                                <ul className="space-y-2">
+                                  {notes.map((note, i) => (
+                                    <li key={i} className="flex items-start gap-2">
+                                      <span className="text-[#9d8adb] mt-0.5">•</span>
+                                      <span>{note}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p>{notes}</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* SUMMARY */}
+                          <div className="border-t border-black p-4 sm:p-6 text-center text-xs">
+                            <p className="font-semibold uppercase mb-2 text-[#6b5fcf]">Summary</p>
+                            <p className="text-[#6b5fcf]">{summaryText}</p>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
 

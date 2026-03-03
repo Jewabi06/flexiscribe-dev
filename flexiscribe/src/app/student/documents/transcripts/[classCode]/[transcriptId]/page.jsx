@@ -5,6 +5,7 @@ import {
   FaMoon, FaSun, FaArrowLeft, FaDownload, FaExpand, 
   FaCompress, FaSearchPlus, FaSearchMinus
 } from "react-icons/fa";
+import html2pdf from "html2pdf.js";
 import "./styles.css";
 
 /**
@@ -118,22 +119,33 @@ export default function TranscriptViewerPage() {
     setScale(prevScale => Math.max(prevScale - 0.1, 0.5));
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     try {
-      const blob = new Blob([htmlContent], { type: "text/html" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${transcript?.title || "transcript"}.html`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const container = document.createElement("div");
+      container.innerHTML = htmlContent;
+      container.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      container.style.fontSize = "14px";
+      container.style.lineHeight = "1.6";
+      container.style.color = "#1a1a1a";
+      container.style.padding = "20px";
+
+      const filename = `${(transcript?.title || "transcript").replace(/[^a-zA-Z0-9 ]/g, "")}.pdf`;
+
+      await html2pdf()
+        .set({
+          margin: [10, 10, 10, 10],
+          filename,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        })
+        .from(container)
+        .save();
 
       // Track the download for achievements
-      fetch('/api/students/track-download', { method: 'POST' }).catch(() => {});
+      fetch("/api/students/track-download", { method: "POST" }).catch(() => {});
     } catch (err) {
-      console.error("Error downloading file:", err);
+      console.error("Error downloading PDF:", err);
     }
   };
 

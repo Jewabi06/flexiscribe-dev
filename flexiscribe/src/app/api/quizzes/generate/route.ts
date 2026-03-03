@@ -259,7 +259,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint to retrieve available lessons
+// GET endpoint to retrieve available reviewers for quiz generation.
+// Only returns Cornell Notes reviewers — MOTM records are excluded.
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -273,6 +274,7 @@ export async function GET(request: NextRequest) {
         id: true,
         title: true,
         subject: true,
+        content: true,
         createdAt: true,
         _count: {
           select: {
@@ -285,9 +287,19 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Filter out MOTM (meeting) records — only reviewers are quiz-eligible
+    const reviewers = lessons.filter(l => {
+      try {
+        const parsed = JSON.parse(l.content);
+        return parsed.type !== 'motm';
+      } catch {
+        return true; // plain-text lessons are also valid
+      }
+    });
+
     return NextResponse.json({
       success: true,
-      lessons: lessons.map(l => ({
+      lessons: reviewers.map(l => ({
         id: l.id,
         title: l.title,
         subject: l.subject,

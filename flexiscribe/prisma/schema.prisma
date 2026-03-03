@@ -218,6 +218,7 @@ model Transcription {
   classId        String?
   sessionId      String?
   status         String   @default("COMPLETED")
+  sessionType    String   @default("lecture")
   summaryJson    Json?
   transcriptJson Json?
   class          Class?   @relation(fields: [classId], references: [id])
