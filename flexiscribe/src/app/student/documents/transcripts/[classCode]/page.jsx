@@ -106,7 +106,7 @@ export default function ClassTranscriptsPage() {
   };
 
   const handleTranscriptClick = (transcript) => {
-    router.push(`/student/reviewers/transcripts/${classCode}/${transcript.id}`);
+    router.push(`/student/documents/transcripts/${classCode}/${transcript.id}`);
   };
 
   if (!mounted || !currentTime || loadingTranscripts) {
@@ -126,7 +126,7 @@ export default function ClassTranscriptsPage() {
         
         <div className="class-content">
           <div className="back-button-container">
-            <button className="back-button" onClick={() => router.push('/student/reviewers')}>
+            <button className="back-button" onClick={() => router.push('/student/documents')}>
               <FaArrowLeft className="back-icon" />
               <span>Back to Reviewers</span>
             </button>

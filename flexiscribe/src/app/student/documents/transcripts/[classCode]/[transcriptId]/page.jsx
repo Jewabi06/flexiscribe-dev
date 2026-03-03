@@ -202,7 +202,7 @@ export default function TranscriptViewerPage() {
         <div className="error-message">
           <h2>Transcript not found</h2>
           <p>{error}</p>
-          <button onClick={() => router.push(`/student/reviewers/transcripts/${classCode}`)}>
+          <button onClick={() => router.push(`/student/documents/transcripts/${classCode}`)}>
             Go Back
           </button>
         </div>
@@ -215,7 +215,7 @@ export default function TranscriptViewerPage() {
       {/* Toolbar */}
       <div className="docx-toolbar">
         <div className="toolbar-left">
-          <button className="back-btn" onClick={() => router.push(`/student/reviewers/transcripts/${classCode}`)}>
+          <button className="back-btn" onClick={() => router.push(`/student/documents/transcripts/${classCode}`)}>
             <FaArrowLeft className="back-icon" />
             <span>Back</span>
           </button>

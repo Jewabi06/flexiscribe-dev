@@ -198,7 +198,7 @@ export default function ReviewerEditorPage() {
         <div className="error-message">
           <h2>Reviewer not found</h2>
           <p>{fetchError}</p>
-          <button onClick={() => router.push(`/student/reviewers/${classCode}`)}>Go Back</button>
+          <button onClick={() => router.push(`/student/documents/${classCode}`)}>Go Back</button>
         </div>
       </div>
     );
