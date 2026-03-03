@@ -30,7 +30,7 @@ export const mockNotifications = [
     message: "Introduction to Computer Science reviewer has been uploaded",
     time: "5 minutes ago",
     read: false,
-    link: "/student/reviewers"
+    link: "/student/documents"
   },
   {
     id: 2,
@@ -57,7 +57,7 @@ export const mockNotifications = [
     message: "Database Management reviewer has been updated with new content",
     time: "2 days ago",
     read: true,
-    link: "/student/reviewers"
+    link: "/student/documents"
   }
 ];
 
@@ -660,7 +660,7 @@ export const mockStudyProgress = [
     currentSection: "Chapter 5: Algorithms",
     totalSections: 8,
     completedSections: 7,
-    link: "/student/reviewers/1?section=5"
+    link: "/student/documents/1?section=5"
   },
   {
     id: 2,
@@ -673,7 +673,7 @@ export const mockStudyProgress = [
     currentSection: "Chapter 3: Trees and Graphs",
     totalSections: 6,
     completedSections: 4,
-    link: "/student/reviewers/2?section=3"
+    link: "/student/documents/2?section=3"
   },
   {
     id: 3,
@@ -686,7 +686,7 @@ export const mockStudyProgress = [
     currentSection: "Chapter 2: SQL Queries",
     totalSections: 5,
     completedSections: 2,
-    link: "/student/reviewers/3?section=2"
+    link: "/student/documents/3?section=2"
   }
 ];
 
@@ -949,7 +949,7 @@ export const mockSearchData = [
     type: "reviewer",
     title: reviewer.title,
     subject: reviewer.subject,
-    link: `/student/reviewers/${reviewer.id}`
+    link: `/student/documents/${reviewer.id}`
   })),
   // Quizzes for search
   ...mockQuizzes.map(quiz => ({

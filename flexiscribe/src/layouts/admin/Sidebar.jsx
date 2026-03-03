@@ -16,7 +16,7 @@ const navItems = [
 
 export default function Sidebar({ open, setOpen }) {
   const pathname = usePathname();
-  const [time, setTime] = useState(new Date());
+  const [time, setTime] = useState(null);
   const touchStartX = useRef(0);
 
   /* AUTO CLOSE ON ROUTE */
@@ -26,6 +26,7 @@ export default function Sidebar({ open, setOpen }) {
 
   /* CLOCK */
   useEffect(() => {
+    setTime(new Date());
     const i = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(i);
   }, []);
@@ -40,8 +41,8 @@ export default function Sidebar({ open, setOpen }) {
     if (diff < -80) setOpen(false);
   };
 
-  const hours = time.getHours() % 12;
-  const minutes = time.getMinutes();
+  const hours = time ? time.getHours() % 12 : 0;
+  const minutes = time ? time.getMinutes() : 0;
   const hourAngle = hours * 30 + minutes * 0.5;
   const minuteAngle = minutes * 6;
 
@@ -60,15 +61,14 @@ export default function Sidebar({ open, setOpen }) {
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
         className={`
-          fixed md:static
-          top-0 left-0 z-[65]
-          min-h-screen
+          fixed top-0 left-0 z-[65]
+          h-screen overflow-y-auto
           bg-gradient-to-b from-[#9d8adb] to-[#4c4172]
           text-white
           flex flex-col justify-between
           px-10 pt-6 pb-8
           transition-transform duration-300
-          w-[345px]
+          w-[345px] shrink-0
           ${open ? "translate-x-0" : "-translate-x-full"}
           md:translate-x-0
         `}
@@ -157,8 +157,9 @@ export default function Sidebar({ open, setOpen }) {
           </div>
 
           <p className="text-base font-semibold">
-            {time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })},{" "}
-            {time.toLocaleDateString([], { weekday: "long" })}
+            {time
+              ? <>{time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })},{" "}{time.toLocaleDateString([], { weekday: "long" })}</>
+              : "\u00A0"}
           </p>
         </div>
       </aside>

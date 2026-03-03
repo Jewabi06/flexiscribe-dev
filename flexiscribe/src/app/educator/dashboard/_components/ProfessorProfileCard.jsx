@@ -3,7 +3,7 @@
 /* ================= IMPORTS ================= */
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Sun, Moon, X } from "lucide-react";
+import { Bell, Sun, Moon, X, Lock, Eye, EyeOff } from "lucide-react";
 
 /* ================= MAIN ================= */
 
@@ -170,6 +170,7 @@ export default function ProfessorProfileCard() {
           />
         </Modal>
       )}
+
     </>
   );
 }
@@ -359,6 +360,18 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
   });
   const [loading, setLoading] = useState(false);
 
+  // Change Password state
+  const [cpOpen, setCpOpen] = useState(false);
+  const [cpStep, setCpStep] = useState(1);
+  const [cpData, setCpData] = useState({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+  const [cpErrors, setCpErrors] = useState({});
+  const [cpLoading, setCpLoading] = useState(false);
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [cpCountdown, setCpCountdown] = useState(0);
+  const [cpSuccess, setCpSuccess] = useState(false);
+
   useEffect(() => {
     if (educator) {
       setFormData({
@@ -369,6 +382,13 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
       });
     }
   }, [educator]);
+
+  useEffect(() => {
+    if (cpCountdown > 0) {
+      const timer = setTimeout(() => setCpCountdown(cpCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cpCountdown]);
 
   async function handleSave() {
     setLoading(true);
@@ -394,6 +414,97 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function cpValidate() {
+    const newErrors = {};
+    if (!cpData.currentPassword) newErrors.currentPassword = "Current password is required";
+    if (!cpData.newPassword) {
+      newErrors.newPassword = "New password is required";
+    } else if (cpData.newPassword.length < 8) {
+      newErrors.newPassword = "Password must be at least 8 characters";
+    }
+    if (!cpData.confirmPassword) {
+      newErrors.confirmPassword = "Please confirm your password";
+    } else if (cpData.newPassword !== cpData.confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match";
+    }
+    if (cpData.currentPassword && cpData.currentPassword === cpData.newPassword) {
+      newErrors.newPassword = "New password must be different from current password";
+    }
+    setCpErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }
+
+  async function cpSendCode() {
+    setCpLoading(true);
+    setCpCountdown(60);
+    try {
+      const res = await fetch("/api/educator/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send-code", currentPassword: cpData.currentPassword, newPassword: cpData.newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCpErrors({ currentPassword: data.error || "Failed to send code" });
+        setCpCountdown(0);
+        return false;
+      }
+      return true;
+    } catch {
+      setCpErrors({ currentPassword: "An error occurred. Please try again." });
+      setCpCountdown(0);
+      return false;
+    } finally {
+      setCpLoading(false);
+    }
+  }
+
+  async function cpHandleContinue() {
+    if (!cpValidate()) return;
+    const sent = await cpSendCode();
+    if (sent) setCpStep(2);
+  }
+
+  async function cpHandleVerify() {
+    if (!cpData.verificationCode || cpData.verificationCode.length !== 6) {
+      setCpErrors({ verificationCode: "Please enter the 6-digit code" });
+      return;
+    }
+    setCpLoading(true);
+    try {
+      const res = await fetch("/api/educator/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify-and-change", verificationCode: cpData.verificationCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCpErrors({ verificationCode: data.error || "Verification failed" });
+        return;
+      }
+      setCpSuccess(true);
+      setTimeout(() => {
+        setCpSuccess(false);
+        setCpOpen(false);
+        setCpStep(1);
+        setCpData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+      }, 2000);
+    } catch {
+      setCpErrors({ verificationCode: "An error occurred" });
+    } finally {
+      setCpLoading(false);
+    }
+  }
+
+  function cpClose() {
+    setCpOpen(false);
+    setCpStep(1);
+    setCpData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+    setCpErrors({});
+    setCpSuccess(false);
+    setCpCountdown(0);
   }
 
   return (
@@ -477,6 +588,137 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
           {loading ? "Saving..." : "Save Changes"}
         </button>
       </div>
+
+      {/* CHANGE PASSWORD SECTION */}
+      <div className="mt-6 border-t border-[rgba(157,138,219,0.2)] pt-5">
+        <button
+          onClick={() => cpOpen ? cpClose() : setCpOpen(true)}
+          className="flex items-center gap-2 text-sm font-medium text-[#8b5cf6] hover:text-[#6d28d9] transition-colors duration-200"
+        >
+          <Lock size={15} />
+          {cpOpen ? "Cancel Password Change" : "Change Password"}
+        </button>
+
+        {cpOpen && (
+          <div className="mt-4">
+            {cpSuccess ? (
+              <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm py-2">
+                <Lock size={16} />
+                <span>Password changed successfully!</span>
+              </div>
+            ) : cpStep === 1 ? (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <label className="block mb-1 font-medium text-[#4c4172]">Current Password</label>
+                  <div className="relative">
+                    <input
+                      type={showCurrentPw ? "text" : "password"}
+                      value={cpData.currentPassword}
+                      onChange={(e) => { setCpData(p => ({...p, currentPassword: e.target.value})); setCpErrors(p => ({...p, currentPassword: ""})); }}
+                      className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${cpErrors.currentPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
+                    />
+                    <button type="button" onClick={() => setShowCurrentPw(!showCurrentPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showCurrentPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {cpErrors.currentPassword && <p className="text-red-500 text-xs mt-1">{cpErrors.currentPassword}</p>}
+                </div>
+
+                <div>
+                  <label className="block mb-1 font-medium text-[#4c4172]">New Password</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? "text" : "password"}
+                      value={cpData.newPassword}
+                      onChange={(e) => { setCpData(p => ({...p, newPassword: e.target.value})); setCpErrors(p => ({...p, newPassword: ""})); }}
+                      className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${cpErrors.newPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
+                    />
+                    <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showNewPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {cpErrors.newPassword && <p className="text-red-500 text-xs mt-1">{cpErrors.newPassword}</p>}
+                  <p className="text-xs text-gray-400 mt-1">Must be at least 8 characters</p>
+                </div>
+
+                <div>
+                  <label className="block mb-1 font-medium text-[#4c4172]">Confirm New Password</label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPw ? "text" : "password"}
+                      value={cpData.confirmPassword}
+                      onChange={(e) => { setCpData(p => ({...p, confirmPassword: e.target.value})); setCpErrors(p => ({...p, confirmPassword: ""})); }}
+                      className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${cpErrors.confirmPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
+                    />
+                    <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showConfirmPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  {cpErrors.confirmPassword && <p className="text-red-500 text-xs mt-1">{cpErrors.confirmPassword}</p>}
+                </div>
+
+                <div className="flex justify-end mt-2">
+                  <button
+                    onClick={cpHandleContinue}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white text-sm disabled:opacity-50 hover:translate-y-[-1px] hover:shadow-lg transition-all duration-200 flex items-center gap-2"
+                    disabled={cpLoading}
+                  >
+                    <Lock size={14} />
+                    {cpLoading ? "Sending..." : "Continue"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 text-sm">
+                <p className="text-gray-600 dark:text-[#b0a8d4]">
+                  A 6-digit code was sent to <strong className="text-[#4c4172] dark:text-[#c5b8f5]">{educator?.user?.email || ""}</strong>.
+                </p>
+
+                <div>
+                  <label className="block mb-1 font-medium text-[#4c4172]">Verification Code</label>
+                  <input
+                    type="text"
+                    value={cpData.verificationCode}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setCpData(p => ({...p, verificationCode: v}));
+                      setCpErrors(p => ({...p, verificationCode: ""}));
+                    }}
+                    placeholder="000000"
+                    maxLength={6}
+                    className={`w-full px-4 py-3 rounded-xl border-2 ${cpErrors.verificationCode ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)] text-center text-2xl tracking-[8px] font-mono`}
+                  />
+                  {cpErrors.verificationCode && <p className="text-red-500 text-xs mt-1">{cpErrors.verificationCode}</p>}
+                </div>
+
+                <div className="text-center">
+                  <button onClick={() => { if (cpCountdown <= 0) cpSendCode(); }} disabled={cpCountdown > 0} className="text-xs text-[#9d8adb] hover:underline disabled:opacity-50">
+                    {cpCountdown > 0 ? `Resend code in ${cpCountdown}s` : "Resend code"}
+                  </button>
+                </div>
+
+                <div className="flex justify-between mt-2">
+                  <button
+                    onClick={() => { setCpStep(1); setCpErrors({}); setCpData(p => ({...p, verificationCode: ""})); }}
+                    className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm hover:bg-gray-200 transition-colors duration-200"
+                    disabled={cpLoading}
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={cpHandleVerify}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white text-sm disabled:opacity-50 hover:translate-y-[-1px] hover:shadow-lg transition-all duration-200 flex items-center gap-2"
+                    disabled={cpLoading || cpData.verificationCode.length !== 6}
+                  >
+                    <Lock size={14} />
+                    {cpLoading ? "Verifying..." : "Verify & Change"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -525,6 +767,279 @@ function Avatar({ name }) {
   return (
     <div className="w-14 h-14 rounded-full bg-white/30 flex items-center justify-center text-xl font-semibold uppercase hover:scale-105 transition-transform duration-200 shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)]">
       {name?.charAt(0) || "?"}
+    </div>
+  );
+}
+
+/* ================= CHANGE PASSWORD ================= */
+
+function ChangePassword({ educatorEmail, setChangePasswordOpen }) {
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+    verificationCode: "",
+  });
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [successMsg, setSuccessMsg] = useState("");
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
+  }
+
+  function validate() {
+    const newErrors = {};
+    if (!formData.currentPassword) newErrors.currentPassword = "Current password is required";
+    if (!formData.newPassword) {
+      newErrors.newPassword = "New password is required";
+    } else if (formData.newPassword.length < 8) {
+      newErrors.newPassword = "Password must be at least 8 characters";
+    }
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = "Please confirm your password";
+    } else if (formData.newPassword !== formData.confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match";
+    }
+    if (formData.currentPassword === formData.newPassword) {
+      newErrors.newPassword = "New password must be different from current password";
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }
+
+  async function sendCode() {
+    setLoading(true);
+    setCountdown(60);
+    try {
+      const res = await fetch("/api/educator/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send-code",
+          currentPassword: formData.currentPassword,
+          newPassword: formData.newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrors({ currentPassword: data.error || "Failed to send code" });
+        setCountdown(0);
+        return false;
+      }
+      return true;
+    } catch {
+      setErrors({ currentPassword: "An error occurred. Please try again." });
+      setCountdown(0);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleContinue() {
+    if (!validate()) return;
+    const sent = await sendCode();
+    if (sent) setStep(2);
+  }
+
+  async function handleVerify() {
+    if (!formData.verificationCode || formData.verificationCode.length !== 6) {
+      setErrors({ verificationCode: "Please enter the 6-digit code" });
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/educator/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verify-and-change",
+          verificationCode: formData.verificationCode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrors({ verificationCode: data.error || "Verification failed" });
+        return;
+      }
+      setSuccessMsg("Password changed successfully!");
+      setTimeout(() => setChangePasswordOpen(false), 2000);
+    } catch {
+      setErrors({ verificationCode: "An error occurred" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    if (countdown > 0) return;
+    await sendCode();
+  }
+
+  if (successMsg) {
+    return (
+      <div className="bg-white dark:bg-[#2d2640] dark:text-[#e8e8e8] w-full rounded-[20px] p-6 text-center">
+        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-4">
+          <Lock size={28} className="text-green-600 dark:text-green-400" />
+        </div>
+        <h2 className="text-xl font-semibold mb-2 text-[#4c4172] dark:text-[#c5b8f5]">Success!</h2>
+        <p className="text-gray-600 dark:text-[#b0a8d4]">{successMsg}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white dark:bg-[#2d2640] dark:text-[#e8e8e8] w-full rounded-[20px] p-6 text-gray-700">
+      <div className="flex items-center gap-3 mb-5">
+        <Lock size={22} className="text-[#8b5cf6]" />
+        <h2 className="text-xl font-semibold text-[#4c4172] dark:text-[#c5b8f5]">
+          Change Password
+        </h2>
+      </div>
+
+      {step === 1 && (
+        <div className="space-y-4 text-sm">
+          <div>
+            <label className="block mb-1 font-medium text-[#4c4172]">Current Password</label>
+            <div className="relative">
+              <input
+                type={showCurrentPw ? "text" : "password"}
+                name="currentPassword"
+                value={formData.currentPassword}
+                onChange={handleChange}
+                className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${errors.currentPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
+              />
+              <button type="button" onClick={() => setShowCurrentPw(!showCurrentPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {showCurrentPw ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {errors.currentPassword && <p className="text-red-500 text-xs mt-1">{errors.currentPassword}</p>}
+          </div>
+
+          <div>
+            <label className="block mb-1 font-medium text-[#4c4172]">New Password</label>
+            <div className="relative">
+              <input
+                type={showNewPw ? "text" : "password"}
+                name="newPassword"
+                value={formData.newPassword}
+                onChange={handleChange}
+                className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${errors.newPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
+              />
+              <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {showNewPw ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {errors.newPassword && <p className="text-red-500 text-xs mt-1">{errors.newPassword}</p>}
+            <p className="text-xs text-gray-400 mt-1">Must be at least 8 characters</p>
+          </div>
+
+          <div>
+            <label className="block mb-1 font-medium text-[#4c4172]">Confirm New Password</label>
+            <div className="relative">
+              <input
+                type={showConfirmPw ? "text" : "password"}
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${errors.confirmPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
+              />
+              <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {showConfirmPw ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <button
+              onClick={() => setChangePasswordOpen(false)}
+              className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors duration-200"
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleContinue}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white disabled:opacity-50 hover:translate-y-[-1px] hover:shadow-lg transition-all duration-200 flex items-center gap-2"
+              disabled={loading}
+            >
+              <Lock size={16} />
+              {loading ? "Sending..." : "Continue"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="space-y-4 text-sm">
+          <p className="text-gray-600 dark:text-[#b0a8d4]">
+            A 6-digit verification code has been sent to <strong className="text-[#4c4172] dark:text-[#c5b8f5]">{educatorEmail}</strong>. 
+            Enter the code below to confirm the password change.
+          </p>
+
+          <div>
+            <label className="block mb-1 font-medium text-[#4c4172]">Verification Code</label>
+            <input
+              type="text"
+              name="verificationCode"
+              value={formData.verificationCode}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, "").slice(0, 6);
+                setFormData((prev) => ({ ...prev, verificationCode: value }));
+                setErrors((prev) => ({ ...prev, verificationCode: "" }));
+              }}
+              placeholder="000000"
+              maxLength={6}
+              className={`w-full px-4 py-3 rounded-xl border-2 ${errors.verificationCode ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)] text-center text-2xl tracking-[8px] font-mono`}
+            />
+            {errors.verificationCode && <p className="text-red-500 text-xs mt-1">{errors.verificationCode}</p>}
+          </div>
+
+          <div className="text-center">
+            <button
+              onClick={handleResend}
+              disabled={countdown > 0}
+              className="text-xs text-[#9d8adb] hover:underline disabled:opacity-50"
+            >
+              {countdown > 0 ? `Resend code in ${countdown}s` : "Resend code"}
+            </button>
+          </div>
+
+          <div className="flex justify-end gap-3 mt-4">
+            <button
+              onClick={() => { setStep(1); setErrors({}); setFormData((prev) => ({ ...prev, verificationCode: "" })); }}
+              className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors duration-200"
+              disabled={loading}
+            >
+              Back
+            </button>
+            <button
+              onClick={handleVerify}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white disabled:opacity-50 hover:translate-y-[-1px] hover:shadow-lg transition-all duration-200 flex items-center gap-2"
+              disabled={loading || formData.verificationCode.length !== 6}
+            >
+              <Lock size={16} />
+              {loading ? "Verifying..." : "Verify & Change Password"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

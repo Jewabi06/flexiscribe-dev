@@ -72,7 +72,7 @@ export default function SidebarClient() {
           <X size={18} />
         </button>
 
-        <Sidebar />
+        <Sidebar width="350px" />
       </div>
     </>
   );

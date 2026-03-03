@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "session_id": "b5ac4969-46ed-479e-9e0d-3b076a0477e0",
+    "run_id": "20260301_223955",
+    "course_code": "CPE103",
+    "educator_id": "cml4um9rr0001hc9dxuemv126",
+    "started_at": "2026-03-01 22:39:55",
+    "duration": "5m 19s"
+  },
+  "chunks": [
+    {
+      "minute": 1,
+      "timestamp": "22:40:55",
+      "text": "Test test 123. I am recording right now. Application. Start up complete. Our model for today is small, with the voice activity detection true, then whisper rate is 16. We have also the re-sample, the audio device, the started server process. The fallback, the ... ayun, so ganun siya gumagana. Pag Tagalog ita tarainaten ko malinao."
+    },
+    {
+      "minute": 2,
+      "timestamp": "22:45:15",
+      "text": "I want to know yung audio niya, diba, kung nahavenig ba siya ng tama kung mga? I test this one, two, three. Minute, minute, minute, minute. Hello, hello, my tis. Pa na naman kong isa sama rice mo siya? Samay, samay. Mga mga tapos na wadito mama. Nagana ne. Hello, hello, hello. This is my test, test. One, two, three. Hello, hello. So yon si Laby kasi nagagalit. Tapos-aplos. Laby! Tignam ay TV. Tumengingas sa TV. Tignam ayon TV. Nagagalit ang Jeb. Nga galit. Nga galit. Hello, hello, hello. Hello, hello, b. Ang bagal abi. Hello, kamus na nakaya? Recording Does it slow down? Hello? This is how it slows down Stop Resample Course CPE103"
+    }
+  ]
+}

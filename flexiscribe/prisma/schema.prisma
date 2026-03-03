@@ -240,6 +240,8 @@ model Notification {
   updatedAt  DateTime  @updatedAt
   adminId    String?
   studentId  String?
+  activityId String?
+  deleted    Boolean   @default(false)
   admin      Admin?    @relation(fields: [adminId], references: [id], onDelete: Cascade)
   educator   Educator? @relation(fields: [educatorId], references: [id], onDelete: Cascade)
   student    Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -248,6 +250,7 @@ model Notification {
   @@index([adminId])
   @@index([studentId])
   @@index([read])
+  @@index([activityId])
 }
 
 model Admin {
@@ -315,4 +318,17 @@ enum Difficulty {
   EASY
   MEDIUM
   HARD
+}
+
+model VerificationCode {
+  id        String   @id @default(cuid())
+  userId    String
+  code      String
+  purpose   String // "password-reset" | "password-change"
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@index([code])
 }

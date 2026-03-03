@@ -134,11 +134,31 @@ export default function TopBar({ onMenuClick }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notificationIds }),
       });
-      // Refresh notifications
       fetchNotifications();
     } catch (error) {
       console.error("Error marking notifications as read:", error);
     }
+  };
+
+  const deleteNotification = async (e, id) => {
+    e.stopPropagation();
+    // Optimistically remove from local state
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await fetch(`/api/admin/notifications?id=${id}`, { method: "DELETE" });
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+      fetchNotifications();
+    }
+  };
+
+  const handleNotificationClick = async (n) => {
+    if (!n.read) {
+      markAsRead([n.id]);
+    }
+    setNotifOpen(false);
+    setViewAllOpen(false);
+    router.push("/admin/audit-logs");
   };
 
   const closeAll = () => {
@@ -149,13 +169,25 @@ export default function TopBar({ onMenuClick }) {
   const handleSignOut = async () => {
     closeAll();
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
       localStorage.clear();
       sessionStorage.clear();
-      window.location.href = "/auth/admin/login";
+      // Redirect based on the role returned by the server
+      const role = data.role;
+      if (role === "STUDENT") {
+        window.location.href = "/auth/student/login";
+      } else if (role === "EDUCATOR") {
+        window.location.href = "/auth/educator/login";
+      } else {
+        // Admin login is gated — go to landing page
+        window.location.href = "/";
+      }
     } catch (error) {
       console.error("Logout error:", error);
-      window.location.href = "/auth/admin/login";
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = "/";
     }
   };
 
@@ -221,6 +253,13 @@ export default function TopBar({ onMenuClick }) {
               onFocus={() => {
                 if (searchResults.length > 0) setSearchOpen(true);
               }}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              name="search-field"
+              id="search-field"
+              data-form-type="other"
               className="
                 w-full h-[48px]
                 pl-14 pr-4
@@ -280,78 +319,110 @@ export default function TopBar({ onMenuClick }) {
             )}
           </div>
 
-          {/* RIGHT */}
+          {/* RIGHT SECTION - ICONS */}
           <div className="ml-auto flex items-center">
-
-            {/* NOTIFICATIONS */}
-            <div className="relative mx-2">
+            
+            {/* NOTIFICATIONS - Added left margin for space */}
+            <div className="relative ml-2 sm:ml-3">
               <button
                 onClick={() => {
                   setNotifOpen(!notifOpen);
                   setUserOpen(false);
                 }}
-                className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-white"
+                className="w-10 h-9 flex items-center justify-center rounded-md hover:bg-white relative"
               >
                 <Bell size={18} className="text-[#6f63a6]" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 leading-none">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
                 )}
               </button>
 
+              {/* NOTIFICATIONS DROPDOWN */}
               {notifOpen && (
-                <div className="absolute right-0 top-12 w-[320px] sm:w-[360px] rounded-xl bg-white border shadow-lg">
-                  <div className="px-4 py-3 border-b">
-                    <p className="text-sm font-semibold text-[#4c4172]">
-                      Notifications {unreadCount > 0 && `(${unreadCount} unread)`}
-                    </p>
-                  </div>
+                <>
+                  {/* Backdrop for mobile */}
+                  <div 
+                    className="fixed inset-0 bg-black/20 z-40 md:hidden"
+                    onClick={() => setNotifOpen(false)}
+                  />
+                  
+                  {/* Dropdown - appears below bell on all devices */}
+                  <div className="absolute right-0 top-12 z-50 w-[320px] sm:w-[360px] max-w-[calc(100vw-32px)] rounded-xl bg-white border shadow-lg">
+                    <div className="px-4 py-3 border-b">
+                      <p className="text-sm font-semibold text-[#4c4172]">
+                        Notifications {unreadCount > 0 && `(${unreadCount} unread)`}
+                      </p>
+                    </div>
 
-                  <div className="divide-y max-h-[300px] overflow-y-auto">
-                    {recentNotifications.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-sm text-[#9d8adb]">
-                        No notifications
-                      </div>
-                    ) : (
-                      recentNotifications.map((n) => (
-                        <div
-                          key={n.id}
-                          className={`px-4 py-3 hover:bg-[#f7f6fc] cursor-pointer ${
-                            !n.read ? "bg-blue-50/30" : ""
-                          }`}
-                          onClick={() => {
-                            if (!n.read) {
-                              markAsRead([n.id]);
-                            }
-                          }}
-                        >
-                          <p className="text-sm font-medium text-[#4c4172]">
-                            {n.title}
-                          </p>
-                          <p className="text-xs text-[#6f63a6]">
-                            {n.message}
-                          </p>
-                          <p className="text-xs text-[#9d8adb] mt-1">
-                            {formatTimeAgo(n.createdAt)}
-                          </p>
+                    <div className="divide-y max-h-[400px] overflow-y-auto">
+                      {recentNotifications.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-[#9d8adb]">
+                          No notifications
                         </div>
-                      ))
+                      ) : (
+                        recentNotifications.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`relative group px-4 py-3 hover:bg-[#f7f6fc] cursor-pointer ${
+                              !n.read ? "bg-[#f0edff]" : ""
+                            }`}
+                            onClick={() => handleNotificationClick(n)}
+                          >
+                            <button
+                              onClick={(e) => deleteNotification(e, n.id)}
+                              className="absolute top-2 right-2 p-1 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                              title="Remove"
+                            >
+                              <X size={14} />
+                            </button>
+                            <div className="flex items-start gap-2">
+                              {!n.read && (
+                                <span className="mt-1.5 w-2 h-2 rounded-full bg-[#9d8adb] shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0 pr-5">
+                                <p className="text-sm font-medium text-[#4c4172] break-words">
+                                  {n.title}
+                                </p>
+                                <p className="text-xs text-[#6f63a6] mt-0.5 break-words">
+                                  {n.message}
+                                </p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded-full ${
+                                    n.type === "admin" ? "bg-purple-100 text-purple-700"
+                                    : n.type === "educator" ? "bg-blue-100 text-blue-700"
+                                    : n.type === "student" ? "bg-green-100 text-green-700"
+                                    : "bg-gray-100 text-gray-600"
+                                  }`}>
+                                    {n.type}
+                                  </span>
+                                  <span className="text-xs text-[#9d8adb]">
+                                    {formatTimeAgo(n.createdAt)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {notifications.length > 0 && (
+                      <div className="px-4 py-3 border-t text-center">
+                        <button
+                          onClick={() => {
+                            setNotifOpen(false);
+                            setViewAllOpen(true);
+                          }}
+                          className="text-sm text-[#6f63a6] hover:underline w-full py-2"
+                        >
+                          View all notifications
+                        </button>
+                      </div>
                     )}
                   </div>
-
-                  {notifications.length > 0 && (
-                    <div className="px-4 py-3 border-t text-center">
-                      <button
-                        onClick={() => {
-                          setNotifOpen(false);
-                          setViewAllOpen(true);
-                        }}
-                        className="text-sm text-[#6f63a6] hover:underline"
-                      >
-                        View all notifications
-                      </button>
-                    </div>
-                  )}
-                </div>
+                </>
               )}
             </div>
 
@@ -375,37 +446,49 @@ export default function TopBar({ onMenuClick }) {
                 <ChevronDown size={14} className="text-[#6f63a6]" />
               </button>
 
+              {/* USER MENU DROPDOWN */}
               {userOpen && (
-                <div className="absolute right-0 top-12 w-56 rounded-xl bg-white border shadow-lg p-2">
-                  <MenuItem
-                    icon={<User size={16} />}
-                    label="View Profile"
-                    onClick={() => {
-                      setProfileTab("profile");
-                      setProfileOpen(true);
-                      closeAll();
-                    }}
+                <>
+                  {/* Backdrop for mobile */}
+                  <div 
+                    className="fixed inset-0 bg-black/20 z-40 md:hidden"
+                    onClick={() => setUserOpen(false)}
                   />
+                  
+                  {/* Dropdown - appears below user button on all devices */}
+                  <div className="absolute right-0 top-12 z-50 w-56 rounded-xl bg-white border shadow-lg">
+                    <div className="p-2">
+                      <MenuItem
+                        icon={<User size={16} />}
+                        label="View Profile"
+                        onClick={() => {
+                          setProfileTab("profile");
+                          setProfileOpen(true);
+                          closeAll();
+                        }}
+                      />
 
-                  <MenuItem
-                    icon={<Settings size={16} />}
-                    label="Account Settings"
-                    onClick={() => {
-                      setProfileTab("security");
-                      setProfileOpen(true);
-                      closeAll();
-                    }}
-                  />
+                      <MenuItem
+                        icon={<Settings size={16} />}
+                        label="Account Settings"
+                        onClick={() => {
+                          setProfileTab("security");
+                          setProfileOpen(true);
+                          closeAll();
+                        }}
+                      />
 
-                  <div className="my-2 h-px bg-[#ece9f6]" />
+                      <div className="my-2 h-px bg-[#ece9f6]" />
 
-                  <MenuItem
-                    icon={<LogOut size={16} />}
-                    label="Sign out"
-                    onClick={handleSignOut}
-                    danger
-                  />
-                </div>
+                      <MenuItem
+                        icon={<LogOut size={16} />}
+                        label="Sign out"
+                        onClick={handleSignOut}
+                        danger
+                      />
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -415,7 +498,7 @@ export default function TopBar({ onMenuClick }) {
       {/* SPACER */}
       <div className="h-[72px]" />
 
-      {/* MODALS */}
+      {/* ALL NOTIFICATIONS MODAL */}
       {viewAllOpen && (
         <Modal
           title="All Notifications"
@@ -429,44 +512,64 @@ export default function TopBar({ onMenuClick }) {
             notifications.map((n) => (
               <div
                 key={n.id}
-                className={`px-6 py-4 hover:bg-[#f7f6fc] cursor-pointer ${
-                  !n.read ? "bg-blue-50/30" : ""
+                className={`relative group px-4 sm:px-6 py-4 hover:bg-[#f7f6fc] cursor-pointer ${
+                  !n.read ? "bg-[#f0edff]" : ""
                 }`}
-                onClick={() => {
-                  if (!n.read) {
-                    markAsRead([n.id]);
-                  }
-                }}
+                onClick={() => handleNotificationClick(n)}
               >
-                <p className="text-sm font-medium text-[#4c4172]">
-                  {n.title}
-                </p>
-                <p className="text-xs text-[#6f63a6] mt-1">
-                  {n.message}
-                </p>
-                <p className="text-xs text-[#9d8adb] mt-1">
-                  {formatTimeAgo(n.createdAt)}
-                </p>
+                <button
+                  onClick={(e) => deleteNotification(e, n.id)}
+                  className="absolute top-3 right-3 p-1 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                  title="Remove"
+                >
+                  <X size={14} />
+                </button>
+                <div className="flex items-start gap-2">
+                  {!n.read && (
+                    <span className="mt-1.5 w-2 h-2 rounded-full bg-[#9d8adb] shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0 pr-5">
+                    <p className="text-sm font-medium text-[#4c4172] break-words">
+                      {n.title}
+                    </p>
+                    <p className="text-xs text-[#6f63a6] mt-0.5 break-words">
+                      {n.message}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded-full ${
+                        n.type === "admin" ? "bg-purple-100 text-purple-700"
+                        : n.type === "educator" ? "bg-blue-100 text-blue-700"
+                        : n.type === "student" ? "bg-green-100 text-green-700"
+                        : "bg-gray-100 text-gray-600"
+                      }`}>
+                        {n.type}
+                      </span>
+                      <span className="text-xs text-[#9d8adb]">
+                        {formatTimeAgo(n.createdAt)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             ))
           )}
         </Modal>
       )}
 
+      {/* PROFILE MODAL */}
       <ProfileModal
         open={profileOpen}
         defaultTab={profileTab}
         onClose={() => {
           setProfileOpen(false);
-          fetchProfile(); // Refresh profile after closing modal
+          fetchProfile();
         }}
       />
     </>
   );
 }
 
-/* SMALL COMPONENTS */
-
+/* MENU ITEM COMPONENT */
 function MenuItem({ icon, label, onClick, danger }) {
   return (
     <button
@@ -483,28 +586,33 @@ function MenuItem({ icon, label, onClick, danger }) {
   );
 }
 
+/* MODAL COMPONENT */
 function Modal({ title, onClose, children }) {
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-2 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-white rounded-2xl shadow-xl"
+        className="w-full max-w-xl bg-white rounded-2xl shadow-xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <p className="text-lg font-semibold text-[#4c4172]">{title}</p>
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b flex-shrink-0">
+          <p className="text-base sm:text-lg font-semibold text-[#4c4172] truncate pr-2">
+            {title}
+          </p>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-full"
+            className="p-1 hover:bg-gray-100 rounded-full flex-shrink-0"
           >
             <X size={20} className="text-[#6f63a6]" />
           </button>
         </div>
 
-        <div className="max-h-[420px] overflow-y-auto divide-y">
-          {children}
+        <div className="overflow-y-auto flex-1">
+          <div className="divide-y">
+            {children}
+          </div>
         </div>
       </div>
     </div>

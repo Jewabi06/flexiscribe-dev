@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook } from "react-icons/fa";
+import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import "./styles.css";
 
@@ -22,11 +22,14 @@ export default function PrototypeDashboard() {
   const [isStopping, setIsStopping] = useState(false);
   const [duration, setDuration] = useState("0m 0s");
   const [showCourseSelect, setShowCourseSelect] = useState(false);
+  const [sessionType, setSessionType] = useState("lecture"); // "lecture" | "meeting"
 
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const pollingRef = useRef(null);
+  const eventSourceRef = useRef(null);
+  const transcriptEndRef = useRef(null);
   const durationRef = useRef(null);
   const startTimeRef = useRef(null);
   const router = useRouter();
@@ -47,6 +50,7 @@ export default function PrototypeDashboard() {
       if (audioStream) audioStream.getTracks().forEach((track) => track.stop());
       if (audioContextRef.current) audioContextRef.current.close();
       if (pollingRef.current) clearInterval(pollingRef.current);
+      if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
       if (durationRef.current) clearInterval(durationRef.current);
     };
   }, []);
@@ -57,6 +61,13 @@ export default function PrototypeDashboard() {
       handleStopRecording();
     }
   }, [micConnected]);
+
+  // Auto-scroll transcript panel when new chunks arrive
+  useEffect(() => {
+    if (transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [liveChunks]);
 
   // ─── Fetch educator's classes with enrolled students ───────────────
   const fetchClasses = async () => {
@@ -101,11 +112,16 @@ export default function PrototypeDashboard() {
     audioContextRef.current = audioContext;
     analyserRef.current = analyser;
 
+    // Throttled to ~10fps (every 6th frame) to reduce CPU/GPU load on Jetson
+    let frameSkip = 0;
     const detectAudio = () => {
-      analyser.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b) / bufferLength;
-      const normalizedLevel = Math.min(average / 128, 1);
-      setAudioLevel(normalizedLevel);
+      frameSkip++;
+      if (frameSkip % 6 === 0) {
+        analyser.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+        const normalizedLevel = Math.min(average / 128, 1);
+        setAudioLevel(normalizedLevel);
+      }
       animationFrameRef.current = requestAnimationFrame(detectAudio);
     };
     detectAudio();
@@ -177,7 +193,8 @@ export default function PrototypeDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseCode: selectedCourse,
-          title: `${selectedCourse} - Lecture ${new Date().toLocaleDateString()}`,
+          sessionType: sessionType,
+          title: `${selectedCourse} - ${sessionType === "meeting" ? "Meeting" : "Lecture"} ${new Date().toLocaleDateString()}`,
         }),
       });
 
@@ -195,15 +212,57 @@ export default function PrototypeDashboard() {
       setStatusMessage("Recording in progress...");
       startDurationTimer();
 
-      // Start polling for live transcript updates
-      startPolling(data.session_id);
+      // Start live stream (SSE with polling fallback)
+      startLiveStream(data.session_id);
     } catch (error) {
       console.error("Error starting transcription:", error);
       setStatusMessage("Failed to start transcription. Is the backend running?");
     }
   };
 
-  // ─── Poll for live updates ────────────────────────────────────────
+  // ─── SSE live stream with polling fallback ────────────────────────
+  const startLiveStream = (sid) => {
+    try {
+      const es = new EventSource(`/api/transcribe/live?sessionId=${sid}`);
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "live_chunk") {
+            setLiveChunks((prev) => {
+              // Avoid duplicates by checking chunk_id
+              if (prev.some((c) => c.chunk_id === data.chunk_id)) return prev;
+              return [...prev, {
+                chunk_id: data.chunk_id,
+                timestamp: data.timestamp,
+                text: data.text,
+              }];
+            });
+          }
+        } catch (e) {
+          // Ignore parse errors from keepalive comments
+        }
+      };
+
+      es.addEventListener("done", () => {
+        es.close();
+        eventSourceRef.current = null;
+      });
+
+      es.onerror = () => {
+        console.warn("SSE connection failed, falling back to polling");
+        es.close();
+        eventSourceRef.current = null;
+        startPolling(sid);
+      };
+    } catch (e) {
+      // SSE not supported, fall back to polling
+      startPolling(sid);
+    }
+  };
+
+  // ─── Polling fallback for live updates ──────────────────────────────
   const startPolling = (sid) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(async () => {
@@ -211,8 +270,8 @@ export default function PrototypeDashboard() {
         const res = await fetch(`/api/transcribe/status?sessionId=${sid}`);
         if (res.ok) {
           const data = await res.json();
-          if (data.transcript?.chunks) {
-            setLiveChunks(data.transcript.chunks);
+          if (data.live_transcript?.chunks) {
+            setLiveChunks(data.live_transcript.chunks);
           }
           if (data.status !== "running") {
             clearInterval(pollingRef.current);
@@ -222,7 +281,7 @@ export default function PrototypeDashboard() {
       } catch (err) {
         console.error("Polling error:", err);
       }
-    }, 3000);
+    }, 5000);
   };
 
   // ─── Stop transcription ───────────────────────────────────────────
@@ -233,7 +292,11 @@ export default function PrototypeDashboard() {
     setStatusMessage("Stopping transcription & generating summary...");
     stopDurationTimer();
 
-    // Stop polling
+    // Stop live stream and polling
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
@@ -264,9 +327,9 @@ export default function PrototypeDashboard() {
         (data.has_summary ? "Cornell summary generated." : "No summary generated.")
       );
 
-      // Update live chunks with final data
-      if (data.transcript?.chunks) {
-        setLiveChunks(data.transcript.chunks);
+      // Update live chunks with final data (10s chunks, includes final buffer flush)
+      if (data.live_transcript?.chunks) {
+        setLiveChunks(data.live_transcript.chunks);
       }
 
       // Reset session
@@ -473,7 +536,7 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Course Selector Bar */}
+        {/* Course & Session Type Selector Bar */}
         <div className="course-selector-bar">
           <button
             className={`course-select-btn ${selectedCourse ? "has-course" : ""}`}
@@ -483,13 +546,36 @@ export default function PrototypeDashboard() {
             <FaBook />
             <span>{selectedCourse || "Select Course"}</span>
           </button>
+
+          {/* Session Type Toggle */}
+          <div className="session-type-toggle">
+            <button
+              className={`session-type-btn ${sessionType === "lecture" ? "active" : ""}`}
+              onClick={() => setSessionType("lecture")}
+              disabled={isRecording}
+            >
+              <FaBook />
+              <span>Lecture</span>
+            </button>
+            <button
+              className={`session-type-btn ${sessionType === "meeting" ? "active" : ""}`}
+              onClick={() => setSessionType("meeting")}
+              disabled={isRecording}
+            >
+              <FaUsers />
+              <span>Meeting</span>
+            </button>
+          </div>
+
           {selectedCourse && !isRecording && (
-            <span className="course-ready-label">Ready to record for {selectedCourse}</span>
+            <span className="course-ready-label">
+              Ready to record {sessionType === "meeting" ? "meeting" : "lecture"} for {selectedCourse}
+            </span>
           )}
           {isRecording && (
             <div className="recording-info">
               <span className="recording-dot"></span>
-              <span className="recording-label">REC &mdash; {selectedCourse}</span>
+              <span className="recording-label">REC &mdash; {selectedCourse} ({sessionType === "meeting" ? "Meeting" : "Lecture"})</span>
               <span className="recording-duration">{duration}</span>
             </div>
           )}
@@ -564,12 +650,13 @@ export default function PrototypeDashboard() {
                 <p className="live-transcript-empty">Waiting for speech...</p>
               ) : (
                 liveChunks.map((chunk, i) => (
-                  <div key={i} className="live-chunk">
+                  <div key={chunk.chunk_id || i} className="live-chunk">
                     <span className="chunk-timestamp">[{chunk.timestamp}]</span>
                     <span className="chunk-text">{chunk.text}</span>
                   </div>
                 ))
               )}
+              <div ref={transcriptEndRef} />
             </div>
           </div>
         )}

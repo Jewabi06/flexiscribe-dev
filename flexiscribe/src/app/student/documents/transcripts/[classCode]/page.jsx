@@ -1,14 +1,14 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { FaArrowLeft, FaEye, FaFilePdf } from "react-icons/fa";
+import { FaArrowLeft, FaFileAlt, FaEye, FaClock, FaCheckCircle } from "react-icons/fa";
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
 import LoadingScreen from "@/components/shared/LoadingScreen";
-import "../../dashboard/styles.css";
+import "../../../dashboard/styles.css";
 import "./styles.css";
 
-export default function ClassReviewersPage() {
+export default function ClassTranscriptsPage() {
   const router = useRouter();
   const params = useParams();
   const classCode = params.classCode;
@@ -21,8 +21,8 @@ export default function ClassReviewersPage() {
   
   // Real data state
   const [classInfo, setClassInfo] = useState(null);
-  const [reviewers, setReviewers] = useState([]);
-  const [loadingReviewers, setLoadingReviewers] = useState(true);
+  const [transcripts, setTranscripts] = useState([]);
+  const [loadingTranscripts, setLoadingTranscripts] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -55,39 +55,37 @@ export default function ClassReviewersPage() {
 
     fetchStudentProfile();
 
-    // Fetch class info from enrolled classes
+    // Fetch class info
     const fetchClassInfo = async () => {
       try {
         const response = await fetch('/api/students/classes');
         if (response.ok) {
           const data = await response.json();
           const found = (data.classes || []).find((c) => c.classCode === classCode);
-          if (found) {
-            setClassInfo(found);
-          }
+          if (found) setClassInfo(found);
         }
       } catch (error) {
         console.error('Error fetching class info:', error);
       }
     };
 
-    // Fetch transcriptions/reviewers for this class
-    const fetchReviewers = async () => {
+    // Fetch transcripts for this class
+    const fetchTranscripts = async () => {
       try {
         const response = await fetch(`/api/students/transcriptions?classCode=${classCode}`);
         if (response.ok) {
           const data = await response.json();
-          setReviewers(data.transcriptions || []);
+          setTranscripts(data.transcriptions || []);
         }
       } catch (error) {
-        console.error('Error fetching reviewers:', error);
+        console.error('Error fetching transcripts:', error);
       } finally {
-        setLoadingReviewers(false);
+        setLoadingTranscripts(false);
       }
     };
 
     fetchClassInfo();
-    fetchReviewers();
+    fetchTranscripts();
 
     return () => clearInterval(timer);
   }, []);
@@ -107,13 +105,11 @@ export default function ClassReviewersPage() {
     }
   };
 
-  const handleReviewerClick = (reviewer) => {
-    router.push(`/student/reviewers/${classCode}/${reviewer.id}`);
+  const handleTranscriptClick = (transcript) => {
+    router.push(`/student/documents/transcripts/${classCode}/${transcript.id}`);
   };
 
-
-
-  if (!mounted || !currentTime || loadingReviewers) {
+  if (!mounted || !currentTime || loadingTranscripts) {
     return <LoadingScreen />;
   }
 
@@ -130,9 +126,9 @@ export default function ClassReviewersPage() {
         
         <div className="class-content">
           <div className="back-button-container">
-            <button className="back-button" onClick={() => router.push('/student/reviewers')}>
+            <button className="back-button" onClick={() => router.push('/student/documents')}>
               <FaArrowLeft className="back-icon" />
-              <span>Back to Reviewers</span>
+              <span>Back to Documents</span>
             </button>
           </div>
 
@@ -140,49 +136,56 @@ export default function ClassReviewersPage() {
             <h1 className="class-title">
               {classInfo ? `${classInfo.subject} — Section ${classInfo.section}` : classCode}
             </h1>
-            <p className="class-subtitle">Enrolled Classes - Reviewers</p>
+            <p className="class-subtitle">Raw Transcripts</p>
           </div>
 
-          {loadingReviewers ? (
+          {loadingTranscripts ? (
             <div className="empty-state">
-              <p>Loading reviewers...</p>
+              <p>Loading transcripts...</p>
             </div>
-          ) : reviewers.length === 0 ? (
+          ) : transcripts.length === 0 ? (
             <div className="empty-state">
-              <FaBook className="empty-icon" />
-              <h3>No Reviewers Available</h3>
-              <p>There are no reviewers uploaded for this class yet.</p>
+              <FaFileAlt className="empty-icon" />
+              <h3>No Transcripts Available</h3>
+              <p>There are no transcripts uploaded for this class yet.</p>
             </div>
           ) : (
-            <div className="reviewers-grid">
-              {reviewers.map((reviewer) => (
-                <div key={reviewer.id} className="reviewer-card">
-                  <div className="reviewer-card-header">
+            <div className="transcripts-grid">
+              {transcripts.map((transcript) => (
+                <div key={transcript.id} className="transcript-card">
+                  <div className="transcript-card-header">
                     <div className="file-type-badge">
-                      <FaFilePdf />
-                      <span>{reviewer.status}</span>
+                      <FaFileAlt />
+                      <span>JSON</span>
                     </div>
-                    <span className="file-size">{reviewer.duration || "—"}</span>
+                    <div className={`status-badge ${transcript.status?.toLowerCase() || 'completed'}`}>
+                      <FaCheckCircle />
+                      <span>{transcript.status || 'COMPLETED'}</span>
+                    </div>
                   </div>
                   
-                  <div className="reviewer-card-body">
-                    <h3 className="reviewer-title">{reviewer.title}</h3>
-                    <p className="reviewer-description">{reviewer.class?.subject || reviewer.course}</p>
+                  <div className="transcript-card-body">
+                    <h3 className="transcript-title">{transcript.title}</h3>
                     
-                    <div className="reviewer-meta">
+                    <div className="transcript-meta">
                       <div className="meta-item">
-                        <span className="meta-label">Educator:</span>
-                        <span className="meta-value">{reviewer.educator?.fullName || "—"}</span>
+                        <FaClock className="meta-icon" />
+                        <span className="meta-label">Duration:</span>
+                        <span className="meta-value">{transcript.duration || '—'}</span>
                       </div>
                       <div className="meta-item">
                         <span className="meta-label">Date:</span>
-                        <span className="meta-value">{reviewer.date || new Date(reviewer.createdAt).toLocaleDateString()}</span>
+                        <span className="meta-value">{transcript.date || new Date(transcript.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="meta-item">
+                        <span className="meta-label">Educator:</span>
+                        <span className="meta-value">{transcript.educator?.fullName || '—'}</span>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="reviewer-card-actions">
-                    <button className="action-btn view-btn" onClick={() => handleReviewerClick(reviewer)}>
+                  <div className="transcript-card-actions">
+                    <button className="action-btn view-btn" onClick={() => handleTranscriptClick(transcript)}>
                       <FaEye />
                       <span>View</span>
                     </button>

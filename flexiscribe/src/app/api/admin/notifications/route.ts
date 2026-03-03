@@ -2,11 +2,11 @@ import prisma from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
 
-// GET /api/admin/notifications - Get admin notifications
+// GET /api/admin/notifications - Get admin notifications sourced from Activity records
 export async function GET(request: Request) {
   try {
     const user = await verifyAuth(request);
-    
+
     if (!user || user.role !== "ADMIN") {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -14,7 +14,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get admin record
     const admin = await prisma.admin.findUnique({
       where: { userId: user.userId },
     });
@@ -26,11 +25,48 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get notifications
-    const notifications = await prisma.notification.findMany({
-      where: { adminId: admin.id },
+    // Get all notification rows for this admin (including soft-deleted)
+    // to know which activity IDs have already been processed
+    const existingNotifs = await prisma.notification.findMany({
+      where: { adminId: admin.id, activityId: { not: null } },
+      select: { activityId: true },
+    });
+
+    const processedActivityIds = new Set(
+      existingNotifs.map((n) => n.activityId)
+    );
+
+    // Fetch recent activities across all roles
+    const activities = await prisma.activity.findMany({
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: 200,
+    });
+
+    // Only create notification rows for activities not yet processed
+    const newActivities = activities.filter(
+      (a) => !processedActivityIds.has(a.id)
+    );
+
+    if (newActivities.length > 0) {
+      await prisma.notification.createMany({
+        data: newActivities.map((a) => ({
+          title: a.action,
+          message: a.description || "",
+          type: a.userRole.toLowerCase(),
+          read: false,
+          deleted: false,
+          adminId: admin.id,
+          activityId: a.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    // Return only non-deleted notifications
+    const notifications = await prisma.notification.findMany({
+      where: { adminId: admin.id, deleted: false },
+      orderBy: { createdAt: "desc" },
+      take: 100,
     });
 
     return NextResponse.json({ notifications }, { status: 200 });
@@ -47,7 +83,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const user = await verifyAuth(request);
-    
+
     if (!user || user.role !== "ADMIN") {
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -65,14 +101,9 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Update notifications
     await prisma.notification.updateMany({
-      where: {
-        id: { in: notificationIds },
-      },
-      data: {
-        read: true,
-      },
+      where: { id: { in: notificationIds } },
+      data: { read: true },
     });
 
     return NextResponse.json(
@@ -83,6 +114,47 @@ export async function PATCH(request: Request) {
     console.error("Update notifications error:", error);
     return NextResponse.json(
       { error: "An error occurred while updating notifications" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/admin/notifications - Soft-delete a notification (won't come back)
+export async function DELETE(request: Request) {
+  try {
+    const user = await verifyAuth(request);
+
+    if (!user || user.role !== "ADMIN") {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Notification ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Soft-delete: mark as deleted so the activity won't be re-synced
+    await prisma.notification.update({
+      where: { id },
+      data: { deleted: true },
+    });
+
+    return NextResponse.json(
+      { message: "Notification deleted" },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("Delete notification error:", error);
+    return NextResponse.json(
+      { error: "An error occurred while deleting the notification" },
       { status: 500 }
     );
   }

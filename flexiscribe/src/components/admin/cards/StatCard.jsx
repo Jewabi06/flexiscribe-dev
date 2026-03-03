@@ -4,6 +4,8 @@ import {
   GraduationCap,
   UserSquare2,
   Activity,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 
 function Icon({ label }) {
@@ -44,7 +46,11 @@ function Icon({ label }) {
 export default function StatCard({
   label,
   value,
+  percentage,
 }) {
+  const isPositive = percentage > 0;
+  const TrendIcon = isPositive ? TrendingUp : TrendingDown;
+
   return (
     <div
       className="
@@ -64,12 +70,27 @@ export default function StatCard({
     >
       <Icon label={label} />
 
-      <div className="relative z-10">
-        <div className="text-4xl sm:text-[56px] font-extrabold leading-none tracking-tight">
-          {value}
+      <div className="relative z-5 h-full">
+        <div className="flex items-center justify-between">
+          <div className="text-4xl sm:text-[56px] font-extrabold leading-none tracking-tight">
+            {value}
+          </div>
+
+          {/* Empty div to maintain flex layout */}
+          <div></div>
         </div>
 
-        <div className="mt-2 sm:mt-4 text-sm sm:text-base font-medium opacity-90">
+        {/* Percentage absolutely positioned - adjust top value to move freely */}
+        {percentage !== undefined && (
+          <div className={`absolute right-1 sm:right-1 flex items-center gap-1 text-sm font-semibold ${
+            isPositive ? 'text-green-300' : 'text-red-300'
+          }`} style={{ top: '85px' }}>
+            <TrendIcon size={16} />
+            <span>{isPositive ? '+' : ''}{percentage}%</span>
+          </div>
+        )}
+
+        <div className="absolute bottom-10 sm:bottom-1 left-1 sm:left-1 text-sm sm:text-base font-medium opacity-90">
           {label}
         </div>
       </div>

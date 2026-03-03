@@ -1,15 +1,5 @@
 import { Resend } from "resend";
 
-function getResendClient() {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "RESEND_API_KEY environment variable is not set. Email sending is unavailable."
-    );
-  }
-  return new Resend(apiKey);
-}
-
 export interface EmailOptions {
   to: string;
   subject: string;
@@ -21,19 +11,24 @@ export interface EmailOptions {
  */
 export async function sendEmail({ to, subject, html }: EmailOptions) {
   try {
-    console.log("Attempting to send email to:", to);
-    console.log("From:", process.env.EMAIL_FROM);
-    console.log("API Key exists:", !!process.env.RESEND_API_KEY);
-    
-    const result = await getResendClient().emails.send({
-      from: process.env.EMAIL_FROM || "onboarding@resend.dev",
-      to,
-      subject,
-      html,
-    });
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error("RESEND_API_KEY environment variable is not set.");
+    }
 
-    console.log("Email sent successfully:", result);
-    return { success: true, data: result };
+    const resend = new Resend(apiKey);
+    const from = process.env.EMAIL_FROM || "fLexiScribe <onboarding@resend.dev>";
+
+    console.log("Attempting to send email to:", to);
+    const { data, error } = await resend.emails.send({ from, to, subject, html });
+
+    if (error) {
+      console.error("Resend API error:", error);
+      return { success: false, error };
+    }
+
+    console.log("Email sent successfully:", data?.id);
+    return { success: true, data };
   } catch (error) {
     console.error("Email sending error:", error);
     return { success: false, error };
@@ -41,145 +36,133 @@ export async function sendEmail({ to, subject, html }: EmailOptions) {
 }
 
 /**
- * Send password reset email
+ * Generate a professional HTML email template
  */
-export async function sendPasswordResetEmail(
-  email: string,
-  resetToken: string,
-  userName: string
-) {
-  const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password?token=${resetToken}`;
-
-  const html = `
+function emailTemplate({
+  title,
+  body,
+}: {
+  title: string;
+  body: string;
+}): string {
+  return `
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
       <head>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-          }
-          .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-          }
-          .header {
-            background-color: #8b5cf6;
-            color: white;
-            padding: 20px;
-            text-align: center;
-            border-radius: 8px 8px 0 0;
-          }
-          .content {
-            background-color: #f9fafb;
-            padding: 30px;
-            border-radius: 0 0 8px 8px;
-          }
-          .button {
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #8b5cf6;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            margin: 20px 0;
-          }
-          .footer {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 12px;
-            color: #666;
-          }
-        </style>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${title}</title>
       </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Password Reset Request</h1>
-          </div>
-          <div class="content">
-            <p>Hello ${userName},</p>
-            <p>We received a request to reset your password for your fLexiScribe account.</p>
-            <p>Click the button below to reset your password:</p>
-            <center>
-              <a href="${resetUrl}" class="button">Reset Password</a>
-            </center>
-            <p>Or copy and paste this link in your browser:</p>
-            <p style="word-break: break-all; color: #666;">${resetUrl}</p>
-            <p><strong>This link will expire in 1 hour.</strong></p>
-            <p>If you didn't request a password reset, please ignore this email or contact support if you have concerns.</p>
-            <p>Best regards,<br>The fLexiScribe Team</p>
-          </div>
-          <div class="footer">
-            <p>This is an automated email, please do not reply.</p>
-          </div>
-        </div>
+      <body style="margin:0;padding:0;background-color:#f4f4f7;font-family:'Segoe UI',Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+                <!-- Header -->
+                <tr>
+                  <td style="background:linear-gradient(135deg,#8b5cf6 0%,#6d28d9 100%);padding:32px 40px;text-align:center;">
+                    <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">${title}</h1>
+                  </td>
+                </tr>
+                <!-- Body -->
+                <tr>
+                  <td style="background-color:#ffffff;padding:40px;">
+                    ${body}
+                  </td>
+                </tr>
+                <!-- Footer -->
+                <tr>
+                  <td style="background-color:#fafafa;padding:24px 40px;text-align:center;border-top:1px solid #eee;">
+                    <p style="margin:0 0 8px;font-size:13px;color:#999;">This is an automated message from fLexiScribe. Please do not reply to this email.</p>
+                    <p style="margin:0;font-size:12px;color:#bbb;">&copy; ${new Date().getFullYear()} fLexiScribe. All rights reserved.</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
       </body>
     </html>
   `;
+}
+
+/**
+ * Send a verification code email (used for forgot password & change password)
+ */
+export async function sendVerificationCodeEmail(
+  email: string,
+  code: string,
+  userName: string,
+  purpose: "password-reset" | "password-change"
+) {
+  const purposeText =
+    purpose === "password-reset"
+      ? "reset your password"
+      : "change your password";
+
+  const body = `
+    <p style="margin:0 0 16px;font-size:16px;color:#333;">Hello <strong>${userName}</strong>,</p>
+    <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
+      We received a request to ${purposeText} for your fLexiScribe account. 
+      Please use the verification code below to proceed:
+    </p>
+    <div style="text-align:center;margin:32px 0;">
+      <div style="display:inline-block;background:linear-gradient(135deg,#f5f3ff 0%,#ede9fe 100%);border:2px solid #8b5cf6;border-radius:12px;padding:20px 40px;">
+        <span style="font-size:36px;font-weight:800;letter-spacing:12px;color:#6d28d9;font-family:'Courier New',monospace;">${code}</span>
+      </div>
+    </div>
+    <p style="margin:0 0 8px;font-size:14px;color:#555;">
+      <strong style="color:#8b5cf6;">⏱ This code will expire in 10 minutes.</strong>
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:#777;line-height:1.6;">
+      If you didn't request this, please ignore this email. Your account remains secure.
+    </p>
+    <p style="margin:0;font-size:15px;color:#333;">
+      Best regards,<br/>
+      <strong style="color:#6d28d9;">The fLexiScribe Team</strong>
+    </p>
+  `;
+
+  const title =
+    purpose === "password-reset"
+      ? "Password Reset Verification"
+      : "Password Change Verification";
 
   return sendEmail({
     to: email,
-    subject: "Reset Your fLexiScribe Password",
-    html,
+    subject: `fLexiScribe — ${title} Code`,
+    html: emailTemplate({ title, body }),
   });
 }
 
 /**
  * Send welcome email to new users
  */
-export async function sendWelcomeEmail(email: string, userName: string, role: string) {
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-          }
-          .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-          }
-          .header {
-            background-color: #8b5cf6;
-            color: white;
-            padding: 20px;
-            text-align: center;
-            border-radius: 8px 8px 0 0;
-          }
-          .content {
-            background-color: #f9fafb;
-            padding: 30px;
-            border-radius: 0 0 8px 8px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Welcome to fLexiScribe!</h1>
-          </div>
-          <div class="content">
-            <p>Hello ${userName},</p>
-            <p>Welcome to fLexiScribe! Your account has been successfully created as a <strong>${role}</strong>.</p>
-            <p>You can now log in and start using the platform.</p>
-            <p>If you have any questions or need assistance, please don't hesitate to contact our support team.</p>
-            <p>Best regards,<br>The fLexiScribe Team</p>
-          </div>
-        </div>
-      </body>
-    </html>
+export async function sendWelcomeEmail(
+  email: string,
+  userName: string,
+  role: string
+) {
+  const body = `
+    <p style="margin:0 0 16px;font-size:16px;color:#333;">Hello <strong>${userName}</strong>,</p>
+    <p style="margin:0 0 16px;font-size:15px;color:#555;line-height:1.6;">
+      Welcome to fLexiScribe! Your account has been successfully created as a <strong style="color:#6d28d9;">${role}</strong>.
+    </p>
+    <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
+      You can now log in and start using the platform.
+    </p>
+    <p style="margin:0 0 16px;font-size:15px;color:#555;line-height:1.6;">
+      If you have any questions or need assistance, please don't hesitate to contact our support team.
+    </p>
+    <p style="margin:0;font-size:15px;color:#333;">
+      Best regards,<br/>
+      <strong style="color:#6d28d9;">The fLexiScribe Team</strong>
+    </p>
   `;
 
   return sendEmail({
     to: email,
     subject: "Welcome to fLexiScribe",
-    html,
+    html: emailTemplate({ title: "Welcome to fLexiScribe!", body }),
   });
 }

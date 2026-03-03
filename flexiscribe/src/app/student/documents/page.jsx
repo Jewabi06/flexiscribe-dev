@@ -25,8 +25,6 @@ export default function ReviewersPage() {
   const [loadingTranscripts, setLoadingTranscripts] = useState(true);
 
   // Join class state
-  const [joinError, setJoinError] = useState("");
-  const [joinSuccess, setJoinSuccess] = useState("");
   const [joining, setJoining] = useState(false);
 
   // Modal state for error messages
@@ -119,8 +117,6 @@ export default function ReviewersPage() {
   const handleAddClass = async () => {
     if (!classCode.trim()) return;
 
-    setJoinError("");
-    setJoinSuccess("");
     setJoining(true);
 
     try {
@@ -133,8 +129,13 @@ export default function ReviewersPage() {
       const data = await res.json();
 
       if (res.ok) {
-        setJoinSuccess(`Joined ${data.class.subject} — Section ${data.class.section}!`);
         setClassCode("");
+        setModalInfo({
+          isOpen: true,
+          title: "Class Joined!",
+          message: `Joined ${data.class.subject} — Section ${data.class.section}!`,
+          type: "success"
+        });
         // Refresh enrolled classes and transcripts
         const [classesRes, transRes] = await Promise.all([
           fetch('/api/students/classes'),
@@ -148,7 +149,6 @@ export default function ReviewersPage() {
           const tData = await transRes.json();
           setRawTranscripts(tData.transcriptions || []);
         }
-        setTimeout(() => setJoinSuccess(""), 3000);
       } else {
         setModalInfo({
           isOpen: true,
@@ -170,12 +170,12 @@ export default function ReviewersPage() {
   };
 
   const handleClassClick = (classItem) => {
-    router.push(`/student/reviewers/${classItem.classCode}`);
+    router.push(`/student/documents/${classItem.classCode}`);
   };
 
   const handleTranscriptClick = (transcript) => {
     const code = transcript.class?.classCode || transcript.course;
-    router.push(`/student/reviewers/transcripts/${code}`);
+    router.push(`/student/documents/transcripts/${code}`);
   };
 
   // Don't render until mounted and data is loaded to avoid flash of default data
@@ -214,27 +214,57 @@ export default function ReviewersPage() {
                 disabled={joining}
                 style={{ fontFamily: 'monospace', letterSpacing: '0.1em', textTransform: 'uppercase' }}
               />
-              {joinSuccess && (
-                <div className="join-feedback success">{joinSuccess}</div>
-              )}
+
             </div>
             <button className="add-class-btn" onClick={handleAddClass} disabled={joining}>
               {joining ? "Joining..." : "Join Class"}
             </button>
           </div>
 
-          {/* Enrolled Classes Section */}
+          {/* Reviewers Section */}
           <div className="section-container">
-            <h2 className="section-title">Enrolled Classes</h2>
+            <h2 className="section-title">Reviewers</h2>
             {loadingClasses ? (
               <div className="empty-state-container">
-                <p className="empty-state-text">Loading classes...</p>
+                <p className="empty-state-text">Loading summaries...</p>
               </div>
             ) : enrolledClasses.length === 0 ? (
               <div className="empty-state-container">
                 <FaFolderOpen className="empty-state-icon" />
-                <h3 className="empty-state-heading">No Enrolled Classes</h3>
-                <p className="empty-state-text">Enter a class code above to join a class and view reviewers.</p>
+                <h3 className="empty-state-heading">No Summaries Available</h3>
+                <p className="empty-state-text">Enter a class code above to join a class and view summaries.</p>
+              </div>
+            ) : (
+              <div className="folders-grid">
+                {enrolledClasses.map((classItem) => (
+                  <div
+                    key={classItem.id}
+                    className="folder-card"
+                    onClick={() => handleClassClick(classItem)}
+                  >
+                    <div className="folder-icon-wrapper">
+                      <FaFolderOpen className="folder-icon" />
+                    </div>
+                    <div className="folder-label">{classItem.subject}</div>
+                    <div className="folder-sublabel">Section {classItem.section}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* MOTM Section */}
+          <div className="section-container">
+            <h2 className="section-title">Minutes of the Meeting</h2>
+            {loadingClasses ? (
+              <div className="empty-state-container">
+                <p className="empty-state-text">Loading...</p>
+              </div>
+            ) : enrolledClasses.length === 0 ? (
+              <div className="empty-state-container">
+                <FaFolderOpen className="empty-state-icon" />
+                <h3 className="empty-state-heading">No MOTM Available</h3>
+                <p className="empty-state-text">Enter a class code above to join a class and view minutes of the meeting.</p>
               </div>
             ) : (
               <div className="folders-grid">
@@ -289,7 +319,7 @@ export default function ReviewersPage() {
                     <div
                       key={group.classCode}
                       className="folder-card"
-                      onClick={() => router.push(`/student/reviewers/transcripts/${group.classCode}`)}
+                      onClick={() => router.push(`/student/documents/transcripts/${group.classCode}`)}
                     >
                       <div className="folder-icon-wrapper">
                         <FaFileAlt className="folder-icon" />

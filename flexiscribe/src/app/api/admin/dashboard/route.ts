@@ -25,18 +25,13 @@ export async function GET(request: Request) {
       }),
     ]);
 
-    // Count active users (students + educators who have logged in within last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
+    // Count active users (students + educators whose account status is "Active")
     const activeUsers = await prisma.user.count({
       where: {
         role: {
           in: ["STUDENT", "EDUCATOR"],
         },
-        updatedAt: {
-          gte: sevenDaysAgo,
-        },
+        status: "Active",
       },
     });
 
