@@ -13,7 +13,11 @@ export default function ClassReviewersPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const classCode = params.classCode;
+<<<<<<< HEAD
+  const sessionType = searchParams.get('type') || 'lecture'; // 'lecture' or 'meeting'
+=======
   const docType = searchParams.get("type") || "lecture"; // "lecture" or "meeting"
+>>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
   
   const [currentTime, setCurrentTime] = useState(null);
   const [mounted, setMounted] = useState(false);
@@ -79,7 +83,14 @@ export default function ClassReviewersPage() {
         const response = await fetch(`/api/students/transcriptions?classCode=${classCode}&sessionType=${docType}`);
         if (response.ok) {
           const data = await response.json();
-          setReviewers(data.transcriptions || []);
+          const all = data.transcriptions || [];
+          // Filter by session type based on title
+          const filtered = all.filter((t) => {
+            const title = (t.title || '').toLowerCase();
+            if (sessionType === 'meeting') return title.includes('meeting');
+            return !title.includes('meeting');
+          });
+          setReviewers(filtered);
         }
       } catch (error) {
         console.error('Error fetching reviewers:', error);
@@ -142,7 +153,11 @@ export default function ClassReviewersPage() {
             <h1 className="class-title">
               {classInfo ? `${classInfo.subject} — Section ${classInfo.section}` : classCode}
             </h1>
+<<<<<<< HEAD
+            <p className="class-subtitle">{sessionType === 'meeting' ? 'Minutes of the Meeting' : 'Enrolled Classes - Reviewers'}</p>
+=======
             <p className="class-subtitle">{docType === "meeting" ? "Minutes of the Meeting" : "Reviewers"}</p>
+>>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
           </div>
 
           {loadingReviewers ? (
@@ -152,8 +167,13 @@ export default function ClassReviewersPage() {
           ) : reviewers.length === 0 ? (
             <div className="empty-state">
               <FaBook className="empty-icon" />
+<<<<<<< HEAD
+              <h3>No {sessionType === 'meeting' ? 'MOTM' : 'Reviewers'} Available</h3>
+              <p>There are no {sessionType === 'meeting' ? 'minutes of the meeting' : 'reviewers'} uploaded for this class yet.</p>
+=======
               <h3>No {docType === "meeting" ? "MOTM" : "Reviewers"} Available</h3>
               <p>There are no {docType === "meeting" ? "minutes of the meeting" : "reviewers"} uploaded for this class yet.</p>
+>>>>>>> 11f4857e12c6486f76162ac0e79ab7fe662254c3
             </div>
           ) : (
             <div className="reviewers-grid">

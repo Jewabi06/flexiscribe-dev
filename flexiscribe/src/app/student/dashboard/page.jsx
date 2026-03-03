@@ -580,7 +580,7 @@ export default function StudentDashboard() {
                                 color: 'rgba(255, 255, 255, 0.6)',
                                 marginTop: '0.125rem'
                               }}>
-                                {user.level || 'Learner'}
+                                {calculateRank(user.xp || 0).name}
                               </div>
                             </div>
 
