@@ -71,9 +71,9 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
 
     if (body.markAllRead) {
-      await prisma.notification.updateMany({
-        where: { studentId: student.id, read: false },
-        data: { read: true },
+      // Delete all notifications for this student from the database
+      await prisma.notification.deleteMany({
+        where: { studentId: student.id },
       });
     } else if (body.notificationIds && Array.isArray(body.notificationIds)) {
       await prisma.notification.updateMany({
@@ -89,5 +89,50 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error("Update notifications error:", error);
     return NextResponse.json({ error: "Failed to update notifications" }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/students/notifications
+ * Delete a single notification by id.
+ * Body: { notificationId: string }
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    if (user.role !== "STUDENT") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { userId: user.userId },
+    });
+
+    if (!student) {
+      return NextResponse.json({ error: "Student not found" }, { status: 404 });
+    }
+
+    const body = await request.json();
+
+    if (!body.notificationId) {
+      return NextResponse.json({ error: "notificationId is required" }, { status: 400 });
+    }
+
+    await prisma.notification.deleteMany({
+      where: {
+        id: body.notificationId,
+        studentId: student.id,
+      },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Delete notification error:", error);
+    return NextResponse.json({ error: "Failed to delete notification" }, { status: 500 });
   }
 }
