@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 export default function PreviewPanel({ transcript }) {
   const pdfRef = useRef(null);
   const [zoom, setZoom] = useState(1);
-  const [activeTab, setActiveTab] = useState("summary"); // "summary" | "transcript"
+  const [activeTab, setActiveTab] = useState("summary"); // "summary" | "transcript" | "minutes"
 
   const download = async () => {
     if (!pdfRef.current || !transcript) return;
@@ -42,8 +42,17 @@ export default function PreviewPanel({ transcript }) {
   // Extract transcript chunks with timestamps
   const chunks = transcriptData?.chunks || [];
 
+  // Extract minutes data (if available)
+  const minutesData = transcript?.minutesJson || null;
+  const minutesTitle = minutesData?.title || cornellTitle;
+  const attendees = minutesData?.attendees || [];
+  const agendaItems = minutesData?.agenda || [];
+  const decisions = minutesData?.decisions || [];
+  const actionItems = minutesData?.actionItems || [];
+  const nextMeeting = minutesData?.nextMeeting || null;
+
   // Determine if we have JSON-format data
-  const hasJsonData = !!(summaryData || transcriptData);
+  const hasJsonData = !!(summaryData || transcriptData || minutesData);
 
   return (
     <div className="h-full rounded-[20px] sm:rounded-[28px] lg:rounded-[42px] bg-gradient-to-br from-[#9d8adb] to-[#7d6ac4] p-4 sm:p-6 flex flex-col transition-all duration-300">
@@ -72,6 +81,16 @@ export default function PreviewPanel({ transcript }) {
                 }`}
               >
                 Transcript
+              </button>
+              <button
+                onClick={() => setActiveTab("minutes")}
+                className={`px-3 py-1 text-xs rounded-full transition-all duration-200 ${
+                  activeTab === "minutes"
+                    ? "bg-white/25 text-white font-semibold"
+                    : "text-white/60 hover:text-white/80"
+                }`}
+              >
+                Minutes
               </button>
             </div>
           )}
@@ -259,6 +278,107 @@ export default function PreviewPanel({ transcript }) {
                               __html: transcript.content || "<p>No transcript data available.</p>",
                             }}
                           />
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* ═══════ MINUTES VIEW ═══════ */}
+                  {activeTab === "minutes" && (
+                    <>
+                      {/* HEADER */}
+                      <div className="bg-[#9d8adb] text-white font-semibold border-b border-black text-[10px] sm:text-xs px-3 sm:px-4 py-2 flex flex-wrap justify-between gap-x-3 gap-y-0.5">
+                        <span className="shrink-0">{transcript.date}</span>
+                        <span className="truncate min-w-0 flex-1 text-center px-1">
+                          {minutesTitle} - Meeting Minutes
+                        </span>
+                        <span className="shrink-0">{transcript.duration}</span>
+                      </div>
+
+                      {/* MINUTES CONTENT */}
+                      <div className="p-4 sm:p-6 space-y-6">
+                        {/* ATTENDEES */}
+                        {attendees.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Attendees</p>
+                            <div className="flex flex-wrap gap-2">
+                              {attendees.map((attendee, i) => (
+                                <span key={i} className="text-xs bg-[#9d8adb]/10 text-[#6b5fcf] px-2 py-1 rounded">
+                                  {attendee}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* AGENDA */}
+                        {agendaItems.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Agenda</p>
+                            <ul className="space-y-2">
+                              {agendaItems.map((item, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-[#9d8adb] font-bold text-xs">{i + 1}.</span>
+                                  <span className="text-xs text-[#333]">{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* DECISIONS */}
+                        {decisions.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Decisions</p>
+                            <ul className="space-y-2">
+                              {decisions.map((decision, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-[#9d8adb] text-xs">✓</span>
+                                  <span className="text-xs text-[#333]">{decision}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* ACTION ITEMS */}
+                        {actionItems.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase mb-2 text-[#6b5fcf]">Action Items</p>
+                            <ul className="space-y-2">
+                              {actionItems.map((item, i) => (
+                                <li key={i} className="flex items-start gap-2 border-l-2 border-[#9d8adb] pl-2">
+                                  <span className="text-xs text-[#333]">
+                                    <span className="font-semibold">{item.owner}:</span> {item.task}
+                                    {item.dueDate && <span className="text-[#9d8adb] text-[10px] ml-1">(Due: {item.dueDate})</span>}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* NEXT MEETING */}
+                        {nextMeeting && (
+                          <div className="border-t border-gray-200 pt-4">
+                            <p className="text-xs font-semibold uppercase mb-1 text-[#6b5fcf]">Next Meeting</p>
+                            <p className="text-xs text-[#333]">
+                              {nextMeeting.date && <span className="font-semibold">Date:</span>} {nextMeeting.date}
+                              {nextMeeting.topics && (
+                                <>
+                                  <br />
+                                  <span className="font-semibold">Topics:</span> {nextMeeting.topics}
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* PLACEHOLDER IF NO MINUTES DATA */}
+                        {attendees.length === 0 && agendaItems.length === 0 && decisions.length === 0 && actionItems.length === 0 && !nextMeeting && (
+                          <div className="text-center py-8">
+                            <p className="text-xs text-[#6b5fcf] italic">No meeting minutes available.</p>
+                          </div>
                         )}
                       </div>
                     </>
