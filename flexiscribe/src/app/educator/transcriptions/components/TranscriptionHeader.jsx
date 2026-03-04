@@ -24,7 +24,7 @@ export default function TranscriptionHeader() {
         const res = await fetch("/api/educator/profile");
         if (res.ok) {
           const data = await res.json();
-          setUserName(data.educator.fullName.split(" ")[0] || "Educator");
+          setUserName(data.educator.username || data.educator.fullName.split(" ")[0] || "Educator");
         }
       } catch (error) {
         console.error("Failed to fetch profile:", error);
@@ -121,7 +121,7 @@ export default function TranscriptionHeader() {
 
                 <input
                   type="text"
-                  placeholder="Search transcriptions, courses, or topics..."
+                  placeholder="Search documents, courses, or topics..."
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onFocus={() => query && setIsOpen(true)}
@@ -160,7 +160,7 @@ export default function TranscriptionHeader() {
                   ) : results.length > 0 ? (
                     <div className="py-2">
                       <div className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#9d8adb] dark:text-[#9d8adb]">
-                        Transcriptions
+                        Documents
                       </div>
                       {results.map((item) => (
                         <button
@@ -218,7 +218,7 @@ export default function TranscriptionHeader() {
 
             <input
               type="text"
-              placeholder="Search transcriptions..."
+              placeholder="Search documents..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => query && setIsOpen(true)}

@@ -1,9 +1,9 @@
 "use client";
 
 /* ================= IMPORTS ================= */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Sun, Moon, X, Lock, Eye, EyeOff } from "lucide-react";
+import { Bell, Sun, Moon, X, Lock, Eye, EyeOff, FileText, BookOpen, CheckCircle, User, LogOut } from "lucide-react";
 
 /* ================= MAIN ================= */
 
@@ -11,12 +11,12 @@ export default function ProfessorProfileCard() {
   const router = useRouter();
   const [openNotif, setOpenNotif] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [dark, setDark] = useState(false);
 
   const [name, setName] = useState("Professor");
   const [educator, setEducator] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   /* THEME INIT */
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function ProfessorProfileCard() {
         if (res.ok) {
           const data = await res.json();
           setEducator(data.educator);
-          setName(data.educator.fullName.split(" ")[0] || "Professor");
+          setName(data.educator.username || data.educator.fullName.split(" ")[0] || "Professor");
         }
       } catch (error) {
         console.error("Failed to fetch educator profile:", error);
@@ -44,21 +44,26 @@ export default function ProfessorProfileCard() {
     fetchProfile();
   }, []);
 
-  /* FETCH NOTIFICATIONS */
-  useEffect(() => {
-    async function fetchNotifications() {
-      try {
-        const res = await fetch("/api/educator/notifications?limit=10");
-        if (res.ok) {
-          const data = await res.json();
-          setNotifications(data.notifications);
-        }
-      } catch (error) {
-        console.error("Failed to fetch notifications:", error);
+  /* FETCH NOTIFICATIONS - with polling */
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch("/api/educator/notifications?limit=20");
+      if (res.ok) {
+        const data = await res.json();
+        const notifs = data.notifications || [];
+        setNotifications(notifs);
+        setUnreadCount(notifs.filter((n) => !n.read).length);
       }
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
     }
-    fetchNotifications();
   }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   function toggleDarkMode() {
     const next = !dark;
@@ -91,73 +96,295 @@ export default function ProfessorProfileCard() {
       await fetch("/api/educator/notifications/mark-all-read", {
         method: "POST",
       });
-      // Refresh notifications
-      const res = await fetch("/api/educator/notifications?limit=10");
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications);
-      }
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadCount(0);
     } catch (error) {
       console.error("Failed to mark all as read:", error);
     }
   }
 
-  function handleViewAllNotifications() {
-    // You can create a dedicated notifications page
-    router.push("/educator/notifications");
+  // Click notification: navigate, mark read, soft delete
+  async function handleNotificationClick(notif) {
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    setUnreadCount((prev) => (notif.read ? prev : Math.max(0, prev - 1)));
+    setOpenNotif(false);
+
+    try {
+      await fetch("/api/educator/notifications/mark-all-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationId: notif.id }),
+      });
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+
+    switch (notif.type) {
+      case "transcript":
+      case "summary":
+      case "transcript_summary":
+        router.push("/educator/transcriptions");
+        break;
+      default:
+        router.push("/educator/dashboard");
+        break;
+    }
   }
 
   const initial = name?.charAt(0)?.toUpperCase() || "?";
+  const notifRef = useRef(null);
+  const desktopNotifRef = useRef(null);
+  const profileRef = useRef(null);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      const inMobileNotif = notifRef.current?.contains(e.target);
+      const inDesktopNotif = desktopNotifRef.current?.contains(e.target);
+      if (!inMobileNotif && !inDesktopNotif) {
+        setOpenNotif(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function getNotificationIcon(type) {
+    switch (type) {
+      case "transcript":
+        return <FileText size={16} style={{ color: "#9d8adb" }} />;
+      case "summary":
+      case "transcript_summary":
+        return <BookOpen size={16} style={{ color: "#9d8adb" }} />;
+      default:
+        return <Bell size={16} style={{ color: "#9d8adb" }} />;
+    }
+  }
+
+  function formatTimeAgo(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHour = Math.floor(diffMs / 3600000);
+    const diffDay = Math.floor(diffMs / 86400000);
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return date.toLocaleDateString();
+  }
+
+  // Shared notification dropdown content
+  function renderNotifDropdown() {
+    if (!openNotif) return null;
+    return (
+      <div className="absolute right-0 top-12 w-[320px] sm:w-[380px] bg-white dark:bg-[#2d2640] text-gray-800 dark:text-[#e8e8e8] rounded-xl border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-50 overflow-hidden">
+        <div className="px-4 py-3 flex justify-between items-center border-b border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.2)]">
+          <h3 className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">Notifications</h3>
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="text-xs text-[#9d8adb] hover:underline font-medium flex items-center gap-1"
+            >
+              <CheckCircle size={12} /> Mark all read
+            </button>
+          )}
+        </div>
+        <div className="max-h-[350px] overflow-y-auto edu-scrollbar">
+          {notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-gray-500 dark:text-[#b0a8d4]">
+              <span style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🔔</span>
+              <span className="text-sm">No notifications yet</span>
+            </div>
+          ) : (
+            notifications.map((notif) => (
+              <div
+                key={notif.id}
+                onClick={() => handleNotificationClick(notif)}
+                className={`flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.1)] dark:hover:bg-[rgba(139,127,199,0.12)] transition-all duration-200 cursor-pointer ${
+                  !notif.read ? "bg-[rgba(157,138,219,0.06)] dark:bg-[rgba(139,127,199,0.08)]" : ""
+                }`}
+              >
+                <div className="w-9 h-9 rounded-[10px] bg-[rgba(157,138,219,0.12)] flex items-center justify-center shrink-0">
+                  {getNotificationIcon(notif.type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[0.85rem] ${!notif.read ? "font-bold" : "font-medium"} text-[#4c4172] dark:text-[#c5b8f5]`}>
+                    {notif.title}
+                  </div>
+                  <div className="text-[0.8rem] text-gray-600 dark:text-[#b0a8d4] leading-snug">
+                    {notif.message}
+                  </div>
+                  <div className="text-[0.72rem] text-gray-400 dark:text-[#8a82b0] mt-1">
+                    {formatTimeAgo(notif.createdAt)}
+                  </div>
+                </div>
+                {!notif.read && (
+                  <div className="w-2 h-2 rounded-full bg-[#9d8adb] shrink-0 mt-2 animate-pulse" />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <>
+        <div className="lg:hidden flex items-center gap-3 justify-end">
+          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] animate-pulse" />
+        </div>
+        <div className="hidden lg:block">
+          <div className="bg-gradient-to-br from-[#9d8adb] to-[#4c4172] rounded-[24px] p-6 h-[220px] animate-pulse" />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      {/* MOBILE BUTTON */}
-      <div className="md:hidden flex justify-end mb-2">
+      {/* ========== MOBILE / TABLET: compact dropdown ========== */}
+      <div className="lg:hidden flex items-center gap-3 relative">
+        {/* Dark Mode Toggle */}
         <button
-          onClick={() => setMobileOpen(true)}
-          className="w-11 h-11 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] flex items-center justify-center shadow-lg text-white font-semibold hover:scale-105 active:scale-95 transition-transform duration-200"
+          onClick={toggleDarkMode}
+          className="w-10 h-10 rounded-full bg-[rgba(157,138,219,0.12)] dark:bg-[rgba(139,127,199,0.2)] flex items-center justify-center hover:bg-[rgba(157,138,219,0.2)] dark:hover:bg-[rgba(139,127,199,0.3)] transition-all duration-300"
         >
-          {initial}
+          {dark ? <Moon size={17} className="text-[#9d8adb]" /> : <Sun size={17} className="text-[#9d8adb]" />}
         </button>
-      </div>
 
-      {/* DESKTOP */}
-      <div className="hidden md:block">
-        <ProfileCard
-          name={name}
-          dark={dark}
-          toggleDarkMode={toggleDarkMode}
-          openNotif={openNotif}
-          setOpenNotif={setOpenNotif}
-          setEditOpen={setEditOpen}
-          handleSignOut={handleSignOut}
-          notifications={notifications}
-          handleMarkAllRead={handleMarkAllRead}
-          handleViewAllNotifications={handleViewAllNotifications}
-        />
-      </div>
-
-      {/* MOBILE PROFILE */}
-      {mobileOpen && (
-        <Modal onClose={() => setMobileOpen(false)}>
-          <ProfileCard
-            mobile
-            name={name}
-            dark={dark}
-            toggleDarkMode={toggleDarkMode}
-            openNotif={openNotif}
-            setOpenNotif={setOpenNotif}
-            setEditOpen={(v) => {
-              setMobileOpen(false);
-              setEditOpen(v);
+        {/* Notification Bell */}
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => {
+              setOpenNotif(!openNotif);
+              setProfileDropdownOpen(false);
+              if (!openNotif) fetchNotifications();
             }}
-            handleSignOut={handleSignOut}
-            notifications={notifications}
-            handleMarkAllRead={handleMarkAllRead}
-            handleViewAllNotifications={handleViewAllNotifications}
-          />
-        </Modal>
-      )}
+            className="w-10 h-10 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#9d8adb] flex items-center justify-center shadow-[0_2px_10px_rgba(157,138,219,0.3)] transition-all duration-300 hover:scale-105 active:scale-95 relative"
+          >
+            <Bell size={17} className="text-white" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-[20px] px-1 bg-[#e74c3c] rounded-full flex items-center justify-center text-white text-[10px] font-bold border-2 border-white dark:border-[#1a1625]">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </button>
+          {renderNotifDropdown()}
+        </div>
+
+        {/* Profile Avatar + Dropdown */}
+        <div className="relative" ref={profileRef}>
+          <button
+            onClick={() => {
+              setProfileDropdownOpen(!profileDropdownOpen);
+              setOpenNotif(false);
+            }}
+            className="flex items-center gap-2 cursor-pointer group"
+          >
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] flex items-center justify-center text-white font-bold shadow-[0_2px_10px_rgba(157,138,219,0.3)] transition-all duration-300 group-hover:scale-105">
+              {initial}
+            </div>
+          </button>
+
+          {profileDropdownOpen && (
+            <div className="absolute right-0 top-14 min-w-[200px] bg-white dark:bg-[#2d2640] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.2)]">
+                <p className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">{name}</p>
+                <p className="text-xs text-[#666] dark:text-[#b0a8d4]">Instructor</p>
+              </div>
+              <div className="py-1">
+                <button
+                  onClick={() => {
+                    setProfileDropdownOpen(false);
+                    setEditOpen(true);
+                  }}
+                  className="w-full px-4 py-2.5 text-left text-sm text-[#4c4172] dark:text-[#e8e8e8] hover:bg-[rgba(157,138,219,0.08)] dark:hover:bg-[rgba(139,127,199,0.12)] flex items-center gap-3 transition-colors duration-200"
+                >
+                  <User size={16} className="text-[#9d8adb]" />
+                  Edit Profile
+                </button>
+                <button
+                  onClick={() => {
+                    setProfileDropdownOpen(false);
+                    handleSignOut();
+                  }}
+                  className="w-full px-4 py-2.5 text-left text-sm hover:bg-[rgba(231,76,60,0.1)] flex items-center gap-3 text-[#e74c3c] transition-colors duration-200"
+                >
+                  <LogOut size={16} />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========== DESKTOP: big gradient card ========== */}
+      <div className="hidden lg:block">
+        <div className="bg-gradient-to-br from-[#9d8adb] to-[#4c4172] rounded-[24px] p-5 xl:p-6 text-white shadow-[0_4px_20px_rgba(0,0,0,0.08)] overflow-hidden transition-all duration-300 hover:translate-y-[-2px] hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+          {/* Top actions row */}
+          <div className="flex justify-end gap-2 mb-4">
+            <button
+              onClick={toggleDarkMode}
+              className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-all duration-200"
+            >
+              {dark ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
+            <div className="relative" ref={desktopNotifRef}>
+              <button
+                onClick={() => {
+                  setOpenNotif(!openNotif);
+                  if (!openNotif) fetchNotifications();
+                }}
+                className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-all duration-200 relative"
+              >
+                <Bell size={16} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#e74c3c] rounded-full flex items-center justify-center text-[9px] font-bold border-2 border-[#4c4172]">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </button>
+              {renderNotifDropdown()}
+            </div>
+          </div>
+
+          {/* Avatar + Info */}
+          <div className="flex flex-col items-center text-center">
+            <div className="w-16 h-16 xl:w-20 xl:h-20 rounded-full bg-white/30 flex items-center justify-center text-2xl xl:text-3xl font-semibold uppercase shadow-[inset_0_2px_8px_rgba(0,0,0,0.1)] transition-transform duration-300 hover:scale-105">
+              {initial}
+            </div>
+            <h3 className="mt-3 text-lg font-semibold tracking-wide">{name}</h3>
+            <p className="text-sm text-white/70">Instructor</p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="mt-5 flex gap-3">
+            <button
+              onClick={() => setEditOpen(true)}
+              className="flex-1 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
+            >
+              <User size={14} />
+              Edit Profile
+            </button>
+            <button
+              onClick={handleSignOut}
+              className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
+            >
+              <LogOut size={14} />
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* EDIT PROFILE */}
       {editOpen && (
@@ -170,182 +397,7 @@ export default function ProfessorProfileCard() {
           />
         </Modal>
       )}
-
     </>
-  );
-}
-
-/* ================= PROFILE CARD ================= */
-
-function ProfileCard({
-  name,
-  dark,
-  toggleDarkMode,
-  openNotif,
-  setOpenNotif,
-  setEditOpen,
-  handleSignOut,
-  notifications,
-  handleMarkAllRead,
-  handleViewAllNotifications,
-  mobile = false,
-}) {
-  return (
-    <div
-      className={`
-        edu-profile-card
-        ${mobile ? "w-full" : "w-[345px]"}
-        bg-gradient-to-br from-[#9d8adb] to-[#4c4172]
-        text-white
-      `}
-      style={{ zIndex: openNotif ? 60 : "auto" }}
-    >
-      {/* NOTIFICATION */}
-      <div className="absolute top-6 right-6">
-        <button
-          onClick={() => setOpenNotif(!openNotif)}
-          className="relative hover:scale-110 active:scale-95 transition-transform duration-200"
-        >
-          <Bell size={22} />
-          {notifications?.filter(n => !n.read).length > 0 && (
-            <span className="edu-notif-badge absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#e74c3c] rounded-full" />
-          )}
-        </button>
-
-        {openNotif && (
-          <NotifDropdown
-            notifications={notifications}
-            onMarkAllRead={handleMarkAllRead}
-            onViewAll={handleViewAllNotifications}
-          />
-        )}
-      </div>
-
-      {/* USER INFO */}
-      <div className="flex items-center gap-4">
-        <Avatar name={name} />
-
-        <div>
-          <p className="text-xl font-semibold">{name}</p>
-          <p className="text-white/80 text-sm">Instructor</p>
-        </div>
-      </div>
-
-      {/* ACTIONS */}
-      <div className="mt-auto flex items-center gap-3 text-white/80 text-sm">
-        <p
-          onClick={() => setEditOpen(true)}
-          className="cursor-pointer hover:text-white transition-colors duration-200"
-        >
-          Edit Profile
-        </p>
-
-        <span className="text-white/40">|</span>
-
-        <p 
-          onClick={handleSignOut}
-          className="cursor-pointer hover:text-[#e74c3c] transition-colors duration-200"
-        >
-          Sign Out
-        </p>
-      </div>
-
-      {/* DARK MODE */}
-      <button
-        onClick={toggleDarkMode}
-        className="edu-theme-toggle absolute right-5 bottom-5 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-all duration-200"
-      >
-        {dark ? <Moon size={18} /> : <Sun size={18} />}
-      </button>
-    </div>
-  );
-}
-
-/* ================= NOTIFICATIONS ================= */
-
-function NotifDropdown({ notifications = [], onMarkAllRead, onViewAll }) {
-  function formatTime(createdAt) {
-    const now = new Date();
-    const created = new Date(createdAt);
-    const diffInSeconds = Math.floor((now - created) / 1000);
-    
-    if (diffInSeconds < 60) return "Just now";
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} mins ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} days ago`;
-    return created.toLocaleDateString();
-  }
-
-  return (
-    <div className="edu-dropdown-animate absolute right-0 mt-3 w-[280px] sm:w-[360px] bg-white dark:bg-[#2d2640] dark:text-[#e8e8e8] text-gray-800 rounded-xl border border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.25)] shadow-lg z-50 overflow-hidden">
-      <div className="px-4 py-3 flex justify-between border-b dark:border-[rgba(139,127,199,0.2)]">
-        <h3 className="text-sm font-semibold dark:text-[#e8e8e8]">Notifications</h3>
-
-        <button
-          onClick={onMarkAllRead}
-          className="text-xs text-[#9d8adb] hover:underline"
-        >
-          Mark all as read
-        </button>
-      </div>
-
-      <div className="max-h-[300px] overflow-y-auto edu-scrollbar">
-        {notifications.length === 0 ? (
-          <div className="px-4 py-8 text-center text-gray-500 text-sm">
-            No notifications
-          </div>
-        ) : (
-          notifications.map((item) => (
-            <NotifItem
-              key={item.id}
-              title={item.title}
-              message={item.message}
-              time={formatTime(item.createdAt)}
-              unread={!item.read}
-            />
-          ))
-        )}
-      </div>
-
-      <div className="px-4 py-2 text-center border-t">
-        <button
-          onClick={onViewAll}
-          className="text-xs text-gray-500 hover:text-gray-700"
-        >
-          View all notifications
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function NotifItem({ title, message, time, unread }) {
-  const initial = title?.charAt(0)?.toUpperCase() || "N";
-  
-  return (
-    <div
-      className={`
-        edu-notif-item flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.08)] dark:hover:bg-[rgba(139,127,199,0.12)] transition-all duration-200
-        ${unread ? "bg-[#f7f5ff] dark:bg-[rgba(139,127,199,0.08)]" : "bg-white dark:bg-transparent"}
-      `}
-    >
-      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#9d8adb]/30 to-[#4c4172]/20 text-[#6b5cbf] flex items-center justify-center text-xs font-semibold">
-        {initial}
-      </div>
-
-      <div className="flex-1">
-        <p className="text-sm">
-          <span className="font-medium">{title}</span>{" "}
-          <span className="text-gray-600 dark:text-[#b0a8d4]">{message}</span>
-        </p>
-
-        <p className="text-xs text-gray-400 mt-1">{time}</p>
-      </div>
-
-      {unread && (
-        <span className="w-2 h-2 bg-[#9d8adb] rounded-full mt-2" />
-      )}
-    </div>
   );
 }
 
@@ -402,7 +454,7 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
       if (res.ok) {
         const data = await res.json();
         setEducator(data.educator);
-        setName(data.educator.fullName.split(" ")[0] || "Professor");
+        setName(data.educator.username || data.educator.fullName.split(" ")[0] || "Professor");
         setEditOpen(false);
       } else {
         const error = await res.json();

@@ -1,7 +1,7 @@
 "use client";
 
-import { Calendar, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Calendar, X, Search } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import ClassBlock from "./ClassBlock";
 import EducatorHeader from "@/layouts/educator/EducatorHeader";
 import { timeToMinutes } from "@/lib/timeSlots";
@@ -17,6 +17,7 @@ export default function ScheduleGrid({
 }) {
   const [activeClass, setActiveClass] = useState(null);
   const [userName, setUserName] = useState("Educator");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     async function fetchProfile() {
@@ -24,7 +25,7 @@ export default function ScheduleGrid({
         const res = await fetch("/api/educator/profile");
         if (res.ok) {
           const data = await res.json();
-          setUserName(data.educator.fullName.split(" ")[0] || "Educator");
+          setUserName(data.educator.username || data.educator.fullName.split(" ")[0] || "Educator");
         }
       } catch (error) {
         console.error("Failed to fetch profile:", error);
@@ -33,7 +34,18 @@ export default function ScheduleGrid({
     fetchProfile();
   }, []);
 
-  const schedule = classes.map((cls) => {
+  // Filter classes based on search
+  const filteredClasses = query.trim()
+    ? classes.filter(
+        (cls) =>
+          cls.subject?.toLowerCase().includes(query.toLowerCase()) ||
+          cls.section?.toLowerCase().includes(query.toLowerCase()) ||
+          cls.day?.toLowerCase().includes(query.toLowerCase()) ||
+          cls.room?.toLowerCase().includes(query.toLowerCase())
+      )
+    : classes;
+
+  const schedule = filteredClasses.map((cls) => {
     const startIndex = timeSlots.findIndex((t) =>
       t.startsWith(cls.startTime)
     );
@@ -64,18 +76,78 @@ export default function ScheduleGrid({
     <div className="w-full relative">
 
       {/* HEADER */}
-      <div className="flex items-center justify-between mb-4 sm:mb-6">
+      <div className="flex flex-col gap-3 mb-4 sm:mb-6">
+        <div className="flex items-center justify-between">
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#9b8ae0] flex items-center justify-center text-white shadow-md">
-            <Calendar size={18} />
+          <div className="flex items-center gap-2 sm:gap-3 flex-1">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#9b8ae0] flex items-center justify-center text-white shadow-md">
+              <Calendar size={18} />
+            </div>
+            <h1 className="text-base sm:text-xl font-semibold text-[#6b5fcf] dark:text-[#c5b8f5]">
+              Schedule
+            </h1>
+
+            {/* DESKTOP SEARCH */}
+            <div className="hidden lg:block flex-1 max-w-md ml-4">
+              <div
+                className="
+                  w-full flex items-center gap-3
+                  px-5 py-3
+                  rounded-full
+                  bg-gray-100 dark:bg-gray-800
+                  shadow-[0_2px_10px_rgba(0,0,0,0.03)]
+                  transition-all duration-300
+                  hover:shadow-[0_4px_15px_rgba(0,0,0,0.05)]
+                  border border-gray-200 dark:border-gray-700
+                "
+              >
+                <Search size={20} className="text-[#9d8adb] shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search schedule..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="flex-1 bg-transparent outline-none text-sm lg:text-base text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                />
+                {query && (
+                  <button onClick={() => setQuery("")} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition">
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-          <h1 className="text-base sm:text-xl font-semibold text-[#6b5fcf] dark:text-[#c5b8f5]">
-            Schedule
-          </h1>
+
+          <EducatorHeader userName={userName} />
         </div>
 
-        <EducatorHeader userName={userName} />
+        {/* MOBILE SEARCH */}
+        <div className="relative w-full lg:hidden">
+          <div
+            className="
+              w-full flex items-center gap-3
+              px-5 py-3
+              rounded-full
+              bg-gray-100 dark:bg-gray-800
+              shadow-[0_2px_10px_rgba(0,0,0,0.03)]
+              border border-gray-200 dark:border-gray-700
+            "
+          >
+            <Search size={18} className="text-[#9d8adb] shrink-0" />
+            <input
+              type="text"
+              placeholder="Search schedule..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1 bg-transparent outline-none text-sm text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+            />
+            {query && (
+              <button onClick={() => setQuery("")} className="text-gray-400 hover:text-gray-600 transition">
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* GRID WRAPPER (scroll on mobile) */}
@@ -99,7 +171,7 @@ export default function ScheduleGrid({
           {timeSlots.map((time, rowIndex) => (
             <div key={time} className="contents">
 
-              <div className="border border-[#a99ae6] text-[9px] sm:text-[10px] md:text-[11px] text-[#7a6fcf] flex items-center justify-center h-[56px] px-1 text-center leading-tight">
+              <div className="border border-[#a99ae6] dark:border-[rgba(139,127,199,0.2)] text-[9px] sm:text-[10px] md:text-[11px] text-[#7a6fcf] dark:text-[#b0a8d4] flex items-center justify-center h-[56px] px-1 text-center leading-tight">
                 {time}
               </div>
 
@@ -120,7 +192,7 @@ export default function ScheduleGrid({
                 return (
                   <div
                     key={`${day}-${time}`}
-                    className="border border-[#a99ae6] h-[56px] relative transition-colors duration-200 hover:bg-[rgba(157,138,219,0.04)]"
+                    className="border border-[#a99ae6] dark:border-[rgba(139,127,199,0.2)] h-[56px] relative transition-colors duration-200 hover:bg-[rgba(157,138,219,0.04)] dark:hover:bg-[rgba(157,138,219,0.08)]"
                   >
                     {cls && (
                       <div

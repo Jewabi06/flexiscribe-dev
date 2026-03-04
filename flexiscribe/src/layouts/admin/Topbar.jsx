@@ -153,11 +153,18 @@ export default function TopBar({ onMenuClick }) {
   };
 
   const handleNotificationClick = async (n) => {
-    if (!n.read) {
-      markAsRead([n.id]);
-    }
+    // Soft delete from local state (matching student notification behavior)
+    setNotifications((prev) => prev.filter((notif) => notif.id !== n.id));
     setNotifOpen(false);
     setViewAllOpen(false);
+
+    // Delete from database
+    try {
+      await fetch(`/api/admin/notifications?id=${n.id}`, { method: "DELETE" });
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+    }
+
     router.push("/admin/audit-logs");
   };
 

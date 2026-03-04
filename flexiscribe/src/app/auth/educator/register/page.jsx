@@ -9,7 +9,10 @@ export default function EducatorRegister() {
   const [step, setStep] = useState(1); // 1: personal details, 2: account details
 
   // Step 1: Personal Details
-  const [fullName, setFullName] = useState("");
+  const [prefix, setPrefix] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [suffix, setSuffix] = useState("");
   const [departments, setDepartments] = useState([]);
   const [departmentId, setDepartmentId] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
@@ -81,7 +84,7 @@ export default function EducatorRegister() {
     setError("");
     setSuccess("");
 
-    if (!fullName || !departmentId || !dateOfBirth || !gender) {
+    if (!firstName || !lastName || !departmentId || !dateOfBirth || !gender) {
       setError("Please fill in all fields");
       return;
     }
@@ -129,7 +132,11 @@ export default function EducatorRegister() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          fullName,
+          prefix,
+          firstName,
+          lastName,
+          suffix: suffix.replace(/\.$/, ""),
+          fullName: `${prefix ? prefix + " " : ""}${firstName} ${lastName}${suffix ? ` ${suffix.replace(/\.$/, "")}` : ""}`.trim(),
           departmentId,
           dateOfBirth,
           gender,
@@ -183,17 +190,66 @@ export default function EducatorRegister() {
         {/* Step 1: Personal Details */}
         {step === 1 && (
           <form onSubmit={handleStep1Submit} className="space-y-4 sm:space-y-6">
-            {/* Full Name */}
+            {/* Prefix (Optional) */}
             <div>
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
-                Full Name
+                Prefix <span className="text-gray-400 font-normal">(Optional)</span>
+              </label>
+              <select
+                className="neu-input"
+                value={prefix}
+                onChange={(e) => setPrefix(e.target.value)}
+              >
+                <option value="">None</option>
+                <option value="Mr.">Mr.</option>
+                <option value="Ms.">Ms.</option>
+                <option value="Mrs.">Mrs.</option>
+                <option value="Dr.">Dr.</option>
+                <option value="Prof.">Prof.</option>
+                <option value="Engr.">Engr.</option>
+                <option value="Atty.">Atty.</option>
+              </select>
+            </div>
+
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  First Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Maria"
+                />
+              </div>
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Santos"
+                />
+              </div>
+            </div>
+
+            {/* Suffix (Optional) */}
+            <div>
+              <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                Suffix <span className="text-gray-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="text"
                 className="neu-input"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Dr. Maria Santos"
+                value={suffix}
+                onChange={(e) => setSuffix(e.target.value)}
+                placeholder="Jr, Sr, III, etc."
               />
             </div>
 
