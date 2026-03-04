@@ -734,6 +734,42 @@ function salvageTruncatedJson(raw: string): { items: any[] } | null {
 }
 
 /**
+ * Attempt to repair a truncated / malformed JSON response by asking the
+ * model to complete it.  The model receives the broken text and a short
+ * instruction to output only the corrected JSON.  Uses a very low
+ * temperature (0.1) to encourage deterministic fixing rather than creative
+ * rewriting.
+ *
+ * Returns the raw repaired string (caller is responsible for parsing),
+ * or null if the repair call itself fails or produces nothing useful.
+ */
+async function repairTruncatedJSON(
+  raw: string,
+  model: string,
+  maxTokens: number
+): Promise<string | null> {
+  const repairPrompt =
+    `The following JSON is incomplete or malformed. ` +
+    `Complete it so it forms a valid JSON object with an "items" array. ` +
+    `Output ONLY the corrected JSON — no explanation, no markdown fences.\n\n` +
+    `TRUNCATED JSON:\n${raw}\n\nCORRECTED JSON:`;
+
+  try {
+    const repaired = await generateWithOllama(repairPrompt, {
+      model,
+      temperature: 0.1,
+      requireJson: true,
+      maxTokens: Math.round(maxTokens * 1.5), // extra headroom
+    });
+    if (!repaired || repaired.trim().length === 0) return null;
+    return repaired;
+  } catch (err) {
+    console.error('Repair attempt failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
  * Extract leading sentence of each paragraph as a concept-seed list.
  * Used to prepend topical anchors to summary slices for long summaries.
  */
@@ -2056,6 +2092,8 @@ export async function generateQuizWithGemma(
   let consecutiveFailures = 0;
   
   let jsonParseErrors = 0; // Track truncation-related parse failures
+  let repairAttempts = 0;   // Track JSON repair attempts (cap to avoid infinite loops)
+  const MAX_REPAIR_ATTEMPTS = 5; // Never repair more than this many times per generation
   let tokenMultiplier = 1.0; // Dynamic: increases by 20% per parse error, resets on success
   let stagnantWaves = 0; // Track consecutive waves with zero new valid items
   let sliceRandomOffset = 0; // Random offset added to slice index on stagnation recovery
@@ -2215,6 +2253,28 @@ export async function generateQuizWithGemma(
             if (jsonMatch) {
               try { parsedItem = JSON.parse(jsonMatch[1]); } catch { /* ignore */ }
             }
+            if (!parsedItem && repairAttempts < MAX_REPAIR_ATTEMPTS) {
+              // ── Repair attempt for Hard MCQ concept-by-concept ──
+              repairAttempts++;
+              console.log(`  Hard MCQ "${concept.term}": Attempting JSON repair (attempt ${repairAttempts}/${MAX_REPAIR_ATTEMPTS})...`);
+              const repaired = await repairTruncatedJSON(rawResponse, resolvedModel, maxTokens);
+              if (repaired) {
+                try {
+                  parsedItem = JSON.parse(repaired);
+                  console.log(`  Hard MCQ "${concept.term}": ✅ Repair succeeded.`);
+                } catch {
+                  const jsonMatch2 = repaired.match(/(\{[\s\S]*\})/);
+                  if (jsonMatch2) {
+                    try { parsedItem = JSON.parse(jsonMatch2[1]); } catch { /* ignore */ }
+                  }
+                  if (parsedItem) {
+                    console.log(`  Hard MCQ "${concept.term}": Repair partially succeeded (extracted JSON).`);
+                  } else {
+                    console.warn(`  Hard MCQ "${concept.term}": Repair produced invalid JSON.`);
+                  }
+                }
+              }
+            }
             if (!parsedItem) {
               jsonParseErrors++;
               tokenMultiplier = Math.min(tokenMultiplier * 1.25, 2.0);
@@ -2349,6 +2409,18 @@ export async function generateQuizWithGemma(
       const rawResponses = await Promise.all(wavePromises);
       totalApiCalls += callsThisWave;
       
+      // Compute a token budget for potential repair attempts (same formula as per-call)
+      const baseRepairTokens =
+        difficulty === 'HARD'
+          ? (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 180 : 200)
+          : difficulty === 'MEDIUM'
+          ? (type === 'MCQ' ? 360 : type === 'FILL_IN_BLANK' ? 150 : 130)
+          : (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 130 : 100);
+      const repairTokenBudget = Math.min(
+        Math.round(baseRepairTokens * effectiveBatchSize * tokenMultiplier) + 100,
+        9000
+      );
+
       // Process each response
       let waveValidCount = 0;
       let waveRejectedCount = 0;
@@ -2378,12 +2450,40 @@ export async function generateQuizWithGemma(
           if (salvaged && salvaged.items.length > 0) {
             console.log(`  Call ${i + 1}: JSON parse failed — salvaged ${salvaged.items.length} complete item(s)`);
             parsedResponse = salvaged;
+          } else if (repairAttempts < MAX_REPAIR_ATTEMPTS) {
+            // ── Repair attempt: ask the model to complete the truncated JSON ──
+            repairAttempts++;
+            console.log(`  Call ${i + 1}: Attempting JSON repair (attempt ${repairAttempts}/${MAX_REPAIR_ATTEMPTS})...`);
+            const repaired = await repairTruncatedJSON(rawResponse, resolvedModel, repairTokenBudget);
+            if (repaired) {
+              try {
+                parsedResponse = JSON.parse(repaired);
+                console.log(`  Call ${i + 1}: ✅ Repair succeeded — parsed JSON.`);
+              } catch {
+                // Repair output was still invalid — try salvaging the repair output
+                const repairedSalvage = salvageTruncatedJson(repaired);
+                if (repairedSalvage && repairedSalvage.items.length > 0) {
+                  parsedResponse = repairedSalvage;
+                  console.log(`  Call ${i + 1}: Repair partially succeeded — salvaged ${repairedSalvage.items.length} item(s) from repair output.`);
+                } else {
+                  console.warn(`  Call ${i + 1}: Repair produced invalid JSON.`);
+                }
+              }
+            }
+            if (!parsedResponse) {
+              jsonParseErrors++;
+              tokenMultiplier = Math.min(tokenMultiplier * 1.25, 2.0);
+              console.error(`  Call ${i + 1}: JSON parse error (${jsonParseErrors} total) — ` +
+                `response truncated, repair failed. ` +
+                `Token multiplier raised to ${tokenMultiplier.toFixed(2)}x.`, parseError);
+              continue;
+            }
           } else {
             jsonParseErrors++;
             // Bump token multiplier by 25% per parse error (cap at 2.0x)
             tokenMultiplier = Math.min(tokenMultiplier * 1.25, 2.0);
             console.error(`  Call ${i + 1}: JSON parse error (${jsonParseErrors} total) — ` +
-              `response truncated, no items salvageable. ` +
+              `response truncated, no items salvageable, repair limit reached. ` +
               `Token multiplier raised to ${tokenMultiplier.toFixed(2)}x.`, parseError);
             continue;
           }
