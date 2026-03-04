@@ -86,67 +86,9 @@ export default function ScheduleGrid({
             <h1 className="text-base sm:text-xl font-semibold text-[#6b5fcf] dark:text-[#c5b8f5]">
               Schedule
             </h1>
-
-            {/* DESKTOP SEARCH */}
-            <div className="hidden lg:block flex-1 max-w-md ml-4">
-              <div
-                className="
-                  w-full flex items-center gap-3
-                  px-5 py-3
-                  rounded-full
-                  bg-gray-100 dark:bg-gray-800
-                  shadow-[0_2px_10px_rgba(0,0,0,0.03)]
-                  transition-all duration-300
-                  hover:shadow-[0_4px_15px_rgba(0,0,0,0.05)]
-                  border border-gray-200 dark:border-gray-700
-                "
-              >
-                <Search size={20} className="text-[#9d8adb] shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Search schedule..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="flex-1 bg-transparent outline-none text-sm lg:text-base text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                />
-                {query && (
-                  <button onClick={() => setQuery("")} className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition">
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
-            </div>
           </div>
 
           <EducatorHeader userName={userName} />
-        </div>
-
-        {/* MOBILE SEARCH */}
-        <div className="relative w-full lg:hidden">
-          <div
-            className="
-              w-full flex items-center gap-3
-              px-5 py-3
-              rounded-full
-              bg-gray-100 dark:bg-gray-800
-              shadow-[0_2px_10px_rgba(0,0,0,0.03)]
-              border border-gray-200 dark:border-gray-700
-            "
-          >
-            <Search size={18} className="text-[#9d8adb] shrink-0" />
-            <input
-              type="text"
-              placeholder="Search schedule..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 bg-transparent outline-none text-sm text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500"
-            />
-            {query && (
-              <button onClick={() => setQuery("")} className="text-gray-400 hover:text-gray-600 transition">
-                <X size={16} />
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
