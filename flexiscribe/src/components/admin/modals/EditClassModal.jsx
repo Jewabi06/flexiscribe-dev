@@ -32,7 +32,14 @@ function to24h(time12) {
 export default function EditClassModal({ classData, onClose }) {
   const [subject, setSubject] = useState(classData.subject || "");
   const [section, setSection] = useState(classData.section || "");
-  const [room, setRoom] = useState(classData.room || "");
+  const [roomBuilding, setRoomBuilding] = useState(() => {
+    const parts = (classData.room || "").split(" ");
+    return ["BCH", "MAIN"].includes(parts[0]) ? parts[0] : "";
+  });
+  const [roomNumber, setRoomNumber] = useState(() => {
+    const parts = (classData.room || "").split(" ");
+    return ["BCH", "MAIN"].includes(parts[0]) ? parts.slice(1).join(" ") : classData.room || "";
+  });
   const [day, setDay] = useState(classData.day || "");
   const [startTime, setStartTime] = useState(classData.startTime || "");
   const [endTime, setEndTime] = useState(classData.endTime || "");
@@ -67,10 +74,12 @@ export default function EditClassModal({ classData, onClose }) {
   const handleSave = async () => {
     setError("");
 
-    if (!subject || !section || !room || !day || !startTime || !endTime || !educatorId) {
+    if (!subject || !section || !roomBuilding || !roomNumber || !day || !startTime || !endTime || !educatorId) {
       setError("Please fill in all required fields");
       return;
     }
+
+    const room = `${roomBuilding} ${roomNumber}`;
 
     try {
       setSaving(true);
@@ -170,15 +179,35 @@ export default function EditClassModal({ classData, onClose }) {
                 </div>
               </div>
 
-              <div>
+              <div className="sm:col-span-2">
                 <label className="text-sm font-medium text-gray-700">Room *</label>
-                <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 mt-1">
-                  <MapPin size={18} className="text-gray-600" />
-                  <input
-                    value={room}
-                    onChange={(e) => setRoom(e.target.value)}
-                    className="w-full bg-transparent outline-none text-gray-800"
-                  />
+                <div className="flex gap-3 mt-1">
+                  <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 w-1/2">
+                    <MapPin size={18} className="text-gray-600" />
+                    <select
+                      value={roomBuilding}
+                      onChange={(e) => setRoomBuilding(e.target.value)}
+                      className="w-full bg-transparent outline-none text-gray-800 cursor-pointer"
+                    >
+                      <option value="" disabled>Building</option>
+                      <option value="BCH">BCH</option>
+                      <option value="MAIN">MAIN</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 w-1/2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={roomNumber}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, "");
+                        setRoomNumber(val);
+                      }}
+                      className="w-full bg-transparent outline-none placeholder-gray-500 text-gray-800"
+                      placeholder="e.g. 302"
+                    />
+                  </div>
                 </div>
               </div>
 
