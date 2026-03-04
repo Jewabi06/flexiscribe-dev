@@ -176,7 +176,7 @@ export default function ClassesPage() {
               </p>
 
               <p className="text-sm sm:text-base text-gray-600 dark:text-[#b0a8d4]">
-                Room {cls.room}
+                {cls.room}
               </p>
             </div>
           </Link>

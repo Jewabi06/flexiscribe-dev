@@ -125,41 +125,52 @@ export default function PreviewPanel({ transcript }) {
               >
                 <div
                   ref={pdfRef}
-                  className="bg-white w-full sm:w-[560px] min-h-[380px] sm:min-h-[560px] lg:min-h-[792px] border border-black shadow-[0_14px_40px_rgba(0,0,0,0.35)]" style={{ fontFamily: "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" }}
+                  style={{
+                    fontFamily: "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+                    backgroundColor: '#ffffff',
+                    width: '560px',
+                    minHeight: '792px',
+                    border: '1px solid #1a1a1a',
+                    boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+                  }}
+                  className="w-full sm:w-[560px] min-h-[380px] sm:min-h-[560px] lg:min-h-[792px]"
                 >
                   {/* ═══════ SUMMARY VIEW ═══════ */}
                   {activeTab === "summary" && (
                     <>
                       {isMOTM ? (
                         /* ─── MOTM Layout (sequential) ─── */
-                        <div className="p-5 sm:p-7" style={{ textAlign: 'justify' }}>
-                          {/* TOP: Title, Date, Time on separate lines */}
-                          <div className="text-center pb-4 mb-5 border-b-2 border-gray-800">
-                            <h1 className="text-base font-bold text-gray-900 mb-2">{motmTitle}</h1>
-                            <p className="text-xs text-gray-600 mb-0.5">Date: {motmDate}</p>
-                            <p className="text-xs text-gray-600">Time: {motmTime}</p>
+                        <div style={{ padding: '20px 28px', textAlign: 'justify' }}>
+                          {/* TOP: Title, Date, Time — purple fill */}
+                          <div style={{ backgroundColor: '#4c4172', borderRadius: '6px', padding: '16px 20px', marginBottom: '20px', textAlign: 'center' }}>
+                            <h1 style={{ fontSize: '14px', fontWeight: 700, color: '#ffffff', margin: '0 0 8px 0' }}>{motmTitle}</h1>
+                            <p style={{ fontSize: '11px', color: '#e0d8f0', margin: '2px 0' }}>Date: {motmDate}</p>
+                            <p style={{ fontSize: '11px', color: '#e0d8f0', margin: '2px 0' }}>Time: {motmTime}</p>
                           </div>
 
                           {/* MIDDLE: Agendas with subcontent */}
                           {motmAgendas.map((agenda, idx) => (
-                            <div key={idx} className="mb-5">
-                              <h3 className="text-xs font-bold text-gray-900 mb-2">{idx + 1}. {agenda.title || `Agenda ${idx + 1}`}</h3>
+                            <div key={idx} style={{ marginBottom: '20px' }}>
+                              <h3 style={{ fontSize: '12px', fontWeight: 700, color: '#4c4172', marginBottom: '8px' }}>
+                                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#9d8adb', marginRight: '8px', verticalAlign: 'middle' }} />
+                                {idx + 1}. {agenda.title || `Agenda ${idx + 1}`}
+                              </h3>
                               {agenda.key_points && agenda.key_points.length > 0 && (
                                 <>
-                                  <p className="text-[10px] font-semibold text-gray-700 mb-1">Key Points:</p>
-                                  <ul className="list-disc ml-5 space-y-1 text-xs text-[#333] mb-3">
+                                  <p style={{ fontSize: '10px', fontWeight: 600, color: '#4c4172', marginBottom: '4px' }}>Key Points:</p>
+                                  <ul style={{ listStyleType: 'disc', marginLeft: '20px', marginBottom: '12px' }}>
                                     {agenda.key_points.map((pt, i) => (
-                                      <li key={i}>{pt}</li>
+                                      <li key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '4px' }}>{pt}</li>
                                     ))}
                                   </ul>
                                 </>
                               )}
                               {agenda.important_clarifications && agenda.important_clarifications.length > 0 && (
                                 <>
-                                  <p className="text-[10px] font-semibold text-gray-700 mb-1">Important Clarifications:</p>
-                                  <ul className="list-disc ml-5 space-y-1 text-xs text-[#333]">
+                                  <p style={{ fontSize: '10px', fontWeight: 600, color: '#4c4172', marginBottom: '4px' }}>Important Clarifications:</p>
+                                  <ul style={{ listStyleType: 'disc', marginLeft: '20px' }}>
                                     {agenda.important_clarifications.map((c, i) => (
-                                      <li key={i}>{c}</li>
+                                      <li key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '4px' }}>{c}</li>
                                     ))}
                                   </ul>
                                 </>
@@ -169,77 +180,77 @@ export default function PreviewPanel({ transcript }) {
 
                           {/* Next meeting if present */}
                           {motmNextMeeting && (
-                            <div className="mt-3 text-xs text-[#333]">
-                              <p><strong>Next Meeting:</strong> {typeof motmNextMeeting === 'string' ? motmNextMeeting : JSON.stringify(motmNextMeeting)}</p>
+                            <div style={{ marginTop: '12px', fontSize: '11px', color: '#1a1a1a' }}>
+                              <p><strong style={{ color: '#4c4172' }}>Next Meeting:</strong> {typeof motmNextMeeting === 'string' ? motmNextMeeting : JSON.stringify(motmNextMeeting)}</p>
                             </div>
                           )}
 
                           {/* BOTTOM: Prepared by */}
-                          <div className="border-t-2 border-gray-800 mt-6 pt-4">
-                            <p className="text-xs text-[#333]"><strong>Prepared by:</strong> {motmPreparedBy}</p>
+                          <div style={{ borderTop: '2px solid #4c4172', marginTop: '24px', paddingTop: '16px' }}>
+                            <p style={{ fontSize: '11px', color: '#1a1a1a' }}><strong style={{ color: '#4c4172' }}>Prepared by:</strong> {motmPreparedBy}</p>
                           </div>
                         </div>
                       ) : (
                         /* ─── Cornell Notes Layout ─── */
                         <>
-                          {/* TOP: Date (left) | Title (right) */}
-                          <div className="grid grid-cols-1 sm:grid-cols-[35%_65%] border-b-2 border-gray-800 text-xs">
-                            <div className="px-4 py-3 text-left text-gray-600">
-                              <strong>Date:</strong> {transcript.date}
+                          {/* TOP: Date (left) | Title (right) — purple fill */}
+                          <div style={{ display: 'flex', backgroundColor: '#4c4172', borderBottom: '2px solid #4c4172' }}>
+                            <div style={{ width: '35%', padding: '12px 16px', fontSize: '11px', color: '#e0d8f0' }}>
+                              <strong style={{ color: '#ffffff' }}>Date:</strong> {transcript.date}
                             </div>
-                            <div className="px-4 py-3 text-right font-bold text-sm text-[#5b21b6]">
+                            <div style={{ width: '65%', padding: '12px 16px', textAlign: 'right', fontSize: '13px', fontWeight: 700, color: '#ffffff' }}>
                               {cornellTitle}
                             </div>
                           </div>
 
                           {/* MIDDLE: Key Concepts (left) | Notes (right) */}
-                          <div className="grid grid-cols-1 sm:grid-cols-[35%_65%] min-h-[300px]">
+                          <div style={{ display: 'flex', minHeight: '300px' }}>
                             {/* Key Concepts */}
-                            <div className="p-4 sm:p-5 sm:border-r-2 border-gray-800" style={{ textAlign: 'justify' }}>
-                              <p className="text-xs font-semibold uppercase mb-3 text-[#5b21b6] tracking-wide">
+                            <div style={{ width: '35%', padding: '16px 20px', borderRight: '2px solid #4c4172', textAlign: 'justify' }}>
+                              <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '12px', color: '#4c4172', letterSpacing: '0.5px' }}>
                                 Key Concepts
                               </p>
-                              <ul className="list-disc ml-4 space-y-2 text-xs text-[#333]">
+                              <ul style={{ listStyleType: 'disc', marginLeft: '16px' }}>
                                 {keyConcepts.map((concept, i) => (
-                                  <li key={i}>{concept}</li>
+                                  <li key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '8px' }}>{concept}</li>
                                 ))}
                               </ul>
                             </div>
 
                             {/* Notes */}
-                            <div className="p-4 sm:p-5 leading-relaxed" style={{ textAlign: 'justify' }}>
-                              <p className="text-xs font-semibold uppercase mb-3 text-[#5b21b6] tracking-wide">Notes</p>
+                            <div style={{ width: '65%', padding: '16px 20px', textAlign: 'justify', lineHeight: 1.6 }}>
+                              <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '12px', color: '#4c4172', letterSpacing: '0.5px' }}>Notes</p>
                               {Array.isArray(notes) && notes.length > 0 ? (
-                                <div className="space-y-3">
+                                <div>
                                   {notes.map((note, i) => (
                                     typeof note === "object" && note !== null ? (
-                                      <div key={i} className="mb-3">
-                                        {note.term && <p className="text-xs font-bold text-gray-900 mb-0.5">{note.term}</p>}
-                                        {note.definition && <p className="text-xs text-[#333] mb-0.5">{note.definition}</p>}
-                                        {note.example && <p className="text-[10px] text-gray-500 italic">Example: {note.example}</p>}
+                                      <div key={i} style={{ marginBottom: '12px' }}>
+                                        {note.term && <p style={{ fontSize: '11px', fontWeight: 700, color: '#4c4172', marginBottom: '2px' }}>{note.term}</p>}
+                                        {note.definition && <p style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '2px' }}>{note.definition}</p>}
+                                        {note.example && <p style={{ fontSize: '10px', color: '#666666', fontStyle: 'italic' }}>Example: {note.example}</p>}
                                       </div>
                                     ) : (
-                                      <p key={i} className="text-xs text-[#333]">{note}</p>
+                                      <p key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '8px' }}>{note}</p>
                                     )
                                   ))}
                                 </div>
                               ) : (
-                                <p className="text-xs text-[#333]">{notes}</p>
+                                <p style={{ fontSize: '11px', color: '#1a1a1a' }}>{notes}</p>
                               )}
                             </div>
                           </div>
 
                           {/* BOTTOM: Summary */}
-                          <div className="border-t-2 border-gray-800 p-4 sm:p-5" style={{ textAlign: 'justify' }}>
-                            <p className="text-xs font-semibold uppercase mb-2 text-[#5b21b6] tracking-wide">Summary</p>
+                          <div style={{ borderTop: '2px solid #4c4172', padding: '16px 20px', textAlign: 'justify' }}>
+                            <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px', color: '#4c4172', letterSpacing: '0.5px' }}>Summary</p>
                             {summaryArr.length > 0 ? (
-                              <ul className="list-disc ml-4 space-y-1 text-xs text-[#333]">
+                              <ul style={{ listStyleType: 'disc', marginLeft: '16px' }}>
                                 {summaryArr.map((pt, i) => (
-                                  <li key={i}>{pt}</li>
+                                  <li key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '4px' }}>{pt}</li>
                                 ))}
                               </ul>
                             ) : (
-                              <p className="text-xs text-[#333]">{summaryText}</p>
+                              <p style={{ fontSize: '11px', color: '#1a1a1a' }}>{summaryText}</p>
                             )}
                           </div>
                         </>
@@ -250,27 +261,27 @@ export default function PreviewPanel({ transcript }) {
                   {/* ═══════ TRANSCRIPT VIEW (Timestamped) ═══════ */}
                   {activeTab === "transcript" && (
                     <>
-                      {/* TOP BAR */}
-                      <div className="border-b-2 border-gray-800 text-[10px] sm:text-xs px-3 sm:px-5 py-3 flex flex-wrap justify-between gap-x-3 gap-y-0.5">
-                        <span className="shrink-0 text-gray-600">{transcript.date}</span>
-                        <span className="truncate min-w-0 flex-1 text-center px-1 font-bold text-gray-900">{transcript.title}</span>
-                        <span className="shrink-0 text-gray-600">{transcript.duration}</span>
+                      {/* TOP BAR — purple fill */}
+                      <div style={{ backgroundColor: '#4c4172', borderBottom: '2px solid #4c4172', padding: '12px 20px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '4px', fontSize: '11px' }}>
+                        <span style={{ color: '#e0d8f0', flexShrink: 0 }}>{transcript.date}</span>
+                        <span style={{ color: '#ffffff', fontWeight: 700, flex: 1, textAlign: 'center', padding: '0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{transcript.title}</span>
+                        <span style={{ color: '#e0d8f0', flexShrink: 0 }}>{transcript.duration}</span>
                       </div>
 
                       {/* TRANSCRIPT CHUNKS */}
-                      <div className="p-4 sm:p-6" style={{ textAlign: 'justify' }}>
-                        <p className="text-xs font-semibold uppercase mb-4 text-[#5b21b6] tracking-wide">
+                      <div style={{ padding: '16px 24px', textAlign: 'justify' }}>
+                        <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '16px', color: '#4c4172', letterSpacing: '0.5px' }}>
                           Transcript ({chunks.length} segments)
                         </p>
 
                         {chunks.length > 0 ? (
-                          <div className="space-y-3">
+                          <div>
                             {chunks.map((chunk, i) => (
-                              <div key={i} className="flex items-start gap-3">
-                                <span className="text-[10px] font-mono text-white bg-[#7c3aed] px-2 py-0.5 rounded shrink-0 mt-0.5">
+                              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                                <span style={{ fontSize: '10px', fontFamily: 'monospace', color: '#ffffff', backgroundColor: '#9d8adb', padding: '2px 8px', borderRadius: '4px', flexShrink: 0, marginTop: '2px' }}>
                                   {chunk.timestamp || `MIN ${chunk.minute}`}
                                 </span>
-                                <p className="text-xs text-[#333] leading-relaxed flex-1" style={{ textAlign: 'justify' }}>
+                                <p style={{ fontSize: '11px', color: '#1a1a1a', lineHeight: 1.6, flex: 1, textAlign: 'justify', margin: 0 }}>
                                   {chunk.text}
                                 </p>
                               </div>
@@ -278,8 +289,7 @@ export default function PreviewPanel({ transcript }) {
                           </div>
                         ) : (
                           <div
-                            className="text-xs text-[#333] leading-relaxed"
-                            style={{ textAlign: 'justify' }}
+                            style={{ fontSize: '11px', color: '#1a1a1a', lineHeight: 1.6, textAlign: 'justify' }}
                             dangerouslySetInnerHTML={{
                               __html: transcript.content || "<p>No transcript data available.</p>",
                             }}
@@ -293,35 +303,38 @@ export default function PreviewPanel({ transcript }) {
                   {activeTab === "minutes" && (
                     <>
                       {/* MOTM-style Minutes Layout (sequential) */}
-                      <div className="p-5 sm:p-7" style={{ textAlign: 'justify' }}>
-                        {/* TOP: Title, Date, Time */}
-                        <div className="text-center pb-4 mb-5 border-b-2 border-gray-800">
-                          <h1 className="text-base font-bold text-gray-900 mb-2">{motmTitle} - Meeting Minutes</h1>
-                          <p className="text-xs text-gray-600 mb-0.5">Date: {motmDate}</p>
-                          <p className="text-xs text-gray-600">Time: {motmTime}</p>
+                      <div style={{ padding: '20px 28px', textAlign: 'justify' }}>
+                        {/* TOP: Title, Date, Time — purple fill */}
+                        <div style={{ backgroundColor: '#4c4172', borderRadius: '6px', padding: '16px 20px', marginBottom: '20px', textAlign: 'center' }}>
+                          <h1 style={{ fontSize: '14px', fontWeight: 700, color: '#ffffff', margin: '0 0 8px 0' }}>{motmTitle} - Meeting Minutes</h1>
+                          <p style={{ fontSize: '11px', color: '#e0d8f0', margin: '2px 0' }}>Date: {motmDate}</p>
+                          <p style={{ fontSize: '11px', color: '#e0d8f0', margin: '2px 0' }}>Time: {motmTime}</p>
                         </div>
 
                         {/* MIDDLE: Agendas */}
                         {motmAgendas.length > 0 ? (
                           motmAgendas.map((agenda, idx) => (
-                            <div key={idx} className="mb-5">
-                              <h3 className="text-xs font-bold text-gray-900 mb-2">{idx + 1}. {agenda.title || `Agenda ${idx + 1}`}</h3>
+                            <div key={idx} style={{ marginBottom: '20px' }}>
+                              <h3 style={{ fontSize: '12px', fontWeight: 700, color: '#4c4172', marginBottom: '8px' }}>
+                                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#9d8adb', marginRight: '8px', verticalAlign: 'middle' }} />
+                                {idx + 1}. {agenda.title || `Agenda ${idx + 1}`}
+                              </h3>
                               {agenda.key_points && agenda.key_points.length > 0 && (
                                 <>
-                                  <p className="text-[10px] font-semibold text-gray-700 mb-1">Key Points:</p>
-                                  <ul className="list-disc ml-5 space-y-1 text-xs text-[#333] mb-3">
+                                  <p style={{ fontSize: '10px', fontWeight: 600, color: '#4c4172', marginBottom: '4px' }}>Key Points:</p>
+                                  <ul style={{ listStyleType: 'disc', marginLeft: '20px', marginBottom: '12px' }}>
                                     {agenda.key_points.map((pt, i) => (
-                                      <li key={i}>{pt}</li>
+                                      <li key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '4px' }}>{pt}</li>
                                     ))}
                                   </ul>
                                 </>
                               )}
                               {agenda.important_clarifications && agenda.important_clarifications.length > 0 && (
                                 <>
-                                  <p className="text-[10px] font-semibold text-gray-700 mb-1">Important Clarifications:</p>
-                                  <ul className="list-disc ml-5 space-y-1 text-xs text-[#333]">
+                                  <p style={{ fontSize: '10px', fontWeight: 600, color: '#4c4172', marginBottom: '4px' }}>Important Clarifications:</p>
+                                  <ul style={{ listStyleType: 'disc', marginLeft: '20px' }}>
                                     {agenda.important_clarifications.map((c, i) => (
-                                      <li key={i}>{c}</li>
+                                      <li key={i} style={{ fontSize: '11px', color: '#1a1a1a', marginBottom: '4px' }}>{c}</li>
                                     ))}
                                   </ul>
                                 </>
@@ -329,21 +342,21 @@ export default function PreviewPanel({ transcript }) {
                             </div>
                           ))
                         ) : (
-                          <div className="text-center py-8">
-                            <p className="text-xs text-gray-500 italic">No meeting minutes available.</p>
+                          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                            <p style={{ fontSize: '11px', color: '#999999', fontStyle: 'italic' }}>No meeting minutes available.</p>
                           </div>
                         )}
 
                         {/* Next meeting if present */}
                         {motmNextMeeting && (
-                          <div className="mt-3 text-xs text-[#333]">
-                            <p><strong>Next Meeting:</strong> {typeof motmNextMeeting === 'string' ? motmNextMeeting : JSON.stringify(motmNextMeeting)}</p>
+                          <div style={{ marginTop: '12px', fontSize: '11px', color: '#1a1a1a' }}>
+                            <p><strong style={{ color: '#4c4172' }}>Next Meeting:</strong> {typeof motmNextMeeting === 'string' ? motmNextMeeting : JSON.stringify(motmNextMeeting)}</p>
                           </div>
                         )}
 
                         {/* BOTTOM: Prepared by */}
-                        <div className="border-t-2 border-gray-800 mt-6 pt-4">
-                          <p className="text-xs text-[#333]"><strong>Prepared by:</strong> {motmPreparedBy}</p>
+                        <div style={{ borderTop: '2px solid #4c4172', marginTop: '24px', paddingTop: '16px' }}>
+                          <p style={{ fontSize: '11px', color: '#1a1a1a' }}><strong style={{ color: '#4c4172' }}>Prepared by:</strong> {motmPreparedBy}</p>
                         </div>
                       </div>
                     </>
