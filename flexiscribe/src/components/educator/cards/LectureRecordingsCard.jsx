@@ -35,7 +35,7 @@ export default function LectureRecordingsCard() {
         px-3 sm:px-4 md:px-3 lg:px-4 pt-3 sm:pt-4 pb-4 sm:pb-6
         shadow-[0_4px_20px_rgba(0,0,0,0.08)]
         text-white
-        h-[480px] sm:h-[480px] md:h-[580px] lg:h-[580px] xl:h-[580px]
+        h-[580px] sm:h-[600px] md:h-[680px] lg:h-[720px] xl:h-[640px]
         flex flex-col
         transition-all duration-300
         hover:translate-y-[-4px] hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)]
@@ -61,6 +61,8 @@ export default function LectureRecordingsCard() {
           "
         />
       </div>
+
+      <div className="text-right p-2">Recents</div>
 
       {/* LIST - Grouped as chunks */}
       <div className="space-y-3 sm:space-y-4 flex-1 overflow-y-auto px-1">
@@ -114,14 +116,14 @@ function LectureItem({ date, duration, course }) {
       <div className="bg-white dark:bg-[#2d2640] rounded-full px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-center gap-2 sm:gap-3 shadow-sm transition-all duration-300 hover:shadow-md hover:translate-y-[-2px] text-xs sm:text-sm">
         <Link
           href={`/educator/transcriptions?course=${course}`}
-          className="text-[#6f63a8] font-medium hover:underline transition-colors duration-200 whitespace-nowrap"
+          className="text-[#6f63a8] text-[16px] font-medium hover:underline transition-colors duration-200 whitespace-nowrap"
         >
           View Transcript
         </Link>
 
         <span className="text-[#6f63a8]">|</span>
 
-        <span className="font-semibold text-[#6f63a8] whitespace-nowrap">
+        <span className="font-semibold text-[#6f63a8] text-[16px] whitespace-nowrap">
           {course}
         </span>
       </div>

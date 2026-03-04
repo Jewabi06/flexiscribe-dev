@@ -290,7 +290,7 @@ export default function ProfessorProfileCard() {
             {/* User Info + Theme Toggle */}
             <div className="px-4 py-3 border-b border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.2)] flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">{name}</p>
+                <p className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">{educator.username}</p>
                 <p className="text-xs text-[#666] dark:text-[#b0a8d4]">Instructor</p>
               </div>
               <button
@@ -337,6 +337,7 @@ export default function ProfessorProfileCard() {
       <div className="hidden lg:block">
         <ProfileCard
           name={name}
+          username={educator?.username || "Educator"}
           dark={dark}
           toggleDarkMode={toggleDarkMode}
           openNotif={openNotif}
@@ -375,6 +376,7 @@ export default function ProfessorProfileCard() {
 
 function ProfileCard({
   name,
+  username,
   dark,
   toggleDarkMode,
   openNotif,
@@ -477,7 +479,7 @@ function ProfileCard({
       <div className="flex items-center gap-4">
         <Avatar name={name} />
         <div>
-          <p className="text-base sm:text-lg md:text-xl font-semibold">{name}</p>
+          <p className="text-base sm:text-lg md:text-xl font-semibold">{username}</p>
           <p className="text-white/80 text-xs sm:text-sm">Instructor</p>
         </div>
       </div>

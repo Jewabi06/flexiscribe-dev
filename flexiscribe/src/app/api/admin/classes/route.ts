@@ -152,7 +152,7 @@ export async function POST(request: Request) {
     await prisma.auditLog.create({
       data: {
         action: "CLASS_CREATED",
-        details: `Created class ${subject} - Section ${section}, Room ${room}, ${day} ${startTime}${endTime ? ` - ${endTime}` : ""}, assigned to ${educator.fullName}`,
+        details: `Created class ${subject} - Section ${section}, ${room}, ${day} ${startTime}${endTime ? ` - ${endTime}` : ""}, assigned to ${educator.fullName}`,
         userRole: "ADMIN",
         userName: "Admin",
         userId: user.userId,
