@@ -5,7 +5,6 @@ import {
   FaMoon, FaSun, FaArrowLeft, FaDownload, FaExpand, 
   FaCompress, FaSearchPlus, FaSearchMinus
 } from "react-icons/fa";
-import html2pdf from "html2pdf.js";
 import "./styles.css";
 
 /**
@@ -121,6 +120,8 @@ export default function TranscriptViewerPage() {
 
   const handleDownload = async () => {
     try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      
       const container = document.createElement("div");
       container.innerHTML = htmlContent;
       container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
