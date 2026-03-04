@@ -274,6 +274,7 @@
 .edu-main-content {
   background: var(--edu-bg-main);
   transition: background 0.3s ease;
+  overflow-x: hidden;
 }
 
 .dark .edu-main-content {
@@ -487,7 +488,7 @@
 
 /* ───────── Dark Mode: Extended Overrides ───────── */
 
-/* Page title text (used on classes, schedule, transcriptions headers) */
+/* Page title text (used on classes, schedule, documents headers) */
 .dark .edu-main-content h1 {
   color: #c5b8f5;
 }

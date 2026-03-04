@@ -15,8 +15,7 @@ export default function WelcomeCard({
         const res = await fetch("/api/educator/profile");
         if (res.ok) {
           const data = await res.json();
-          const parts = data.educator.fullName?.trim().split(/\s+/) || [];
-          setName(parts[0] || "Professor");
+          setName(data.educator.username || data.educator.fullName?.trim().split(/\s+/)[0] || "Professor");
         } else {
           setName("Professor");
         }

@@ -9,7 +9,9 @@ export default function StudentRegister() {
   const [step, setStep] = useState(1); // 1: personal details, 2: account details
 
   // Step 1: Personal Details
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [suffix, setSuffix] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
   const [yearLevel, setYearLevel] = useState("");
   const [section, setSection] = useState("");
@@ -68,7 +70,7 @@ export default function StudentRegister() {
     setError("");
     setSuccess("");
 
-    if (!fullName || !studentNumber || !yearLevel || !section || !program || !dateOfBirth || !gender) {
+    if (!firstName || !lastName || !studentNumber || !yearLevel || !section || !program || !dateOfBirth || !gender) {
       setError("Please fill in all fields");
       return;
     }
@@ -122,7 +124,10 @@ export default function StudentRegister() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          fullName,
+          firstName,
+          lastName,
+          suffix: suffix.replace(/\.$/, ""),
+          fullName: `${firstName} ${lastName}${suffix ? ` ${suffix.replace(/\.$/, "")}` : ""}`.trim(),
           studentNumber,
           username,
           yearLevel,
@@ -179,17 +184,45 @@ export default function StudentRegister() {
         {/* Step 1: Personal Details */}
         {step === 1 && (
           <form onSubmit={handleStep1Submit} className="space-y-4 sm:space-y-6">
-            {/* Full Name */}
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  First Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Juan"
+                />
+              </div>
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Dela Cruz"
+                />
+              </div>
+            </div>
+
+            {/* Suffix (Optional) */}
             <div>
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
-                Full Name
+                Suffix <span className="text-gray-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="text"
                 className="neu-input"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Juan Dela Cruz"
+                value={suffix}
+                onChange={(e) => setSuffix(e.target.value)}
+                placeholder="Jr, Sr, III, etc."
               />
             </div>
 

@@ -28,6 +28,9 @@ model Student {
   userId           String               @unique
   birthDate        DateTime
   fullName         String
+  firstName        String?
+  lastName         String?
+  suffix           String?
   gender           Gender
   program          String
   section          String
@@ -51,10 +54,15 @@ model Educator {
   id             String          @id @default(cuid())
   username       String          @unique
   fullName       String
+  firstName      String?
+  lastName       String?
+  prefix         String?
+  suffix         String?
   gender         Gender
   birthDate      DateTime
   departmentId   String
   userId         String          @unique
+  avatar         String?
   classes        Class[]
   department     Department      @relation(fields: [departmentId], references: [id])
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)

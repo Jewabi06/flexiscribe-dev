@@ -146,13 +146,22 @@ export async function POST(request: NextRequest) {
             const classSubject = updatedTranscription.class?.subject || updatedTranscription.course;
             const classSection = updatedTranscription.class?.section || "";
 
+            // Fetch educator name with prefix for notification
+            const educator = await prisma.educator.findUnique({
+              where: { id: updatedTranscription.educatorId },
+              select: { prefix: true, firstName: true, lastName: true, fullName: true },
+            });
+            const educatorDisplayName = educator
+              ? `${educator.prefix ? educator.prefix + " " : ""}${educator.firstName || ""} ${educator.lastName || ""}`.trim() || educator.fullName
+              : "Your professor";
+
             let notifTitle = "New Transcript Available";
-            let notifMessage = `A new transcript "${updatedTranscription.title}" has been uploaded`;
+            let notifMessage = `${educatorDisplayName} uploaded a new transcript "${updatedTranscription.title}"`;
             let notifType = "transcript";
 
             if (hasSummary) {
               notifTitle = "New Transcript & Summary Available";
-              notifMessage = `A new transcript and summary "${updatedTranscription.title}" has been uploaded`;
+              notifMessage = `${educatorDisplayName} uploaded a new transcript and summary "${updatedTranscription.title}"`;
               notifType = "transcript_summary";
             }
 

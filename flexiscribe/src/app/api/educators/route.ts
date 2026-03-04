@@ -8,6 +8,10 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       fullName,
+      prefix,
+      firstName,
+      lastName,
+      suffix,
       departmentId,
       dateOfBirth,
       gender,
@@ -19,6 +23,8 @@ export async function POST(request: Request) {
     // Validate required fields
     if (
       !fullName ||
+      !firstName ||
+      !lastName ||
       !departmentId ||
       !dateOfBirth ||
       !gender ||
@@ -107,6 +113,10 @@ export async function POST(request: Request) {
         data: {
           username,
           fullName,
+          firstName,
+          lastName,
+          prefix: prefix || null,
+          suffix: suffix || null,
           gender: genderEnum as any,
           birthDate: new Date(dateOfBirth),
           departmentId,
