@@ -5,7 +5,6 @@ import { Editor } from "@tinymce/tinymce-react";
 import { 
   FaMoon, FaSun, FaArrowLeft, FaDownload, FaSave
 } from "react-icons/fa";
-import html2pdf from "html2pdf.js";
 import MessageModal from "@/components/shared/MessageModal";
 import LoadingScreen from "@/components/shared/LoadingScreen";
 import "./styles.css";
@@ -278,6 +277,8 @@ export default function ReviewerEditorPage() {
 
   const handleDownloadPDF = async () => {
     try {
+      const html2pdf = (await import("html2pdf.js")).default;
+
       // Build a temporary container with the editor content
       const container = document.createElement('div');
       container.innerHTML = editorContent;
