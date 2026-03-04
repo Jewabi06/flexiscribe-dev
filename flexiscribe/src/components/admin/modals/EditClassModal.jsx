@@ -181,45 +181,36 @@ export default function EditClassModal({ classData, onClose }) {
 
               <div className="sm:col-span-2">
                 <label className="text-sm font-medium text-gray-700">Room *</label>
-                <div className="flex gap-3 mt-1">
-                  <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 w-1/2">
-                    <MapPin size={18} className="text-gray-600" />
-                    <select
+                <div className="flex gap-3">
+                  <div className="w-1/2">
+                    <FormDropdown
                       value={roomBuilding}
-                      onChange={(e) => setRoomBuilding(e.target.value)}
-                      className="w-full bg-transparent outline-none text-gray-800 cursor-pointer"
-                    >
-                      <option value="" disabled>Building</option>
-                      <option value="BCH">BCH</option>
-                      <option value="MAIN">MAIN</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 w-1/2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={roomNumber}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, "");
-                        setRoomNumber(val);
-                      }}
-                      className="w-full bg-transparent outline-none placeholder-gray-500 text-gray-800"
-                      placeholder="e.g. 302"
+                      onChange={setRoomBuilding}
+                      placeholder="Building"
+                      icon={MapPin}
+                      options={[
+                        { value: "BCH", label: "BCH" },
+                        { value: "MAIN", label: "MAIN" },
+                      ]}
                     />
                   </div>
+                  <div className="w-1/2">
+                    <div className="flex items-center gap-3 bg-gray-100 border rounded-xl px-4 py-3 mt-1">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={roomNumber}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, "");
+                          setRoomNumber(val);
+                        }}
+                        className="w-full bg-transparent outline-none placeholder-gray-500 text-gray-800"
+                        placeholder="e.g. 302"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">Day *</label>
-                <FormDropdown
-                  value={day}
-                  onChange={setDay}
-                  placeholder="Select day"
-                  icon={Calendar}
-                  options={DAYS.map((d) => ({ value: d, label: d }))}
-                />
               </div>
 
               <div>
@@ -247,19 +238,29 @@ export default function EditClassModal({ classData, onClose }) {
                   minTime={startTime}
                 />
               </div>
-            </div>
-          </div>
 
-          {/* Assign Educator */}
-          <div>
-            <h4 className="text-sm font-bold text-[#4c4172] mb-3">Assign Educator</h4>
-            <FormDropdown
-              value={educatorId}
-              onChange={setEducatorId}
-              placeholder="Select an educator"
-              icon={User}
-              options={educators.map((e) => ({ value: e.id, label: `${e.fullName} — ${e.department}` }))}
-            />
+              <div>
+                <label className="text-sm font-medium text-gray-700">Day *</label>
+                <FormDropdown
+                  value={day}
+                  onChange={setDay}
+                  placeholder="Select day"
+                  icon={Calendar}
+                  options={DAYS.map((d) => ({ value: d, label: d }))}
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">Assign Educator *</label>
+                <FormDropdown
+                  value={educatorId}
+                  onChange={setEducatorId}
+                  placeholder="Select an educator"
+                  icon={User}
+                  options={educators.map((e) => ({ value: e.id, label: `${e.fullName} — ${e.department}` }))}
+                />
+              </div>
+            </div>
           </div>
         </div>
 

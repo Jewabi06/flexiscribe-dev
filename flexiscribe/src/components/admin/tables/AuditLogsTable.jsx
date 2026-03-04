@@ -216,7 +216,7 @@ export default function AuditLogsTable() {
                         <RoleBadge role={log.userRole} />
                       </td>
 
-                      <td className="p-3 text-center text-gray-800 max-w-[200px] truncate">
+                      <td className="p-3 text-center text-gray-800 max-w-[200px] truncate" title={log.details || log.action}>
                         {log.details || log.action}
                       </td>
                     </tr>
