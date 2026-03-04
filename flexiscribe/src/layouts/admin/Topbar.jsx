@@ -23,7 +23,7 @@ export default function TopBar({ onMenuClick }) {
   const [userOpen, setUserOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileTab, setProfileTab] = useState("profile");
-  const [viewAllOpen, setViewAllOpen] = useState(false);
+
 
   const [notifications, setNotifications] = useState([]);
   const [adminProfile, setAdminProfile] = useState(null);
@@ -127,12 +127,14 @@ export default function TopBar({ onMenuClick }) {
     }
   };
 
-  const markAsRead = async (notificationIds) => {
+  const markAsRead = async () => {
     try {
+      const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
+      if (unreadIds.length === 0) return;
       await fetch("/api/admin/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationIds }),
+        body: JSON.stringify({ notificationIds: unreadIds }),
       });
       fetchNotifications();
     } catch (error) {
@@ -156,7 +158,6 @@ export default function TopBar({ onMenuClick }) {
     // Soft delete from local state (matching student notification behavior)
     setNotifications((prev) => prev.filter((notif) => notif.id !== n.id));
     setNotifOpen(false);
-    setViewAllOpen(false);
 
     // Delete from database
     try {
@@ -199,7 +200,6 @@ export default function TopBar({ onMenuClick }) {
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
-  const recentNotifications = notifications.slice(0, 3);
 
   const getInitials = (name) => {
     if (!name) return "A";
@@ -357,19 +357,27 @@ export default function TopBar({ onMenuClick }) {
                   
                   {/* Dropdown - appears below bell on all devices */}
                   <div className="absolute right-0 top-12 z-50 w-[320px] sm:w-[360px] max-w-[calc(100vw-32px)] rounded-xl bg-white border shadow-lg">
-                    <div className="px-4 py-3 border-b">
+                    <div className="px-4 py-3 border-b flex justify-between items-center">
                       <p className="text-sm font-semibold text-[#4c4172]">
                         Notifications {unreadCount > 0 && `(${unreadCount} unread)`}
                       </p>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={markAsRead}
+                          className="text-xs text-[#9d8adb] hover:underline font-medium"
+                        >
+                          Mark all read
+                        </button>
+                      )}
                     </div>
 
                     <div className="divide-y max-h-[400px] overflow-y-auto">
-                      {recentNotifications.length === 0 ? (
+                      {notifications.length === 0 ? (
                         <div className="px-4 py-8 text-center text-sm text-[#9d8adb]">
                           No notifications
                         </div>
                       ) : (
-                        recentNotifications.map((n) => (
+                        notifications.map((n) => (
                           <div
                             key={n.id}
                             className={`relative group px-4 py-3 hover:bg-[#f7f6fc] cursor-pointer ${
@@ -414,20 +422,6 @@ export default function TopBar({ onMenuClick }) {
                         ))
                       )}
                     </div>
-
-                    {notifications.length > 0 && (
-                      <div className="px-4 py-3 border-t text-center">
-                        <button
-                          onClick={() => {
-                            setNotifOpen(false);
-                            setViewAllOpen(true);
-                          }}
-                          className="text-sm text-[#6f63a6] hover:underline w-full py-2"
-                        >
-                          View all notifications
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </>
               )}
@@ -504,64 +498,6 @@ export default function TopBar({ onMenuClick }) {
 
       {/* SPACER */}
       <div className="h-[72px]" />
-
-      {/* ALL NOTIFICATIONS MODAL */}
-      {viewAllOpen && (
-        <Modal
-          title="All Notifications"
-          onClose={() => setViewAllOpen(false)}
-        >
-          {notifications.length === 0 ? (
-            <div className="px-6 py-8 text-center text-sm text-[#9d8adb]">
-              No notifications
-            </div>
-          ) : (
-            notifications.map((n) => (
-              <div
-                key={n.id}
-                className={`relative group px-4 sm:px-6 py-4 hover:bg-[#f7f6fc] cursor-pointer ${
-                  !n.read ? "bg-[#f0edff]" : ""
-                }`}
-                onClick={() => handleNotificationClick(n)}
-              >
-                <button
-                  onClick={(e) => deleteNotification(e, n.id)}
-                  className="absolute top-3 right-3 p-1 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
-                  title="Remove"
-                >
-                  <X size={14} />
-                </button>
-                <div className="flex items-start gap-2">
-                  {!n.read && (
-                    <span className="mt-1.5 w-2 h-2 rounded-full bg-[#9d8adb] shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0 pr-5">
-                    <p className="text-sm font-medium text-[#4c4172] break-words">
-                      {n.title}
-                    </p>
-                    <p className="text-xs text-[#6f63a6] mt-0.5 break-words">
-                      {n.message}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded-full ${
-                        n.type === "admin" ? "bg-purple-100 text-purple-700"
-                        : n.type === "educator" ? "bg-blue-100 text-blue-700"
-                        : n.type === "student" ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 text-gray-600"
-                      }`}>
-                        {n.type}
-                      </span>
-                      <span className="text-xs text-[#9d8adb]">
-                        {formatTimeAgo(n.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </Modal>
-      )}
 
       {/* PROFILE MODAL */}
       <ProfileModal

@@ -381,6 +381,7 @@ export default function StudentProfile() {
                     name="fullName"
                     value={formData.fullName}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -394,6 +395,7 @@ export default function StudentProfile() {
                     name="email"
                     value={formData.email}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -407,6 +409,7 @@ export default function StudentProfile() {
                     name="studentNumber"
                     value={formData.studentNumber}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -420,6 +423,7 @@ export default function StudentProfile() {
                     name="program"
                     value={formData.program}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
                 <div className="form-group">
@@ -430,6 +434,7 @@ export default function StudentProfile() {
                     name="yearLevel"
                     value={formData.yearLevel}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -443,6 +448,7 @@ export default function StudentProfile() {
                     name="section"
                     value={formData.section}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
                 <div className="form-group">
@@ -453,6 +459,7 @@ export default function StudentProfile() {
                     name="gender"
                     value={formData.gender === 'MALE' ? 'Male' : formData.gender === 'FEMALE' ? 'Female' : formData.gender === 'OTHER' ? 'Other' : formData.gender === 'PREFER_NOT_TO_SAY' ? 'Prefer not to say' : formData.gender}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -466,6 +473,7 @@ export default function StudentProfile() {
                     name="birthDate"
                     value={formData.birthDate}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -492,7 +500,7 @@ export default function StudentProfile() {
                         name="currentPassword"
                         value={passwordData.currentPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="current-password"
+                        autoComplete="off"
                         className={passwordErrors.currentPassword ? "error" : ""}
                       />
                       <button
@@ -517,7 +525,7 @@ export default function StudentProfile() {
                         name="newPassword"
                         value={passwordData.newPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="new-password"
+                        autoComplete="off"
                         className={passwordErrors.newPassword ? "error" : ""}
                       />
                       <button
@@ -543,7 +551,7 @@ export default function StudentProfile() {
                         name="confirmPassword"
                         value={passwordData.confirmPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="new-password"
+                        autoComplete="off"
                         className={passwordErrors.confirmPassword ? "error" : ""}
                       />
                       <button

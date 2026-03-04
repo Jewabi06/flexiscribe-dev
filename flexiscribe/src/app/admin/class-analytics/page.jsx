@@ -43,78 +43,131 @@ export default function ClassAnalyticsPage() {
     if (!analytics) return;
 
     try {
-      // Create a simple HTML content for PDF
-      const content = `
-        <html>
-          <head>
-            <title>Class Analytics Summary</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 40px; }
-              h1 { color: #4c4172; }
-              h2 { color: #6f63a6; margin-top: 30px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-              th { background-color: #9d8adb; color: white; }
-              .metric { display: inline-block; margin: 10px 20px; }
-              .metric-label { color: #666; font-size: 14px; }
-              .metric-value { font-size: 24px; font-weight: bold; color: #4c4172; }
-            </style>
-          </head>
-          <body>
-            <h1>Class Analytics Summary</h1>
-            <p>Generated on: ${new Date().toLocaleDateString()}</p>
-            
-            <h2>Generated Content</h2>
-            <div>
-              <div class="metric">
-                <div class="metric-label">Flashcards</div>
-                <div class="metric-value">${analytics.generatedContent.flashcards}</div>
+      const html2pdf = (await import("html2pdf.js")).default;
+
+      const totalQuizzes = (analytics.generatedContent.flashcards || 0) + (analytics.generatedContent.mcqs || 0) + (analytics.generatedContent.fitb || 0);
+      const generatedDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const generatedTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+      // Build professional HTML for PDF
+      const container = document.createElement("div");
+      container.innerHTML = `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #2d2640; padding: 0; max-width: 750px; margin: 0 auto;">
+          <!-- Header -->
+          <div style="background: linear-gradient(135deg, #9d8adb 0%, #4c4172 100%); color: white; padding: 40px 36px 32px; border-radius: 0 0 24px 24px; margin-bottom: 32px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div>
+                <h1 style="margin: 0 0 4px 0; font-size: 26px; font-weight: 700; letter-spacing: 0.5px;">Class Analytics Report</h1>
+                <p style="margin: 0; font-size: 13px; opacity: 0.85;">fLexiScribe &mdash; Comprehensive Analytics Summary</p>
               </div>
-              <div class="metric">
-                <div class="metric-label">MCQs</div>
-                <div class="metric-value">${analytics.generatedContent.mcqs}</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">FITB</div>
-                <div class="metric-value">${analytics.generatedContent.fitb}</div>
+              <div style="text-align: right; font-size: 12px; opacity: 0.8;">
+                <div>${generatedDate}</div>
+                <div>${generatedTime}</div>
               </div>
             </div>
-            
-            <h2>Class Overview</h2>
-            <div>
-              <div class="metric">
-                <div class="metric-label">Students</div>
-                <div class="metric-value">${analytics.overview.totalStudents}</div>
+          </div>
+
+          <!-- Summary Metrics -->
+          <div style="padding: 0 36px;">
+            <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; color: #4c4172; border-left: 4px solid #9d8adb; padding-left: 12px; margin: 0 0 16px 0;">Key Metrics Overview</h2>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; margin-bottom: 32px;">
+              <div style="background: #f8f7fd; border: 1px solid #e3def4; border-radius: 14px; padding: 18px 16px; text-align: center;">
+                <div style="font-size: 28px; font-weight: 700; color: #4c4172;">${analytics.overview.totalStudents}</div>
+                <div style="font-size: 11px; color: #6b6396; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px;">Students</div>
               </div>
-              <div class="metric">
-                <div class="metric-label">Avg Score</div>
-                <div class="metric-value">${analytics.overview.avgScore}%</div>
+              <div style="background: #f8f7fd; border: 1px solid #e3def4; border-radius: 14px; padding: 18px 16px; text-align: center;">
+                <div style="font-size: 28px; font-weight: 700; color: #4c4172;">${analytics.overview.avgScore}%</div>
+                <div style="font-size: 11px; color: #6b6396; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px;">Avg Score</div>
               </div>
-              <div class="metric">
-                <div class="metric-label">Engagement</div>
-                <div class="metric-value">${analytics.overview.engagement}</div>
+              <div style="background: #f8f7fd; border: 1px solid #e3def4; border-radius: 14px; padding: 18px 16px; text-align: center;">
+                <div style="font-size: 28px; font-weight: 700; color: ${analytics.overview.engagement === 'High' ? '#16a34a' : analytics.overview.engagement === 'Medium' ? '#ca8a04' : '#dc2626'};">${analytics.overview.engagement}</div>
+                <div style="font-size: 11px; color: #6b6396; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px;">Engagement</div>
               </div>
-              <div class="metric">
-                <div class="metric-label">Reviewers</div>
-                <div class="metric-value">${analytics.overview.totalReviewers}</div>
+              <div style="background: #f8f7fd; border: 1px solid #e3def4; border-radius: 14px; padding: 18px 16px; text-align: center;">
+                <div style="font-size: 28px; font-weight: 700; color: #4c4172;">${totalQuizzes}</div>
+                <div style="font-size: 11px; color: #6b6396; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px;">Total Quizzes</div>
               </div>
             </div>
-          </body>
-        </html>
+
+            <!-- Generated Content Breakdown -->
+            <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; color: #4c4172; border-left: 4px solid #9d8adb; padding-left: 12px; margin: 0 0 16px 0;">Generated Content Breakdown</h2>
+            <table style="width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 32px; border-radius: 12px; overflow: hidden; border: 1px solid #e3def4;">
+              <thead>
+                <tr>
+                  <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Content Type</th>
+                  <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Count</th>
+                  <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Percentage</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #3f3764; border-bottom: 1px solid #f0edf8;">📚 Flashcards</td>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #3f3764; text-align: center; font-weight: 600; border-bottom: 1px solid #f0edf8;">${analytics.generatedContent.flashcards}</td>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #6b6396; text-align: center; border-bottom: 1px solid #f0edf8;">${totalQuizzes > 0 ? Math.round((analytics.generatedContent.flashcards / totalQuizzes) * 100) : 0}%</td>
+                </tr>
+                <tr style="background: #faf9fe;">
+                  <td style="padding: 13px 18px; font-size: 13px; color: #3f3764; border-bottom: 1px solid #f0edf8;">✅ Multiple Choice (MCQ)</td>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #3f3764; text-align: center; font-weight: 600; border-bottom: 1px solid #f0edf8;">${analytics.generatedContent.mcqs}</td>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #6b6396; text-align: center; border-bottom: 1px solid #f0edf8;">${totalQuizzes > 0 ? Math.round((analytics.generatedContent.mcqs / totalQuizzes) * 100) : 0}%</td>
+                </tr>
+                <tr>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #3f3764;">📝 Fill in the Blank (FITB)</td>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #3f3764; text-align: center; font-weight: 600;">${analytics.generatedContent.fitb}</td>
+                  <td style="padding: 13px 18px; font-size: 13px; color: #6b6396; text-align: center;">${totalQuizzes > 0 ? Math.round((analytics.generatedContent.fitb / totalQuizzes) * 100) : 0}%</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Class Details -->
+            ${analytics.classes && analytics.classes.length > 0 ? `
+              <h2 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; color: #4c4172; border-left: 4px solid #9d8adb; padding-left: 12px; margin: 0 0 16px 0;">Class Details</h2>
+              <table style="width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 32px; border-radius: 12px; overflow: hidden; border: 1px solid #e3def4;">
+                <thead>
+                  <tr>
+                    <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Class Name</th>
+                    <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Subject</th>
+                    <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Educator</th>
+                    <th style="background: linear-gradient(135deg, #9d8adb, #7a6bc4); color: white; padding: 14px 18px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Section</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${analytics.classes.map((cls, i) => `
+                    <tr style="${i % 2 === 1 ? 'background: #faf9fe;' : ''}">
+                      <td style="padding: 12px 18px; font-size: 13px; color: #3f3764; font-weight: 500; border-bottom: 1px solid #f0edf8;">${cls.name || '—'}</td>
+                      <td style="padding: 12px 18px; font-size: 13px; color: #3f3764; border-bottom: 1px solid #f0edf8;">${cls.subject || '—'}</td>
+                      <td style="padding: 12px 18px; font-size: 13px; color: #6b6396; border-bottom: 1px solid #f0edf8;">${cls.educator?.fullName || '—'}</td>
+                      <td style="padding: 12px 18px; font-size: 13px; color: #6b6396; border-bottom: 1px solid #f0edf8;">${cls.section || '—'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : ''}
+
+            <!-- Footer -->
+            <div style="border-top: 2px solid #e3def4; padding-top: 20px; margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+              <div style="font-size: 11px; color: #9d8adb;">
+                <strong>fLexiScribe</strong> &mdash; Your Note-Taking Assistant
+              </div>
+              <div style="font-size: 11px; color: #a09bbc;">
+                Report generated on ${generatedDate} at ${generatedTime}
+              </div>
+            </div>
+          </div>
+        </div>
       `;
 
-      // Create a blob and download
-      const blob = new Blob([content], { type: "text/html" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `class_analytics_${new Date().toISOString().split("T")[0]}.html`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-      
-      setModalInfo({ isOpen: true, title: "Export Complete", message: "Analytics summary downloaded as HTML. Open in browser and use 'Print to PDF' to convert to PDF.", type: "success" });
+      // Generate PDF
+      const opt = {
+        margin: [10, 0, 10, 0],
+        filename: `FlexiScribe_Class_Analytics_${new Date().toISOString().split("T")[0]}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      };
+
+      await html2pdf().set(opt).from(container).save();
+
+      setModalInfo({ isOpen: true, title: "Export Complete", message: "Analytics summary has been downloaded as a PDF.", type: "success" });
     } catch (error) {
       console.error("Error exporting summary:", error);
       setModalInfo({ isOpen: true, title: "Export Failed", message: "Failed to export summary. Please try again.", type: "error" });
