@@ -11,12 +11,12 @@ model User {
   email       String    @unique
   password    String
   role        Role
-  status      String    @default("Active")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   token       String?   @unique
   tokenExpiry DateTime?
   phoneNumber String?
+  status      String    @default("Active")
   admin       Admin?
   educator    Educator?
   student     Student?
@@ -28,9 +28,6 @@ model Student {
   userId           String               @unique
   birthDate        DateTime
   fullName         String
-  firstName        String?
-  lastName         String?
-  suffix           String?
   gender           Gender
   program          String
   section          String
@@ -38,31 +35,26 @@ model Student {
   username         String?              @unique
   avatar           String?
   xp               Int                  @default(0)
-  streakCount      Int                  @default(0)
   lastActivityDate String?
+  streakCount      Int                  @default(0)
   downloadCount    Int                  @default(0)
+  notifications    Notification[]
   quizzes          Quiz[]
   quizAttempts     QuizAttempt[]
   user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievements     StudentAchievement[]
   badges           StudentBadge[]
   classes          StudentClass[]
-  notifications    Notification[]
 }
 
 model Educator {
   id             String          @id @default(cuid())
   username       String          @unique
   fullName       String
-  firstName      String?
-  lastName       String?
-  prefix         String?
-  suffix         String?
   gender         Gender
   birthDate      DateTime
   departmentId   String
   userId         String          @unique
-  avatar         String?
   classes        Class[]
   department     Department      @relation(fields: [departmentId], references: [id])
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -94,10 +86,10 @@ model Quiz {
   type           QuizType
   difficulty     Difficulty
   totalQuestions Int
-  title          String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   studentId      String?
+  title          String?
   lesson         Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   student        Student?       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   attempts       QuizAttempt[]
@@ -124,10 +116,10 @@ model QuizAttempt {
   quizId         String
   studentId      String
   score          Float
-  startedAt      DateTime?
   totalQuestions Int
   answers        Json
   completedAt    DateTime  @default(now())
+  startedAt      DateTime?
   quiz           Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
   student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
@@ -141,9 +133,9 @@ model Achievement {
   description         String
   icon                String
   category            String
+  createdAt           DateTime             @default(now())
   requirementType     String
   requirementValue    Int
-  createdAt           DateTime             @default(now())
   studentAchievements StudentAchievement[]
 }
 
@@ -226,9 +218,9 @@ model Transcription {
   classId        String?
   sessionId      String?
   status         String   @default("COMPLETED")
-  sessionType    String   @default("lecture")
   summaryJson    Json?
   transcriptJson Json?
+  sessionType    String   @default("lecture")
   class          Class?   @relation(fields: [classId], references: [id])
   educator       Educator @relation(fields: [educatorId], references: [id], onDelete: Cascade)
 
@@ -304,6 +296,19 @@ model Activity {
   @@index([createdAt])
 }
 
+model VerificationCode {
+  id        String   @id @default(cuid())
+  userId    String
+  code      String
+  purpose   String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@index([code])
+}
+
 enum Role {
   ADMIN
   STUDENT
@@ -327,17 +332,4 @@ enum Difficulty {
   EASY
   MEDIUM
   HARD
-}
-
-model VerificationCode {
-  id        String   @id @default(cuid())
-  userId    String
-  code      String
-  purpose   String // "password-reset" | "password-change"
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId, purpose])
-  @@index([code])
 }

@@ -96,18 +96,14 @@ export default function StudentsLeaderboardCard() {
             Top Students
           </h3>
         </div>
-
-        <span className="text-[11px] text-white/60">
-          Weekly Ranking
-        </span>
       </div>
 
       {/* TROPHY IMAGE */}
       <Image
         src="/leaderboard/awardicon.png"
         alt="Award"
-        width={200}
-        height={150}
+        width={250}
+        height={188}
         className="absolute -bottom-6 -right-4 hidden md:block pointer-events-none"
       />
 
