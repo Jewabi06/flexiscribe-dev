@@ -123,21 +123,24 @@ export default function TranscriptViewerPage() {
     try {
       const container = document.createElement("div");
       container.innerHTML = htmlContent;
-      container.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      container.style.fontSize = "14px";
-      container.style.lineHeight = "1.6";
+      container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      container.style.fontSize = "12pt";
+      container.style.lineHeight = "1.7";
       container.style.color = "#1a1a1a";
-      container.style.padding = "20px";
+      container.style.textAlign = "justify";
+      container.style.maxWidth = "210mm";
+      container.style.margin = "0 auto";
 
       const filename = `${(transcript?.title || "transcript").replace(/[^a-zA-Z0-9 ]/g, "")}.pdf`;
 
       await html2pdf()
         .set({
-          margin: [10, 10, 10, 10],
+          margin: [15, 15, 15, 15],
           filename,
           image: { type: "jpeg", quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         })
         .from(container)
         .save();

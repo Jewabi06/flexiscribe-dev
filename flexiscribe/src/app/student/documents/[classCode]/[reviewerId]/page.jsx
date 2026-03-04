@@ -13,86 +13,151 @@ import "./styles.css";
 /**
  * Convert summaryJson to editable HTML for TinyMCE.
  * Supports both Cornell Notes (lecture) and MOTM (meeting) formats.
+ * @param {object|string} summaryJson - The summary JSON data
+ * @param {object} meta - Optional metadata from the transcription record (date, title, etc.)
  */
-function summaryJsonToHtml(summaryJson) {
+function summaryJsonToHtml(summaryJson, meta = {}) {
   if (!summaryJson) return "<p>No summary data available.</p>";
 
   const s = typeof summaryJson === "string" ? JSON.parse(summaryJson) : summaryJson;
-  const title = s.title || "Untitled";
+
+  // A4 page style: 210mm wide, proper margins, justified text
+  const pageStyle = `max-width:210mm; margin:0 auto; padding:20mm 18mm; font-family:'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size:12pt; line-height:1.7; color:#1a1a1a; text-align:justify;`;
 
   // ─── Detect MOTM format (meeting) ───────────────────────────────
-  const isMOTM = !!(s.agenda || s.decisions || s.action_items);
+  const isMOTM = !!(s.meeting_title || s.agendas);
 
   if (isMOTM) {
-    const agenda = s.agenda || s.topics || [];
-    const decisions = s.decisions || [];
-    const actionItems = s.action_items || [];
-    const summary = s.summary || "";
+    const meetingTitle = s.meeting_title || s.title || "Untitled Meeting";
+    const date = s.date || meta.date || "Not specified";
+    const time = s.time || "Not specified";
+    const agendas = s.agendas || [];
+    const nextMeeting = s.next_meeting || null;
+    const preparedBy = s.prepared_by || "To be determined";
 
-    let html = `<table style="width:100%; border-collapse:collapse; margin:20px 0;">`;
-    // Header
-    html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:linear-gradient(135deg,#3b82f6,#1d4ed8); color:white; font-weight:700; font-size:18px; text-align:center;">📋 ${title} — Minutes of the Meeting</td></tr>`;
+    let html = `<div style="${pageStyle}">`;
 
-    // Agenda
-    if (agenda.length > 0) {
-      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#eff6ff;"><strong style="color:#1d4ed8;">📌 Agenda / Topics</strong><ul style="margin:8px 0 0 16px;">`;
-      agenda.forEach((item) => {
-        html += `<li style="margin-bottom:4px;">${typeof item === "string" ? item : item.topic || item.title || JSON.stringify(item)}</li>`;
-      });
-      html += `</ul></td></tr>`;
+    // TOP: Meeting Title, Date, Time — each on its own line
+    html += `<div style="text-align:center; padding-bottom:16px; margin-bottom:24px; border-bottom:2px solid #333;">`;
+    html += `<h1 style="margin:0 0 10px 0; font-size:18pt; font-weight:700; color:#1a1a1a;">${meetingTitle}</h1>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:#444;">Date: ${date}</p>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:#444;">Time: ${time}</p>`;
+    html += `</div>`;
+
+    // MIDDLE: Agendas with subcontent (can span many pages)
+    agendas.forEach((agenda, idx) => {
+      const agendaTitle = agenda.title || `Agenda ${idx + 1}`;
+      const keyPoints = agenda.key_points || [];
+      const clarifications = agenda.important_clarifications || [];
+
+      html += `<div style="margin-bottom:24px;">`;
+      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:#1a1a1a;">${idx + 1}. ${agendaTitle}</h2>`;
+
+      if (keyPoints.length > 0) {
+        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt;">Key Points:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px; padding:0;">`;
+        keyPoints.forEach((pt) => {
+          html += `<li style="margin-bottom:5px; font-size:11pt;">${pt}</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      if (clarifications.length > 0) {
+        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt;">Important Clarifications:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px; padding:0;">`;
+        clarifications.forEach((c) => {
+          html += `<li style="margin-bottom:5px; font-size:11pt;">${c}</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      html += `</div>`;
+    });
+
+    // Next meeting (if applicable)
+    if (nextMeeting) {
+      html += `<div style="margin-top:12px; padding:8px 0;">`;
+      html += `<p style="font-size:11pt;"><strong>Next Meeting:</strong> ${typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting))}</p>`;
+      html += `</div>`;
     }
 
-    // Decisions
-    if (decisions.length > 0) {
-      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#f0fdf4;"><strong style="color:#16a34a;">✅ Decisions</strong><ul style="margin:8px 0 0 16px;">`;
-      decisions.forEach((item) => {
-        html += `<li style="margin-bottom:4px;">${typeof item === "string" ? item : item.decision || item.text || JSON.stringify(item)}</li>`;
-      });
-      html += `</ul></td></tr>`;
-    }
+    // BOTTOM: Prepared by
+    html += `<div style="border-top:2px solid #333; margin-top:32px; padding-top:16px;">`;
+    html += `<p style="font-size:11pt;"><strong>Prepared by:</strong> ${preparedBy}</p>`;
+    html += `</div>`;
 
-    // Action Items
-    if (actionItems.length > 0) {
-      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#fefce8;"><strong style="color:#ca8a04;">⚡ Action Items</strong><ul style="margin:8px 0 0 16px;">`;
-      actionItems.forEach((item) => {
-        const text = typeof item === "string" ? item : item.task || item.action || item.text || JSON.stringify(item);
-        const assignee = typeof item === "object" && item.assignee ? ` <em>(${item.assignee})</em>` : "";
-        html += `<li style="margin-bottom:4px;">${text}${assignee}</li>`;
-      });
-      html += `</ul></td></tr>`;
-    }
-
-    // Summary
-    if (summary) {
-      html += `<tr><td colspan="2" style="border:2px solid #1d4ed8; padding:12px; background:#faf5ff;"><strong style="color:#7c3aed;">Summary:</strong><br/>${summary}</td></tr>`;
-    }
-
-    html += `</table>`;
+    html += `</div>`;
     return html;
   }
 
-  // ─── Cornell Notes format (lecture — default) ──────────────────
-  const cueQuestions = s.cue_questions || [];
+  // ─── Cornell Notes format (Reviewer — default) ─────────────────
+  const title = s.title || "Untitled";
+  const recordDate = meta.date ? new Date(meta.date).toLocaleDateString() : new Date().toLocaleDateString();
+  const keyConcepts = s.key_concepts || s.cue_questions || [];
   const notes = s.notes || [];
-  const summary = s.summary || "";
+  const summaryArr = Array.isArray(s.summary) ? s.summary : (s.summary ? [s.summary] : []);
 
-  let html = `<table style="width:100%; border-collapse:collapse; margin:20px 0;">`;
-  html += `<tr><td colspan="2" style="border:2px solid #5b21b6; padding:12px; background:linear-gradient(135deg,#7c3aed,#5b21b6); color:white; font-weight:700; font-size:18px; text-align:center;">${title}</td></tr>`;
-  html += `<tr><td style="border:2px solid #5b21b6; padding:12px; width:30%; background:#f3f4f6; font-weight:700;">Cue Questions</td>`;
-  html += `<td style="border:2px solid #5b21b6; padding:12px; width:70%; font-weight:700;">Notes</td></tr>`;
+  let html = `<div style="${pageStyle}">`;
 
-  const maxRows = Math.max(cueQuestions.length, notes.length);
-  for (let i = 0; i < maxRows; i++) {
-    const q = cueQuestions[i] || "";
-    const n = notes[i] || "";
-    html += `<tr>`;
-    html += `<td style="border:2px solid #5b21b6; padding:12px; width:30%; background:#f3f4f6;">${q}</td>`;
-    html += `<td style="border:2px solid #5b21b6; padding:12px; width:70%;">${n}</td>`;
-    html += `</tr>`;
-  }
-
-  html += `<tr><td colspan="2" style="border:2px solid #5b21b6; padding:12px; background:#fefce8;"><strong>Summary:</strong><br/>${summary}</td></tr>`;
+  // TOP ROW: Date (left) | Title (right) — separated by border
+  html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
+  html += `<tr>`;
+  html += `<td style="padding:14px 16px; width:35%; text-align:left; vertical-align:middle; font-size:11pt; color:#444; border-bottom:2px solid #333;"><strong>Date:</strong> ${recordDate}</td>`;
+  html += `<td style="padding:14px 16px; width:65%; text-align:right; vertical-align:middle; font-size:16pt; font-weight:700; color:#5b21b6; border-bottom:2px solid #333;">${title}</td>`;
+  html += `</tr>`;
   html += `</table>`;
+
+  // MIDDLE: Key Concepts (left, narrower) | Notes (right, wider)
+  html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
+  html += `<tr>`;
+
+  // Key Concepts column — left
+  html += `<td style="width:35%; vertical-align:top; padding:16px; border-right:2px solid #333;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:#5b21b6; margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Key Concepts</p>`;
+  if (keyConcepts.length > 0) {
+    html += `<ul style="margin:0; padding:0 0 0 18px; list-style-type:disc;">`;
+    keyConcepts.forEach((concept) => {
+      html += `<li style="margin-bottom:8px; font-size:11pt; color:#333;">${concept}</li>`;
+    });
+    html += `</ul>`;
+  }
+  html += `</td>`;
+
+  // Notes column — right (wider)
+  html += `<td style="width:65%; vertical-align:top; padding:16px;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:#5b21b6; margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Notes</p>`;
+  if (Array.isArray(notes) && notes.length > 0) {
+    notes.forEach((note) => {
+      if (typeof note === "object" && note !== null) {
+        // Structured note: term / definition / example
+        html += `<div style="margin-bottom:16px;">`;
+        if (note.term) html += `<p style="margin:0 0 3px 0; font-weight:700; font-size:11pt; color:#1a1a1a;">${note.term}</p>`;
+        if (note.definition) html += `<p style="margin:0 0 3px 0; font-size:11pt; color:#333;">${note.definition}</p>`;
+        if (note.example) html += `<p style="margin:0; font-size:10pt; color:#666; font-style:italic;">Example: ${note.example}</p>`;
+        html += `</div>`;
+      } else {
+        html += `<p style="margin:0 0 10px 0; font-size:11pt; color:#333;">${note}</p>`;
+      }
+    });
+  }
+  html += `</td>`;
+
+  html += `</tr>`;
+  html += `</table>`;
+
+  // BOTTOM: Summary (full width) — separated by border
+  html += `<div style="border-top:2px solid #333; padding:16px 0;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:#5b21b6; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">Summary</p>`;
+  if (summaryArr.length > 0) {
+    html += `<ul style="margin:0; padding:0 0 0 18px;">`;
+    summaryArr.forEach((point) => {
+      html += `<li style="margin-bottom:6px; font-size:11pt; color:#333;">${point}</li>`;
+    });
+    html += `</ul>`;
+  }
+  html += `</div>`;
+
+  html += `</div>`;
   return html;
 }
 
@@ -149,7 +214,7 @@ export default function ReviewerEditorPage() {
 
         // If no saved content, render summaryJson as initial HTML
         if (!savedContent) {
-          const html = summaryJsonToHtml(transcription.summaryJson);
+          const html = summaryJsonToHtml(transcription.summaryJson, transcription);
           initialContentRef.current = html;
           setEditorContent(html);
           setContentLoaded(true);
@@ -216,20 +281,23 @@ export default function ReviewerEditorPage() {
       // Build a temporary container with the editor content
       const container = document.createElement('div');
       container.innerHTML = editorContent;
-      container.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      container.style.fontSize = '14px';
-      container.style.lineHeight = '1.6';
+      container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      container.style.fontSize = '12pt';
+      container.style.lineHeight = '1.7';
       container.style.color = '#1a1a1a';
-      container.style.padding = '20px';
+      container.style.textAlign = 'justify';
+      container.style.maxWidth = '210mm';
+      container.style.margin = '0 auto';
 
       const filename = `${(reviewer?.title || 'reviewer').replace(/[^a-zA-Z0-9 ]/g, '')}.pdf`;
 
       const opt = {
-        margin: [10, 10, 10, 10],
+        margin: [15, 15, 15, 15],
         filename,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
       };
 
       await html2pdf().set(opt).from(container).save();
@@ -318,43 +386,35 @@ export default function ReviewerEditorPage() {
                   'anchor', 'searchreplace', 'visualblocks', 'code',
                   'insertdatetime', 'media', 'table', 'help', 'wordcount'
                 ],
-                toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright | bullist numlist | table | removeformat',
+                toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist | table | removeformat',
                 table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol | tablecellprops tablemergecells tablesplitcells',
                 content_style: `
-                  body { 
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    font-size: 16px;
-                    line-height: 1.6;
+                  body {
+                    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    font-size: 12pt;
+                    line-height: 1.7;
                     color: #1a1a1a;
-                    padding: 20px;
+                    max-width: 210mm;
+                    margin: 0 auto;
+                    padding: 20mm 18mm;
+                    text-align: justify;
+                    box-sizing: border-box;
                   }
                   table {
                     border-collapse: collapse;
                     width: 100%;
-                    margin: 20px 0;
+                    margin: 0;
                     table-layout: fixed;
                   }
                   table td, table th {
-                    border: 2px solid #5b21b6;
-                    padding: 12px;
+                    padding: 14px 16px;
                     vertical-align: top;
+                    text-align: justify;
                   }
-                  table tr:first-child td, table tr:first-child th {
-                    background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
-                    color: white;
-                    font-weight: 700;
-                  }
-                  table td[style*="width: 30%"] {
-                    background: #f3f4f6;
-                    width: 30%;
-                  }
-                  table td[style*="width: 70%"] {
-                    background: #white;
-                    width: 70%;
-                  }
-                  table td[colspan] {
-                    background: #fefce8;
-                  }
+                  h1, h2, h3 { color: #1a1a1a; }
+                  ul { margin: 4px 0 12px 24px; padding: 0; }
+                  li { margin-bottom: 5px; }
+                  p { margin: 0 0 8px 0; }
                 `,
                 skin: darkMode ? 'oxide-dark' : 'oxide',
                 content_css: darkMode ? 'dark' : 'default',
@@ -362,7 +422,7 @@ export default function ReviewerEditorPage() {
                 resize: false,
                 statusbar: true,
                 table_default_attributes: {
-                  border: '2'
+                  border: '0'
                 },
                 table_default_styles: {
                   'border-collapse': 'collapse',
