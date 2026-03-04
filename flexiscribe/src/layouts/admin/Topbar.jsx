@@ -41,8 +41,8 @@ export default function TopBar({ onMenuClick }) {
   useEffect(() => {
     fetchNotifications();
     fetchProfile();
-    // Poll notifications every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000);
+    // Poll notifications every 5 seconds
+    const interval = setInterval(fetchNotifications, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -96,6 +96,8 @@ export default function TopBar({ onMenuClick }) {
     switch (type) {
       case "user": return <Users size={14} className="text-[#9d8adb]" />;
       case "class": return <GraduationCap size={14} className="text-[#9d8adb]" />;
+      case "transcript": return <GraduationCap size={14} className="text-[#9d8adb]" />;
+      case "department": return <Users size={14} className="text-[#9d8adb]" />;
       case "activity": return <Activity size={14} className="text-[#9d8adb]" />;
       default: return <Search size={14} className="text-[#9d8adb]" />;
     }
@@ -254,7 +256,7 @@ export default function TopBar({ onMenuClick }) {
 
             <input
               type="text"
-              placeholder="Search users, transcripts, or reviewers"
+              placeholder="Search users, classes, transcripts, or logs"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               onFocus={() => {

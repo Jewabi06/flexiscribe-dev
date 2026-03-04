@@ -227,6 +227,7 @@ export default function AddClassModal({ onClose }) {
                   placeholder="Select day"
                   icon={Calendar}
                   options={DAYS.map((d) => ({ value: d, label: d }))}
+                  dropUp
                 />
               </div>
 
@@ -239,6 +240,7 @@ export default function AddClassModal({ onClose }) {
                   placeholder="Select an educator"
                   icon={User}
                   options={educators.map((e) => ({ value: e.id, label: `${e.fullName} — ${e.department}` }))}
+                  dropUp
                 />
                 {educators.length === 0 && (
                   <p className="text-xs text-gray-500 mt-1">

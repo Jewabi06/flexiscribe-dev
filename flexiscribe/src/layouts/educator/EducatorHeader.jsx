@@ -29,7 +29,7 @@ export default function EducatorHeader({ userName = "Educator" }) {
   // Fetch on mount + poll every 30 seconds
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
+    const interval = setInterval(fetchNotifications, 5000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
