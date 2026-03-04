@@ -10,6 +10,7 @@ export default function FormDropdown({
   placeholder = "Select…",
   icon: Icon,
   className = "",
+  dropUp = false,
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -42,7 +43,9 @@ export default function FormDropdown({
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-xl bg-white border border-[#d6d1ee] shadow-lg py-1 max-h-52 overflow-y-auto"
+        <div className={`absolute left-0 right-0 z-50 rounded-xl bg-white border border-[#d6d1ee] shadow-lg py-1 max-h-52 overflow-y-auto ${
+          dropUp ? "bottom-full mb-1" : "top-full mt-1"
+        }`}
           style={{
             scrollbarWidth: "thin",
             scrollbarColor: "rgba(76,65,114,0.25) transparent",

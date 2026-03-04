@@ -350,6 +350,7 @@ export default function EducatorRegister() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="off"
                 />
                 <button
                   type="button"
@@ -394,6 +395,7 @@ export default function EducatorRegister() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="off"
                 />
                 <button
                   type="button"

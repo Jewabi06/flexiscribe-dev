@@ -276,6 +276,7 @@ export default function ForgotPassword() {
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Enter new password"
                 disabled={isLoading}
+                autoComplete="off"
               />
             </div>
             <div>
@@ -289,6 +290,7 @@ export default function ForgotPassword() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm new password"
                 disabled={isLoading}
+                autoComplete="off"
               />
             </div>
             <div className="flex gap-3">
