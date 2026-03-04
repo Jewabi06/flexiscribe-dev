@@ -247,7 +247,7 @@ export default function TopBar({ onMenuClick }) {
 
             <input
               type="text"
-              placeholder="Search or run a command"
+              placeholder="Search users, settings, or logs..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               onFocus={() => {
