@@ -221,7 +221,7 @@ export default function MCQQuiz({ quiz, questions }) {
                     className={`mcq-option ${selectedAnswer === index ? 'selected' : ''}`}
                     onClick={() => handleAnswerSelect(index)}
                   >
-                    <span className="option-number">{index + 1}</span>
+                    <span className="option-number">{String.fromCharCode(65 + index)}</span>
                     <span className="option-text">{option}</span>
                   </button>
                 ))}
