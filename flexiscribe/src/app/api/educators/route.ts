@@ -113,10 +113,6 @@ export async function POST(request: Request) {
         data: {
           username,
           fullName,
-          firstName,
-          lastName,
-          prefix: prefix || null,
-          suffix: suffix || null,
           gender: genderEnum as any,
           birthDate: new Date(dateOfBirth),
           departmentId,
