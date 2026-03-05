@@ -1,10 +1,8 @@
 import ollama
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import OLLAMA_GPU_LAYERS
-
 
 def generate_response(model: str, prompt: str) -> str:
     response = ollama.chat(

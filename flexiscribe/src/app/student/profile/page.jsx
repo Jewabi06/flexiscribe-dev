@@ -381,6 +381,7 @@ export default function StudentProfile() {
                     name="fullName"
                     value={formData.fullName}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -394,6 +395,7 @@ export default function StudentProfile() {
                     name="email"
                     value={formData.email}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -407,6 +409,7 @@ export default function StudentProfile() {
                     name="studentNumber"
                     value={formData.studentNumber}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -420,6 +423,7 @@ export default function StudentProfile() {
                     name="program"
                     value={formData.program}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
                 <div className="form-group">
@@ -430,6 +434,7 @@ export default function StudentProfile() {
                     name="yearLevel"
                     value={formData.yearLevel}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -443,6 +448,7 @@ export default function StudentProfile() {
                     name="section"
                     value={formData.section}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
                 <div className="form-group">
@@ -453,6 +459,7 @@ export default function StudentProfile() {
                     name="gender"
                     value={formData.gender === 'MALE' ? 'Male' : formData.gender === 'FEMALE' ? 'Female' : formData.gender === 'OTHER' ? 'Other' : formData.gender === 'PREFER_NOT_TO_SAY' ? 'Prefer not to say' : formData.gender}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -466,6 +473,7 @@ export default function StudentProfile() {
                     name="birthDate"
                     value={formData.birthDate}
                     disabled
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -483,6 +491,19 @@ export default function StudentProfile() {
               {/* Step 1: Enter Passwords */}
               {passwordStep === 1 && (
                 <div className="password-form">
+                  {/* FIX: HIDDEN HONEY-TRAP FIELD 
+                    This tricks the browser's password manager into auto-filling the username 
+                    here instead of leaking it into the dashboard search bar. 
+                  */}
+                  <input 
+                    type="text" 
+                    name="username" 
+                    autoComplete="username" 
+                    style={{ display: 'none' }} 
+                    aria-hidden="true" 
+                    tabIndex="-1"
+                  />
+                  {/* Current Password */}
                   <div className="form-group">
                     <label htmlFor="currentPassword">Current Password</label>
                     <div className="password-input-container">
@@ -492,7 +513,7 @@ export default function StudentProfile() {
                         name="currentPassword"
                         value={passwordData.currentPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="current-password"
+                        autoComplete="current-password" /* Update 'off' to a semantic tag */
                         className={passwordErrors.currentPassword ? "error" : ""}
                       />
                       <button
@@ -508,6 +529,7 @@ export default function StudentProfile() {
                     )}
                   </div>
 
+                  {/* New Password */}
                   <div className="form-group">
                     <label htmlFor="newPassword">New Password</label>
                     <div className="password-input-container">
@@ -534,6 +556,7 @@ export default function StudentProfile() {
                     <span className="hint-text">Password must be at least 8 characters</span>
                   </div>
 
+                  {/* Confirm New Password */}
                   <div className="form-group">
                     <label htmlFor="confirmPassword">Confirm New Password</label>
                     <div className="password-input-container">

@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
     const notifications = await prisma.notification.findMany({
       where: {
         educatorId: educator.id,
+        deleted: false,
         ...(unreadOnly && { read: false }),
       },
       orderBy: { createdAt: "desc" },

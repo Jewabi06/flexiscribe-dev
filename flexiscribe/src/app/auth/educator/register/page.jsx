@@ -3,13 +3,17 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { FiArrowLeft } from "react-icons/fi";
+import FormDropdown from "@/components/shared/FormDropdown";
 
 export default function EducatorRegister() {
   const router = useRouter();
   const [step, setStep] = useState(1); // 1: personal details, 2: account details
 
   // Step 1: Personal Details
-  const [fullName, setFullName] = useState("");
+  const [prefix, setPrefix] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [suffix, setSuffix] = useState("");
   const [departments, setDepartments] = useState([]);
   const [departmentId, setDepartmentId] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
@@ -81,7 +85,7 @@ export default function EducatorRegister() {
     setError("");
     setSuccess("");
 
-    if (!fullName || !departmentId || !dateOfBirth || !gender) {
+    if (!firstName || !lastName || !departmentId || !dateOfBirth || !gender) {
       setError("Please fill in all fields");
       return;
     }
@@ -129,7 +133,11 @@ export default function EducatorRegister() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          fullName,
+          prefix,
+          firstName,
+          lastName,
+          suffix: suffix.replace(/\.$/, ""),
+          fullName: `${prefix ? prefix + " " : ""}${firstName} ${lastName}${suffix ? ` ${suffix.replace(/\.$/, "")}` : ""}`.trim(),
           departmentId,
           dateOfBirth,
           gender,
@@ -183,17 +191,68 @@ export default function EducatorRegister() {
         {/* Step 1: Personal Details */}
         {step === 1 && (
           <form onSubmit={handleStep1Submit} className="space-y-4 sm:space-y-6">
-            {/* Full Name */}
+            {/* Prefix (Optional) */}
             <div>
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
-                Full Name
+                Prefix <span className="text-gray-400 font-normal">(Optional)</span>
+              </label>
+              <FormDropdown
+                value={prefix}
+                onChange={setPrefix}
+                placeholder="None"
+                options={[
+                  { value: "", label: "None" },
+                  { value: "Mr.", label: "Mr." },
+                  { value: "Ms.", label: "Ms." },
+                  { value: "Mrs.", label: "Mrs." },
+                  { value: "Mx.", label: "Mx." },
+                  { value: "Dr.", label: "Dr." },
+                  { value: "Prof.", label: "Prof." },
+                  { value: "Engr.", label: "Engr." },
+                  { value: "Atty.", label: "Atty." },
+                ]}
+              />
+            </div>
+
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  First Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Maria"
+                />
+              </div>
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Santos"
+                />
+              </div>
+            </div>
+
+            {/* Suffix (Optional) */}
+            <div>
+              <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                Suffix <span className="text-gray-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="text"
                 className="neu-input"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Dr. Maria Santos"
+                value={suffix}
+                onChange={(e) => setSuffix(e.target.value)}
+                placeholder="Jr, Sr, III, etc."
               />
             </div>
 
@@ -202,18 +261,12 @@ export default function EducatorRegister() {
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
                 Department Specialization
               </label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-              >
-                <option value="">Select Department</option>
-                {departments.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setDepartmentId}
+                placeholder="Select Department"
+                options={departments.map((dept) => ({ value: dept.id, label: dept.name }))}
+              />
             </div>
 
             {/* Date of Birth */}
@@ -232,16 +285,16 @@ export default function EducatorRegister() {
             {/* Gender */}
             <div>
               <label className="text-[#4c4172] block text-sm font-medium mb-2">Gender</label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={gender}
-                onChange={(e) => setGender(e.target.value)}
-              >
-                <option value="">Select Gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Prefer not to say</option>
-              </select>
+                onChange={setGender}
+                placeholder="Select Gender"
+                options={[
+                  { value: "Male", label: "Male" },
+                  { value: "Female", label: "Female" },
+                  { value: "Other", label: "Prefer not to say" },
+                ]}
+              />
             </div>
 
             {/* Next Button */}
@@ -294,6 +347,7 @@ export default function EducatorRegister() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="off"
                 />
                 <button
                   type="button"
@@ -338,6 +392,7 @@ export default function EducatorRegister() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="off"
                 />
                 <button
                   type="button"

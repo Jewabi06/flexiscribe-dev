@@ -52,7 +52,7 @@ export default function CalendarCard() {
     <div
       className="
         relative
-        w-full
+        w-full max-w-full
         h-[220px] sm:h-[240px] md:h-[260px] lg:h-[300px] xl:h-[340px]
         bg-gradient-to-br from-[#9d8adb] to-[#4c4172]
         rounded-[16px] md:rounded-[24px] lg:rounded-[36px]
@@ -60,6 +60,7 @@ export default function CalendarCard() {
         overflow-hidden
         transition-all duration-300
         hover:translate-y-[-4px] hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)]
+        mx-auto
       "
     >
       <div

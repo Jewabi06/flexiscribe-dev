@@ -5,40 +5,148 @@ import { Editor } from "@tinymce/tinymce-react";
 import { 
   FaMoon, FaSun, FaArrowLeft, FaDownload, FaSave
 } from "react-icons/fa";
-import html2pdf from "html2pdf.js";
 import MessageModal from "@/components/shared/MessageModal";
 import LoadingScreen from "@/components/shared/LoadingScreen";
 import "./styles.css";
 
 /**
- * Convert summaryJson (Cornell Notes) to editable HTML for TinyMCE
+ * Convert summaryJson to editable HTML for TinyMCE.
+ * Supports both Cornell Notes (lecture) and MOTM (meeting) formats.
+ * @param {object|string} summaryJson - The summary JSON data
+ * @param {object} meta - Optional metadata from the transcription record (date, title, etc.)
  */
-function summaryJsonToHtml(summaryJson) {
+function summaryJsonToHtml(summaryJson, meta = {}) {
   if (!summaryJson) return "<p>No summary data available.</p>";
 
   const s = typeof summaryJson === "string" ? JSON.parse(summaryJson) : summaryJson;
-  const title = s.title || "Untitled";
-  const cueQuestions = s.cue_questions || [];
-  const notes = s.notes || [];
-  const summary = s.summary || "";
 
-  let html = `<table style="width:100%; border-collapse:collapse; margin:20px 0;">`;
-  html += `<tr><td colspan="2" style="border:2px solid #5b21b6; padding:12px; background:linear-gradient(135deg,#7c3aed,#5b21b6); color:white; font-weight:700; font-size:18px; text-align:center;">${title}</td></tr>`;
-  html += `<tr><td style="border:2px solid #5b21b6; padding:12px; width:30%; background:#f3f4f6; font-weight:700;">Cue Questions</td>`;
-  html += `<td style="border:2px solid #5b21b6; padding:12px; width:70%; font-weight:700;">Notes</td></tr>`;
+  // Simplified page style: font and text color are now handled globally by TinyMCE
+  const pageStyle = `max-width:210mm; margin:0 auto; padding:20mm 18mm; text-align:justify;`;
 
-  const maxRows = Math.max(cueQuestions.length, notes.length);
-  for (let i = 0; i < maxRows; i++) {
-    const q = cueQuestions[i] || "";
-    const n = notes[i] || "";
-    html += `<tr>`;
-    html += `<td style="border:2px solid #5b21b6; padding:12px; width:30%; background:#f3f4f6;">${q}</td>`;
-    html += `<td style="border:2px solid #5b21b6; padding:12px; width:70%;">${n}</td>`;
-    html += `</tr>`;
+  // ─── Detect MOTM format (meeting) ───────────────────────────────
+  const isMOTM = !!(s.meeting_title || s.agendas);
+
+  if (isMOTM) {
+    const meetingTitle = s.meeting_title || s.title || "Untitled Meeting";
+    const date = s.date || meta.date || "Not specified";
+    const time = s.time || "Not specified";
+    const agendas = s.agendas || [];
+    const nextMeeting = s.next_meeting || null;
+    const preparedBy = s.prepared_by || "To be determined";
+
+    let html = `<div style="${pageStyle}">`;
+
+    html += `<div style="text-align:center; padding-bottom:16px; margin-bottom:24px; border-bottom:2px solid var(--border-color);">`;
+    html += `<h1 style="margin:0 0 10px 0; font-size:18pt; font-weight:700; color:var(--text-main);">${meetingTitle}</h1>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:var(--text-muted);">Date: ${date}</p>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:var(--text-muted);">Time: ${time}</p>`;
+    html += `</div>`;
+
+    agendas.forEach((agenda, idx) => {
+      const agendaTitle = agenda.title || `Agenda ${idx + 1}`;
+      const keyPoints = agenda.key_points || [];
+      const clarifications = agenda.important_clarifications || [];
+
+      html += `<div style="margin-bottom:24px;">`;
+      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:var(--text-main);">${idx + 1}. ${agendaTitle}</h2>`;
+
+      if (keyPoints.length > 0) {
+        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Key Points:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
+        keyPoints.forEach((pt) => {
+          html += `<li style="margin-bottom:5px; font-size:11pt;">${pt}</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      if (clarifications.length > 0) {
+        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Important Clarifications:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
+        clarifications.forEach((c) => {
+          html += `<li style="margin-bottom:5px; font-size:11pt;">${c}</li>`;
+        });
+        html += `</ul>`;
+      }
+
+      html += `</div>`;
+    });
+
+    if (nextMeeting) {
+      html += `<div style="margin-top:12px; padding:8px 0; color:var(--text-main);">`;
+      html += `<p style="font-size:11pt;"><strong>Next Meeting:</strong> ${typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting))}</p>`;
+      html += `</div>`;
+    }
+
+    html += `<div style="border-top:2px solid var(--border-color); margin-top:32px; padding-top:16px; color:var(--text-main);">`;
+    html += `<p style="font-size:11pt;"><strong>Prepared by:</strong> ${preparedBy}</p>`;
+    html += `</div>`;
+
+    html += `</div>`;
+    return html;
   }
 
-  html += `<tr><td colspan="2" style="border:2px solid #5b21b6; padding:12px; background:#fefce8;"><strong>Summary:</strong><br/>${summary}</td></tr>`;
+  // ─── Cornell Notes format (Reviewer — default) ─────────────────
+  const title = s.title || "Untitled";
+  const recordDate = meta.date ? new Date(meta.date).toLocaleDateString() : new Date().toLocaleDateString();
+  const keyConcepts = s.key_concepts || s.cue_questions || [];
+  const notes = s.notes || [];
+  const summaryArr = Array.isArray(s.summary) ? s.summary : (s.summary ? [s.summary] : []);
+
+  let html = `<div style="${pageStyle}">`;
+
+  html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
+  html += `<tr>`;
+  html += `<td style="padding:14px 16px; width:35%; text-align:left; vertical-align:middle; font-size:11pt; color:#444; border-bottom:2px solid #333;"><strong>Date:</strong> ${recordDate}</td>`;
+  html += `<td style="padding:14px 16px; width:65%; text-align:right; vertical-align:middle; font-size:16pt; font-weight:700; color:#5b21b6; border-bottom:2px solid #333;">${title}</td>`;
+  html += `</tr>`;
   html += `</table>`;
+
+  html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
+  html += `<tr>`;
+
+  html += `<td style="width:35%; vertical-align:top; padding:16px; border-right:2px solid var(--border-color);">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Key Concepts</p>`;
+  if (keyConcepts.length > 0) {
+    html += `<ul style="margin:0; padding:0 0 0 18px; list-style-type:disc; color:var(--text-main);">`;
+    keyConcepts.forEach((concept) => {
+      html += `<li style="margin-bottom:8px; font-size:11pt;">${concept}</li>`;
+    });
+    html += `</ul>`;
+  }
+  html += `</td>`;
+
+  html += `<td style="width:65%; vertical-align:top; padding:16px;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Notes</p>`;
+  if (Array.isArray(notes) && notes.length > 0) {
+    notes.forEach((note) => {
+      if (typeof note === "object" && note !== null) {
+        html += `<div style="margin-bottom:16px;">`;
+        if (note.term) html += `<p style="margin:0 0 3px 0; font-weight:700; font-size:11pt; color:var(--text-main);">${note.term}</p>`;
+        if (note.definition) html += `<p style="margin:0 0 3px 0; font-size:11pt; color:var(--text-main);">${note.definition}</p>`;
+        if (note.example) html += `<p style="margin:0; font-size:10pt; color:var(--text-muted); font-style:italic;">Example: ${note.example}</p>`;
+        html += `</div>`;
+      } else {
+        html += `<p style="margin:0 0 10px 0; font-size:11pt; color:var(--text-main);">${note}</p>`;
+      }
+    });
+  }
+  html += `</td>`;
+
+  html += `</tr>`;
+  html += `</table>`;
+
+  html += `<div style="border-top:2px solid var(--border-color); padding:16px 0;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">Summary</p>`;
+  if (summaryArr.length > 0) {
+    html += `<ul style="margin:0; padding:0 0 0 18px; color:var(--text-main);">`;
+    summaryArr.forEach((point) => {
+      html += `<li style="margin-bottom:6px; font-size:11pt;">${point}</li>`;
+    });
+    html += `</ul>`;
+  }
+  html += `</div>`;
+
+  html += `</div>`;
   return html;
 }
 
@@ -50,6 +158,7 @@ export default function ReviewerEditorPage() {
   
   const [editorContent, setEditorContent] = useState("");
   const [loading, setLoading] = useState(true);
+  const [tinymceReady, setTinymceReady] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
@@ -94,7 +203,7 @@ export default function ReviewerEditorPage() {
 
         // If no saved content, render summaryJson as initial HTML
         if (!savedContent) {
-          const html = summaryJsonToHtml(transcription.summaryJson);
+          const html = summaryJsonToHtml(transcription.summaryJson, transcription);
           initialContentRef.current = html;
           setEditorContent(html);
           setContentLoaded(true);
@@ -158,23 +267,58 @@ export default function ReviewerEditorPage() {
 
   const handleDownloadPDF = async () => {
     try {
+      const html2pdf = (await import("html2pdf.js")).default;
+
       // Build a temporary container with the editor content
       const container = document.createElement('div');
-      container.innerHTML = editorContent;
-      container.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      container.style.fontSize = '14px';
-      container.style.lineHeight = '1.6';
+      
+      // 1. INJECT LIGHT MODE VARIABLES: 
+      // This forces the PDF snapshot to always use your light theme colors,
+      // regardless of whether the app is currently in dark mode.
+      const printStyles = `
+        <style>
+          .pdf-export-wrapper {
+            --text-main: #1a1a1a;
+            --text-muted: #666666;
+            --border-color: #333333;
+            --accent-color: #5b21b6;
+            background-color: #ffffff;
+          }
+          /* Ensure tables retain their borders in the PDF */
+          .pdf-export-wrapper table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: fixed;
+          }
+          .pdf-export-wrapper table td, .pdf-export-wrapper table th {
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+          }
+        </style>
+      `;
+
+      // Wrap the content so the CSS variables apply correctly
+      container.innerHTML = printStyles + `<div class="pdf-export-wrapper">${editorContent}</div>`;
+      
+      container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+      container.style.fontSize = '12pt';
+      container.style.lineHeight = '1.7';
       container.style.color = '#1a1a1a';
-      container.style.padding = '20px';
+      container.style.backgroundColor = '#ffffff'; // Force white background on the container
+      container.style.textAlign = 'justify';
+      container.style.maxWidth = '210mm';
+      container.style.margin = '0 auto';
 
       const filename = `${(reviewer?.title || 'reviewer').replace(/[^a-zA-Z0-9 ]/g, '')}.pdf`;
 
       const opt = {
-        margin: [10, 10, 10, 10],
+        margin: [5, 5, 5, 5], // top, left, bottom, right
         filename,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        // 2. FORCE WHITE BACKGROUND: Ensure html2canvas doesn't render transparent pages
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, 
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
       };
 
       await html2pdf().set(opt).from(container).save();
@@ -206,7 +350,7 @@ export default function ReviewerEditorPage() {
 
   return (
     <div className={`reviewer-editor-container ${darkMode ? 'dark-mode' : ''}`}>
-      {loading && <LoadingScreen />}
+      {(loading || !tinymceReady) && <LoadingScreen />}
       {/* Toolbar */}
       <div className="editor-toolbar">
         <div className="toolbar-left">
@@ -240,14 +384,15 @@ export default function ReviewerEditorPage() {
         {!loading && (
           <div className="tinymce-wrapper">
             <Editor
-              key={contentLoaded ? 'loaded' : 'loading'}
+              // 1. COMBINED KEY: Forces re-mount when content loads OR theme changes
+              key={contentLoaded ? (darkMode ? 'loaded-dark' : 'loaded-light') : 'loading'}
+              
               tinymceScriptSrc="/tinymce/tinymce.min.js"
               initialValue={initialContentRef.current || "<p>Loading content...</p>"}
               onInit={(evt, editor) => {
                 editorRef.current = editor;
                 contentInitialized.current = true;
-                console.log("TinyMCE initialized, editor ready");
-                console.log("Content loaded:", contentLoaded, "Content length:", initialContentRef.current?.length || 0);
+                setTinymceReady(true);
               }}
               onEditorChange={(content) => {
                 isTyping.current = true;
@@ -264,51 +409,55 @@ export default function ReviewerEditorPage() {
                   'anchor', 'searchreplace', 'visualblocks', 'code',
                   'insertdatetime', 'media', 'table', 'help', 'wordcount'
                 ],
-                toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright | bullist numlist | table | removeformat',
+                toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist | table | removeformat',
                 table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol | tablecellprops tablemergecells tablesplitcells',
+                
+                // 2. DYNAMIC STYLES: Define the variables at the root level
                 content_style: `
-                  body { 
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    font-size: 16px;
-                    line-height: 1.6;
-                    color: #1a1a1a;
-                    padding: 20px;
+                  :root {
+                    --text-main: ${darkMode ? '#e8e8e8' : '#1a1a1a'};
+                    --text-muted: ${darkMode ? '#a0a0a0' : '#666666'};
+                    --border-color: ${darkMode ? '#4c4172' : '#333333'};
+                    --accent-color: ${darkMode ? '#c5a6f9' : '#5b21b6'};
+                  }
+                  body {
+                    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    font-size: 12pt;
+                    line-height: 1.7;
+                    color: var(--text-main); 
+                    background-color: ${darkMode ? '#1a1625' : '#ffffff'};
+                    max-width: 210mm;
+                    margin: 0 auto;
+                    padding: 20mm 18mm;
+                    text-align: justify;
+                    box-sizing: border-box;
                   }
                   table {
                     border-collapse: collapse;
                     width: 100%;
-                    margin: 20px 0;
+                    margin: 0;
                     table-layout: fixed;
                   }
                   table td, table th {
-                    border: 2px solid #5b21b6;
-                    padding: 12px;
+                    padding: 14px 16px;
                     vertical-align: top;
+                    text-align: justify;
+                    border: 1px solid var(--border-color); 
                   }
-                  table tr:first-child td, table tr:first-child th {
-                    background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
-                    color: white;
-                    font-weight: 700;
-                  }
-                  table td[style*="width: 30%"] {
-                    background: #f3f4f6;
-                    width: 30%;
-                  }
-                  table td[style*="width: 70%"] {
-                    background: #white;
-                    width: 70%;
-                  }
-                  table td[colspan] {
-                    background: #fefce8;
-                  }
+                  h1, h2, h3 { color: var(--text-main); }
+                  ul { margin: 4px 0 12px 24px; padding: 0; }
+                  li { margin-bottom: 5px; }
+                  p { margin: 0 0 8px 0; }
                 `,
+
                 skin: darkMode ? 'oxide-dark' : 'oxide',
                 content_css: darkMode ? 'dark' : 'default',
+                
                 branding: false,
                 resize: false,
                 statusbar: true,
                 table_default_attributes: {
-                  border: '2'
+                  border: '0'
                 },
                 table_default_styles: {
                   'border-collapse': 'collapse',

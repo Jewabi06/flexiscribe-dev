@@ -128,7 +128,7 @@ export default function ClassTranscriptsPage() {
           <div className="back-button-container">
             <button className="back-button" onClick={() => router.push('/student/documents')}>
               <FaArrowLeft className="back-icon" />
-              <span>Back to Reviewers</span>
+              <span>Back to Documents</span>
             </button>
           </div>
 
@@ -154,13 +154,9 @@ export default function ClassTranscriptsPage() {
               {transcripts.map((transcript) => (
                 <div key={transcript.id} className="transcript-card">
                   <div className="transcript-card-header">
-                    <div className="file-type-badge">
-                      <FaFileAlt />
-                      <span>JSON</span>
-                    </div>
-                    <div className={`status-badge ${transcript.status?.toLowerCase() || 'completed'}`}>
+                    <div className="file-type-badge completed">
                       <FaCheckCircle />
-                      <span>{transcript.status || 'COMPLETED'}</span>
+                      <span>COMPLETED</span>
                     </div>
                   </div>
                   

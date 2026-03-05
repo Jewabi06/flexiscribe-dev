@@ -3,13 +3,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { FiArrowLeft } from "react-icons/fi";
+import FormDropdown from "@/components/shared/FormDropdown";
 
 export default function StudentRegister() {
   const router = useRouter();
   const [step, setStep] = useState(1); // 1: personal details, 2: account details
 
   // Step 1: Personal Details
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [suffix, setSuffix] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
   const [yearLevel, setYearLevel] = useState("");
   const [section, setSection] = useState("");
@@ -68,7 +71,7 @@ export default function StudentRegister() {
     setError("");
     setSuccess("");
 
-    if (!fullName || !studentNumber || !yearLevel || !section || !program || !dateOfBirth || !gender) {
+    if (!firstName || !lastName || !studentNumber || !yearLevel || !section || !program || !dateOfBirth || !gender) {
       setError("Please fill in all fields");
       return;
     }
@@ -122,7 +125,10 @@ export default function StudentRegister() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          fullName,
+          firstName,
+          lastName,
+          suffix: suffix.replace(/\.$/, ""),
+          fullName: `${firstName} ${lastName}${suffix ? ` ${suffix.replace(/\.$/, "")}` : ""}`.trim(),
           studentNumber,
           username,
           yearLevel,
@@ -179,17 +185,45 @@ export default function StudentRegister() {
         {/* Step 1: Personal Details */}
         {step === 1 && (
           <form onSubmit={handleStep1Submit} className="space-y-4 sm:space-y-6">
-            {/* Full Name */}
+            {/* First Name & Last Name */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  First Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Juan"
+                />
+              </div>
+              <div>
+                <label className="text-[#4c4172] block text-sm font-medium mb-2">
+                  Last Name
+                </label>
+                <input
+                  type="text"
+                  className="neu-input"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Dela Cruz"
+                />
+              </div>
+            </div>
+
+            {/* Suffix (Optional) */}
             <div>
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
-                Full Name
+                Suffix <span className="text-gray-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="text"
                 className="neu-input"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Juan Dela Cruz"
+                value={suffix}
+                onChange={(e) => setSuffix(e.target.value)}
+                placeholder="Jr, Sr, III, etc."
               />
             </div>
 
@@ -213,18 +247,18 @@ export default function StudentRegister() {
                 <label className="text-[#4c4172] block text-sm font-medium mb-2">
                   Year Level
                 </label>
-                <select
-                  className="neu-input"
+                <FormDropdown
                   value={yearLevel}
-                  onChange={(e) => setYearLevel(e.target.value)}
-                >
-                  <option value="">Select</option>
-                  <option value="1">1st Year</option>
-                  <option value="2">2nd Year</option>
-                  <option value="3">3rd Year</option>
-                  <option value="4">4th Year</option>
-                  <option value="5">5th Year</option>
-                </select>
+                  onChange={setYearLevel}
+                  placeholder="Select"
+                  options={[
+                    { value: "1", label: "1st Year" },
+                    { value: "2", label: "2nd Year" },
+                    { value: "3", label: "3rd Year" },
+                    { value: "4", label: "4th Year" },
+                    { value: "5", label: "5th Year" },
+                  ]}
+                />
               </div>
               <div>
                 <label className="text-[#4c4172] block text-sm font-medium mb-2">
@@ -245,18 +279,18 @@ export default function StudentRegister() {
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
                 Program
               </label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={program}
-                onChange={(e) => setProgram(e.target.value)}
-              >
-                <option value="">Select Program</option>
-                <option value="BSCS">BS Computer Science</option>
-                <option value="BSIT">BS Information Technology</option>
-                <option value="BSCPE">BS Computer Engineering</option>
-                <option value="BSIE">BS Industrial Engineering</option>
-                <option value="BSECE">BS Electrical Engineering</option>
-              </select>
+                onChange={setProgram}
+                placeholder="Select Program"
+                options={[
+                  { value: "BSCS", label: "BS Computer Science" },
+                  { value: "BSIT", label: "BS Information Technology" },
+                  { value: "BSCPE", label: "BS Computer Engineering" },
+                  { value: "BSIE", label: "BS Industrial Engineering" },
+                  { value: "BSECE", label: "BS Electrical Engineering" },
+                ]}
+              />
             </div>
 
             {/* Date of Birth */}
@@ -277,16 +311,16 @@ export default function StudentRegister() {
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
                 Gender
               </label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={gender}
-                onChange={(e) => setGender(e.target.value)}
-              >
-                <option value="">Select Gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Prefer not to say</option>
-              </select>
+                onChange={setGender}
+                placeholder="Select Gender"
+                options={[
+                  { value: "Male", label: "Male" },
+                  { value: "Female", label: "Female" },
+                  { value: "Other", label: "Prefer not to say" },
+                ]}
+              />
             </div>
 
             {/* Next Button */}
@@ -339,6 +373,7 @@ export default function StudentRegister() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="off"
                 />
                 <button
                   type="button"
@@ -383,6 +418,7 @@ export default function StudentRegister() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="off"
                 />
                 <button
                   type="button"

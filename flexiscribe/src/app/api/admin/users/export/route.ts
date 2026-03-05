@@ -35,7 +35,6 @@ export async function GET(request: Request) {
     csvRows.push([
       "ID",
       "Email",
-      "Phone Number",
       "Role",
       "Full Name",
       "Username",
@@ -89,7 +88,6 @@ export async function GET(request: Request) {
       csvRows.push([
         u.id,
         u.email,
-        u.phoneNumber || "",
         u.role,
         `"${fullName}"`,
         username,

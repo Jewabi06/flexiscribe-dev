@@ -73,6 +73,9 @@ export async function POST(request: NextRequest) {
       .map((c: { text: string }) => c.text)
       .join("\n");
 
+    // Track auto-created lesson for response
+    let createdLesson: { id: string; title: string } | null = null;
+
     // Update the transcription record in the database with JSON data
     if (transcriptionId) {
       const updatedTranscription = await prisma.transcription.update({
@@ -92,6 +95,44 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // ── Auto-create a Reviewer (Lesson record) from the completed summary ──
+      // Only for LECTURES — the reviewer (Cornell Notes) feeds into Quiz generation.
+      // MOTM (meeting minutes) are excluded from the quiz pipeline.
+      const sType = updatedTranscription.sessionType || "lecture";
+      if (data.final_summary && sType === "lecture") {
+        try {
+          const summaryObj = data.final_summary;
+          const cueQuestions = summaryObj.cue_questions || [];
+          const notes = summaryObj.notes || [];
+          const summary = summaryObj.summary || "";
+          const reviewerContent = JSON.stringify({
+            type: "cornell",
+            title: summaryObj.title || updatedTranscription.title,
+            summary,
+            keyConcepts: cueQuestions.map((q: string, i: number) => ({
+              term: q,
+              definition: notes[i] || "",
+            })),
+            importantFacts: notes,
+            detailedContent: `${cueQuestions.join("\n")}\n\n${notes.join("\n")}\n\n${summary}`,
+          });
+
+          // Only create if we have enough content for quiz generation (≥200 chars)
+          if (reviewerContent.length >= 200) {
+            createdLesson = await prisma.lesson.create({
+              data: {
+                title: updatedTranscription.title,
+                subject: updatedTranscription.course,
+                content: reviewerContent,
+              },
+            });
+            console.log(`Auto-created reviewer "${createdLesson.title}" (${createdLesson.id}) from transcription`);
+          }
+        } catch (lessonErr) {
+          console.error("Failed to auto-create reviewer from transcription:", lessonErr);
+        }
+      }
+
       // Notify enrolled students about the new transcript/summary
       if (updatedTranscription.classId) {
         try {
@@ -105,13 +146,22 @@ export async function POST(request: NextRequest) {
             const classSubject = updatedTranscription.class?.subject || updatedTranscription.course;
             const classSection = updatedTranscription.class?.section || "";
 
+            // Fetch educator name with prefix for notification
+            const educator = await prisma.educator.findUnique({
+              where: { id: updatedTranscription.educatorId },
+              select: { prefix: true, firstName: true, lastName: true, fullName: true },
+            });
+            const educatorDisplayName = educator
+              ? `${educator.prefix ? educator.prefix + " " : ""}${educator.firstName || ""} ${educator.lastName || ""}`.trim() || educator.fullName
+              : "Your professor";
+
             let notifTitle = "New Transcript Available";
-            let notifMessage = `A new transcript "${updatedTranscription.title}" has been uploaded`;
+            let notifMessage = `${educatorDisplayName} uploaded a new transcript "${updatedTranscription.title}"`;
             let notifType = "transcript";
 
             if (hasSummary) {
               notifTitle = "New Transcript & Summary Available";
-              notifMessage = `A new transcript and summary "${updatedTranscription.title}" has been uploaded`;
+              notifMessage = `${educatorDisplayName} uploaded a new transcript and summary "${updatedTranscription.title}"`;
               notifType = "transcript_summary";
             }
 
@@ -185,6 +235,8 @@ export async function POST(request: NextRequest) {
         duration: data.duration,
         chunks_count: chunks.length,
         has_summary: !!data.final_summary,
+        lesson_created: !!createdLesson,
+        lesson_id: createdLesson?.id || null,
         transcript: data.transcript,
         live_transcript: data.live_transcript || null,
         final_summary: data.final_summary,

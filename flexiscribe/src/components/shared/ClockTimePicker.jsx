@@ -118,7 +118,7 @@ export default function ClockTimePicker({
 
       {/* Clock popup */}
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-[#d6d1ee] rounded-2xl shadow-xl p-4 w-[240px]">
+        <div className="absolute left-0 bottom-full mb-1 z-50 bg-white border border-[#d6d1ee] rounded-2xl shadow-xl p-4 w-[240px]">
           {/* Mode tabs */}
           <div className="flex items-center justify-center gap-1 mb-3">
             <button

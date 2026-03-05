@@ -142,9 +142,6 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
                     {u.fullName || u.name || "N/A"}
                   </p>
                   <p className="text-sm text-[#7b6fae]">{u.email || "N/A"}</p>
-                  {u.phoneNumber && (
-                    <p className="text-xs text-[#9d8adb]">{u.phoneNumber}</p>
-                  )}
                 </div>
 
                 {/* USERNAME */}
@@ -207,9 +204,6 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
                     {u.fullName || u.name || "N/A"}
                   </p>
                   <p className="text-sm text-[#7b6fae]">{u.email || "N/A"}</p>
-                  {u.phoneNumber && (
-                    <p className="text-xs text-[#9d8adb]">{u.phoneNumber}</p>
-                  )}
                 </div>
 
                 <span
