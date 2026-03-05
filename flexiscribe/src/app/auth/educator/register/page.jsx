@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { FiArrowLeft } from "react-icons/fi";
+import FormDropdown from "@/components/shared/FormDropdown";
 
 export default function EducatorRegister() {
   const router = useRouter();
@@ -195,20 +196,22 @@ export default function EducatorRegister() {
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
                 Prefix <span className="text-gray-400 font-normal">(Optional)</span>
               </label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={prefix}
-                onChange={(e) => setPrefix(e.target.value)}
-              >
-                <option value="">None</option>
-                <option value="Mr.">Mr.</option>
-                <option value="Ms.">Ms.</option>
-                <option value="Mrs.">Mrs.</option>
-                <option value="Dr.">Dr.</option>
-                <option value="Prof.">Prof.</option>
-                <option value="Engr.">Engr.</option>
-                <option value="Atty.">Atty.</option>
-              </select>
+                onChange={setPrefix}
+                placeholder="None"
+                options={[
+                  { value: "", label: "None" },
+                  { value: "Mr.", label: "Mr." },
+                  { value: "Ms.", label: "Ms." },
+                  { value: "Mrs.", label: "Mrs." },
+                  { value: "Mx.", label: "Mx." },
+                  { value: "Dr.", label: "Dr." },
+                  { value: "Prof.", label: "Prof." },
+                  { value: "Engr.", label: "Engr." },
+                  { value: "Atty.", label: "Atty." },
+                ]}
+              />
             </div>
 
             {/* First Name & Last Name */}
@@ -258,18 +261,12 @@ export default function EducatorRegister() {
               <label className="text-[#4c4172] block text-sm font-medium mb-2">
                 Department Specialization
               </label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-              >
-                <option value="">Select Department</option>
-                {departments.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setDepartmentId}
+                placeholder="Select Department"
+                options={departments.map((dept) => ({ value: dept.id, label: dept.name }))}
+              />
             </div>
 
             {/* Date of Birth */}
@@ -288,16 +285,16 @@ export default function EducatorRegister() {
             {/* Gender */}
             <div>
               <label className="text-[#4c4172] block text-sm font-medium mb-2">Gender</label>
-              <select
-                className="neu-input"
+              <FormDropdown
                 value={gender}
-                onChange={(e) => setGender(e.target.value)}
-              >
-                <option value="">Select Gender</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Other">Prefer not to say</option>
-              </select>
+                onChange={setGender}
+                placeholder="Select Gender"
+                options={[
+                  { value: "Male", label: "Male" },
+                  { value: "Female", label: "Female" },
+                  { value: "Other", label: "Prefer not to say" },
+                ]}
+              />
             </div>
 
             {/* Next Button */}
