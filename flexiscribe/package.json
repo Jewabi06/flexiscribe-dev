@@ -41,8 +41,7 @@
     "react-dom": "19.1.0",
     "react-icons": "^5.5.0",
     "react-pdf": "^9.2.1",
-    "recharts": "^3.6.0",
-    "resend": "^6.9.1"
+    "recharts": "^3.6.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^0.1.0",

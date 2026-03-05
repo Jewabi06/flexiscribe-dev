@@ -1,4 +1,4 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
 export interface EmailOptions {
   to: string;
@@ -7,28 +7,33 @@ export interface EmailOptions {
 }
 
 /**
- * Send an email using Resend
+ * Send an email using Nodemailer + Brevo SMTP
  */
 export async function sendEmail({ to, subject, html }: EmailOptions) {
   try {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) {
-      throw new Error("RESEND_API_KEY environment variable is not set.");
+    const user = process.env.BREVO_SMTP_USER;
+    const pass = process.env.BREVO_SMTP_PASS;
+    if (!user || !pass) {
+      throw new Error("BREVO_SMTP_USER and BREVO_SMTP_PASS environment variables must be set.");
     }
 
-    const resend = new Resend(apiKey);
-    const from = process.env.EMAIL_FROM || "fLexiScribe <onboarding@resend.dev>";
+    const transporter = nodemailer.createTransport({
+      host: "smtp-relay.brevo.com",
+      port: 587,
+      secure: false,
+      auth: { user, pass },
+    });
 
     console.log("Attempting to send email to:", to);
-    const { data, error } = await resend.emails.send({ from, to, subject, html });
+    const info = await transporter.sendMail({
+      from: `fLexiScribe <${user}>`,
+      to,
+      subject,
+      html,
+    });
 
-    if (error) {
-      console.error("Resend API error:", error);
-      return { success: false, error };
-    }
-
-    console.log("Email sent successfully:", data?.id);
-    return { success: true, data };
+    console.log("Email sent successfully:", info.messageId);
+    return { success: true, data: { id: info.messageId } };
   } catch (error) {
     console.error("Email sending error:", error);
     return { success: false, error };

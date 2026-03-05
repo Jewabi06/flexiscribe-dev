@@ -76,9 +76,45 @@ export default function StudentRegister() {
       return;
     }
 
-    // Validate student number format
-    if (studentNumber.length < 7) {
-      setError("Please enter a valid student number");
+    // Names: letters, spaces, hyphens, apostrophes only, 2+ chars
+    const nameRegex = /^[A-Za-z\s'\-]+$/;
+    if (!nameRegex.test(firstName) || firstName.trim().length < 2) {
+      setError("First name must be at least 2 characters and contain only letters");
+      return;
+    }
+    if (!nameRegex.test(lastName) || lastName.trim().length < 2) {
+      setError("Last name must be at least 2 characters and contain only letters");
+      return;
+    }
+
+    // Suffix validation (if provided)
+    if (suffix && !/^[A-Za-z.\s]+$/.test(suffix)) {
+      setError("Suffix may only contain letters and dots (e.g. Jr, Sr, III)");
+      return;
+    }
+
+    // Student number: digits only, 7+ chars
+    if (!/^\d{7,}$/.test(studentNumber)) {
+      setError("Student number must be at least 7 digits (numbers only)");
+      return;
+    }
+
+    // Section: letters only
+    if (!/^[A-Za-z]+$/.test(section)) {
+      setError("Section must contain only letters (e.g. A, B, C)");
+      return;
+    }
+
+    // Date of birth: student must be at least 15
+    const dob = new Date(dateOfBirth);
+    const today = new Date();
+    const age = today.getFullYear() - dob.getFullYear() - (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+    if (isNaN(dob.getTime()) || dob >= today) {
+      setError("Please enter a valid date of birth");
+      return;
+    }
+    if (age < 15) {
+      setError("Student must be at least 15 years old");
       return;
     }
 
@@ -97,6 +133,12 @@ export default function StudentRegister() {
 
     if (!username || !email || !password || !confirmPassword) {
       setError("Please fill in all fields");
+      return;
+    }
+
+    // Username: alphanumeric + underscores, 3–30 chars
+    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
+      setError("Username must be 3–30 characters and contain only letters, numbers, or underscores");
       return;
     }
 

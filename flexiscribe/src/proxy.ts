@@ -50,29 +50,37 @@ export async function proxy(request: NextRequest) {
       const user = await verifyToken(token);
       if (user && user.role === "ADMIN") {
         // Admin accessing login/landing while authenticated → go to dashboard
-        if (isAdminAuthPage || isAdminLanding) {
-          return NextResponse.redirect(new URL("/admin/dashboard", request.url));
-        }
-        return NextResponse.next();
+        return NextResponse.redirect(new URL("/admin/dashboard", request.url));
       }
     }
 
-    // Unauthenticated: require the access key query param
+    // Check for valid access: either query param or cookie from prior verification
     const accessKey = searchParams.get("access");
-    if (accessKey !== ADMIN_ACCESS_KEY) {
-      // No key or wrong key → looks like the page doesn't exist
-      return NextResponse.redirect(new URL("/", request.url));
+    const hasAccessCookie = request.cookies.get("admin-access")?.value === "1";
+
+    if (accessKey === ADMIN_ACCESS_KEY) {
+      // Correct key supplied → set a short-lived cookie so subsequent admin pages
+      // (like /auth/admin/login) work without the key in the URL.
+      const cleanUrl = request.nextUrl.clone();
+      cleanUrl.searchParams.delete("access");
+      const response = NextResponse.rewrite(cleanUrl);
+      response.cookies.set("admin-access", "1", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 30, // 30 minutes
+        path: "/",
+      });
+      return response;
     }
 
-    // Correct key supplied → strip the key from the URL so it doesn't leak in
-    // browser history, then allow access.
-    const cleanUrl = request.nextUrl.clone();
-    cleanUrl.searchParams.delete("access");
-    if (cleanUrl.toString() !== request.nextUrl.toString()) {
-      return NextResponse.rewrite(cleanUrl);
+    if (hasAccessCookie) {
+      // User previously verified with the access key — allow through
+      return NextResponse.next();
     }
 
-    return NextResponse.next();
+    // No key and no cookie → looks like the page doesn't exist
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   // If user is authenticated and trying to access login/auth pages, redirect to dashboard
@@ -90,8 +98,18 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Allow access to public paths and root
-  if (isPublicPath || pathname === "/") {
+  // ── Validate /?role= param on the landing page ────────────────────────────
+  if (pathname === "/") {
+    const roleParam = searchParams.get("role");
+    if (roleParam && roleParam !== "student" && roleParam !== "educator") {
+      // Invalid role → 404
+      return NextResponse.rewrite(new URL("/not-found", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // Allow access to public paths
+  if (isPublicPath) {
     return NextResponse.next();
   }
 

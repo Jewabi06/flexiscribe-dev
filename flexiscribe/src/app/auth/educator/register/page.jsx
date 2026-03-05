@@ -90,6 +90,36 @@ export default function EducatorRegister() {
       return;
     }
 
+    // Names: letters, spaces, hyphens, apostrophes only, 2+ chars
+    const nameRegex = /^[A-Za-z\s'\-]+$/;
+    if (!nameRegex.test(firstName) || firstName.trim().length < 2) {
+      setError("First name must be at least 2 characters and contain only letters");
+      return;
+    }
+    if (!nameRegex.test(lastName) || lastName.trim().length < 2) {
+      setError("Last name must be at least 2 characters and contain only letters");
+      return;
+    }
+
+    // Suffix: letters, dots, roman numerals only (if provided)
+    if (suffix && !/^[A-Za-z.\s]+$/.test(suffix)) {
+      setError("Suffix may only contain letters and dots (e.g. Jr, Sr, III)");
+      return;
+    }
+
+    // Date of birth: educator must be at least 18
+    const dob = new Date(dateOfBirth);
+    const today = new Date();
+    const age = today.getFullYear() - dob.getFullYear() - (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+    if (isNaN(dob.getTime()) || dob >= today) {
+      setError("Please enter a valid date of birth");
+      return;
+    }
+    if (age < 18) {
+      setError("Educator must be at least 18 years old");
+      return;
+    }
+
     setSuccess("Personal details saved!");
     setTimeout(() => {
       setStep(2);
@@ -105,6 +135,12 @@ export default function EducatorRegister() {
 
     if (!username || !email || !password || !confirmPassword) {
       setError("Please fill in all fields");
+      return;
+    }
+
+    // Username: alphanumeric + underscores, 3–30 chars
+    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
+      setError("Username must be 3–30 characters and contain only letters, numbers, or underscores");
       return;
     }
 
