@@ -28,6 +28,11 @@
   --edu-text-secondary: #b8b8b8;
 }
 
+/* ───────── Hide root-layout footer when educator layout is active ───────── */
+body:has(.edu-layout-wrapper) > footer.neu-footer {
+  display: none;
+}
+
 /* ───────── Sidebar ───────── */
 .edu-sidebar {
   scrollbar-width: none;
