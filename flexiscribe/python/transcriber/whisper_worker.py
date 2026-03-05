@@ -67,7 +67,7 @@ _HALLUCINATION_PHRASES = {
     "thanks", "thank", "please subscribe",
     "so", "uh", "um", "hmm",
     # Prompt echo hallucinations (from WHISPER_INITIAL_PROMPT)
-    "ito ay isang", "ito ay isang lecture",
+    "Ito ay isang", "ito ay isang lecture",
     "halimbawa ng taglish", "this is a university lecture",
     "this is a university lecture mixing filipino",
 }
