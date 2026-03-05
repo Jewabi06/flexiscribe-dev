@@ -525,15 +525,14 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
 
   // Change Password state
   const [cpOpen, setCpOpen] = useState(false);
-  const [cpStep, setCpStep] = useState(1);
-  const [cpData, setCpData] = useState({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+  const [cpData, setCpData] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [cpErrors, setCpErrors] = useState({});
   const [cpLoading, setCpLoading] = useState(false);
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
-  const [cpCountdown, setCpCountdown] = useState(0);
   const [cpSuccess, setCpSuccess] = useState(false);
+  const [cpRequestPending, setCpRequestPending] = useState(false);
 
   useEffect(() => {
     if (educator) {
@@ -547,11 +546,22 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
   }, [educator]);
 
   useEffect(() => {
-    if (cpCountdown > 0) {
-      const timer = setTimeout(() => setCpCountdown(cpCountdown - 1), 1000);
-      return () => clearTimeout(timer);
+    // Check for existing pending password request
+    async function checkPendingRequest() {
+      try {
+        const res = await fetch("/api/educator/change-password");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.request?.status === "pending") {
+            setCpRequestPending(true);
+          }
+        }
+      } catch (e) {
+        console.error("Error checking password request:", e);
+      }
     }
-  }, [cpCountdown]);
+    checkPendingRequest();
+  }, []);
 
   async function handleSave() {
     setLoading(true);
@@ -599,63 +609,29 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
     return Object.keys(newErrors).length === 0;
   }
 
-  async function cpSendCode() {
-    setCpLoading(true);
-    setCpCountdown(60);
-    try {
-      const res = await fetch("/api/educator/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send-code", currentPassword: cpData.currentPassword, newPassword: cpData.newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setCpErrors({ currentPassword: data.error || "Failed to send code" });
-        setCpCountdown(0);
-        return false;
-      }
-      return true;
-    } catch {
-      setCpErrors({ currentPassword: "An error occurred. Please try again." });
-      setCpCountdown(0);
-      return false;
-    } finally {
-      setCpLoading(false);
-    }
-  }
-
-  async function cpHandleContinue() {
+  async function cpSubmitRequest() {
     if (!cpValidate()) return;
-    const sent = await cpSendCode();
-    if (sent) setCpStep(2);
-  }
-
-  async function cpHandleVerify() {
-    if (!cpData.verificationCode || cpData.verificationCode.length !== 6) {
-      setCpErrors({ verificationCode: "Please enter the 6-digit code" });
-      return;
-    }
     setCpLoading(true);
     try {
       const res = await fetch("/api/educator/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verify-and-change", verificationCode: cpData.verificationCode }),
+        body: JSON.stringify({ currentPassword: cpData.currentPassword, newPassword: cpData.newPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setCpErrors({ verificationCode: data.error || "Verification failed" });
+        setCpErrors({ currentPassword: data.error || "Failed to submit request" });
         return;
       }
       setCpSuccess(true);
+      setCpRequestPending(true);
       setTimeout(() => {
         setCpSuccess(false);
         setCpOpen(false);
-        setCpStep(1);
-        setCpData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
-      }, 2000);
+        setCpData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      }, 3000);
     } catch {
-      setCpErrors({ verificationCode: "An error occurred" });
+      setCpErrors({ currentPassword: "An error occurred. Please try again." });
     } finally {
       setCpLoading(false);
     }
@@ -663,11 +639,9 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
 
   function cpClose() {
     setCpOpen(false);
-    setCpStep(1);
-    setCpData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+    setCpData({ currentPassword: "", newPassword: "", confirmPassword: "" });
     setCpErrors({});
     setCpSuccess(false);
-    setCpCountdown(0);
   }
 
   return (
@@ -767,9 +741,16 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
             {cpSuccess ? (
               <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm py-2">
                 <Lock size={16} />
-                <span>Password changed successfully!</span>
+                <span>Your password change request has been submitted to the admin for approval.</span>
               </div>
-            ) : cpStep === 1 ? (
+            ) : cpRequestPending ? (
+              <div style={{ 
+                padding: '0.75rem 1rem', borderRadius: '8px',
+                background: '#fff3e0', border: '1px solid #ffe0b2', color: '#e65100', fontSize: '0.85rem'
+              }}>
+                <strong>Pending Request:</strong> You already have a password change request awaiting admin approval. You will be notified once it is processed.
+              </div>
+            ) : (
               <div className="space-y-3 text-sm">
                 <div>
                   <label className="block mb-1 font-medium text-[#4c4172]">Current Password</label>
@@ -825,61 +806,15 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
 
                 <div className="flex justify-end mt-2">
                   <button
-                    onClick={cpHandleContinue}
+                    onClick={cpSubmitRequest}
                     className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white text-sm disabled:opacity-50 transition-all duration-300 hover:shadow-[0_4px_15px_rgba(157,138,219,0.4)] hover:translate-y-[-1px] flex items-center gap-2"
                     disabled={cpLoading}
                   >
                     <Lock size={14} />
-                    {cpLoading ? "Sending..." : "Continue"}
+                    {cpLoading ? "Submitting..." : "Submit Change Request"}
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-3 text-sm">
-                <p className="text-gray-600 dark:text-[#b0a8d4]">
-                  A 6-digit code was sent to <strong className="text-[#4c4172] dark:text-[#c5b8f5]">{educator?.user?.email || ""}</strong>.
-                </p>
-
-                <div>
-                  <label className="block mb-1 font-medium text-[#4c4172]">Verification Code</label>
-                  <input
-                    type="text"
-                    value={cpData.verificationCode}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
-                      setCpData(p => ({...p, verificationCode: v}));
-                      setCpErrors(p => ({...p, verificationCode: ""}));
-                    }}
-                    placeholder="000000"
-                    maxLength={6}
-                    className={`w-full px-4 py-3 rounded-xl border-2 ${cpErrors.verificationCode ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)] text-center text-2xl tracking-[8px] font-mono`}
-                  />
-                  {cpErrors.verificationCode && <p className="text-red-500 text-xs mt-1">{cpErrors.verificationCode}</p>}
-                </div>
-
-                <div className="text-center">
-                  <button onClick={() => { if (cpCountdown <= 0) cpSendCode(); }} disabled={cpCountdown > 0} className="text-xs text-[#9d8adb] hover:underline disabled:opacity-50">
-                    {cpCountdown > 0 ? `Resend code in ${cpCountdown}s` : "Resend code"}
-                  </button>
-                </div>
-
-                <div className="flex justify-between mt-2">
-                  <button
-                    onClick={() => { setCpStep(1); setCpErrors({}); setCpData(p => ({...p, verificationCode: ""})); }}
-                    className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm hover:bg-gray-200 transition-colors duration-200"
-                    disabled={cpLoading}
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={cpHandleVerify}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white text-sm disabled:opacity-50 transition-all duration-300 hover:shadow-[0_4px_15px_rgba(157,138,219,0.4)] hover:translate-y-[-1px] flex items-center gap-2"
-                    disabled={cpLoading || cpData.verificationCode.length !== 6}
-                  >
-                    <Lock size={14} />
-                    {cpLoading ? "Verifying..." : "Verify & Change"}
-                  </button>
-                </div>
+                <p className="text-xs text-gray-400 text-center">Your request will be sent to the admin for approval.</p>
               </div>
             )}
           </div>

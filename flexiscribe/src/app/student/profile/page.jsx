@@ -44,12 +44,10 @@ export default function StudentProfile() {
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
-    verificationCode: ""
   });
   const [passwordErrors, setPasswordErrors] = useState({});
-  const [passwordStep, setPasswordStep] = useState(1); // 1: Enter passwords, 2: Verify code
+  const [passwordRequestStatus, setPasswordRequestStatus] = useState(null); // null, "pending", "approved", "denied"
   const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
-  const [countdown, setCountdown] = useState(0);
 
   // Form state - will be populated from database
   const [formData, setFormData] = useState({
@@ -129,13 +127,23 @@ export default function StudentProfile() {
     }
   }, [loading, mounted]);
 
-  // Countdown timer for resend code
+  // Check for existing password request status
   useEffect(() => {
-    if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [countdown]);
+    const checkPasswordRequestStatus = async () => {
+      try {
+        const response = await fetch('/api/students/change-password');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.request) {
+            setPasswordRequestStatus(data.request.status);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking password request status:', error);
+      }
+    };
+    if (mounted) checkPasswordRequestStatus();
+  }, [mounted]);
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -223,15 +231,16 @@ export default function StudentProfile() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const sendVerificationCode = async () => {
-    setCountdown(60); // 60 seconds cooldown
+  const handleSubmitPasswordRequest = async () => {
+    if (!validatePassword()) {
+      return;
+    }
     
     try {
       const response = await fetch('/api/students/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'send-code',
           currentPassword: passwordData.currentPassword,
           newPassword: passwordData.newPassword,
         }),
@@ -239,72 +248,17 @@ export default function StudentProfile() {
       const data = await response.json();
       
       if (!response.ok) {
-        setPasswordErrors({ currentPassword: data.error || 'Failed to send verification code' });
-        setCountdown(0);
-        return false;
-      }
-      
-      setModalInfo({ isOpen: true, title: "Verification Code Sent", message: `A 6-digit verification code has been sent to ${formData.email}. Please check your inbox.`, type: "info" });
-      return true;
-    } catch (error) {
-      console.error('Error sending verification code:', error);
-      setPasswordErrors({ currentPassword: 'An error occurred. Please try again.' });
-      setCountdown(0);
-      return false;
-    }
-  };
-
-  const handleContinueToVerification = async () => {
-    if (!validatePassword()) {
-      return;
-    }
-    const sent = await sendVerificationCode();
-    if (sent) {
-      setPasswordStep(2);
-    }
-  };
-
-  const handleVerifyAndChangePassword = async () => {
-    if (!passwordData.verificationCode) {
-      setPasswordErrors({ verificationCode: "Please enter the verification code" });
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/students/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'verify-and-change',
-          verificationCode: passwordData.verificationCode,
-        }),
-      });
-      const data = await response.json();
-      
-      if (!response.ok) {
-        setPasswordErrors({ verificationCode: data.error || "Failed to change password" });
+        setPasswordErrors({ currentPassword: data.error || 'Failed to submit request' });
         return;
       }
       
-      setModalInfo({ isOpen: true, title: "Success", message: "Password changed successfully!", type: "success" });
-      setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
-      setPasswordStep(1);
+      setModalInfo({ isOpen: true, title: "Request Submitted", message: data.message || "Your password change request has been submitted to the admin for approval.", type: "info" });
+      setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordRequestStatus("pending");
     } catch (error) {
-      console.error("Error changing password:", error);
-      setPasswordErrors({ verificationCode: "An error occurred while changing password" });
+      console.error('Error submitting password request:', error);
+      setPasswordErrors({ currentPassword: 'An error occurred. Please try again.' });
     }
-  };
-
-  const handleResendCode = async () => {
-    if (countdown === 0) {
-      await sendVerificationCode();
-    }
-  };
-
-  const handleBackToPasswordForm = () => {
-    setPasswordStep(1);
-    setPasswordData(prev => ({ ...prev, verificationCode: "" }));
-    setPasswordErrors({});
   };
 
   const handleBack = () => {
@@ -487,17 +441,28 @@ export default function StudentProfile() {
                 <FaLock className="password-icon" />
                 <h2 className="password-title">Change Password</h2>
               </div>
+
+              {/* Pending request notice */}
+              {passwordRequestStatus === "pending" && (
+                <div style={{ 
+                  padding: '1rem', borderRadius: '8px', marginBottom: '1rem',
+                  background: '#fff3e0', border: '1px solid #ffe0b2', color: '#e65100'
+                }}>
+                  <strong>Pending Request:</strong> You have a password change request awaiting admin approval. You will be notified once it is processed.
+                </div>
+              )}
               
-              {/* Step 1: Enter Passwords */}
-              {passwordStep === 1 && (
+              {/* Password form */}
+              {passwordRequestStatus !== "pending" && (
                 <div className="password-form">
-                  {/* FIX: HIDDEN HONEY-TRAP FIELD 
-                    This tricks the browser's password manager into auto-filling the username 
-                    here instead of leaking it into the dashboard search bar. 
-                  */}
                   <input 
                     type="text" 
                     name="username" 
+                    autoComplete="username" 
+                    style={{ display: 'none' }} 
+                    aria-hidden="true" 
+                    tabIndex="-1"
+                  />
                     autoComplete="username" 
                     style={{ display: 'none' }} 
                     aria-hidden="true" 
@@ -583,73 +548,13 @@ export default function StudentProfile() {
                   </div>
 
                   <div className="form-actions">
-                    <button className="save-btn" onClick={handleContinueToVerification}>
-                      <FaLock /> Continue
+                    <button className="save-btn" onClick={handleSubmitPasswordRequest}>
+                      <FaLock /> Submit Change Request
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* Step 2: Verification Code */}
-              {passwordStep === 2 && (
-                <div className="password-form verification-step">
-                  <p className="verification-text">
-                    A verification code has been sent to <strong>{formData.email}</strong>. 
-                    Please enter the 6-digit code below to complete the password change.
+                  <p style={{ fontSize: '0.85rem', color: '#888', marginTop: '0.5rem', textAlign: 'center' }}>
+                    Your request will be sent to the admin for approval.
                   </p>
-                  
-                  <div className="form-group">
-                    <label htmlFor="verificationCode">Verification Code</label>
-                    <input
-                      type="text"
-                      id="verificationCode"
-                      name="verificationCode"
-                      value={passwordData.verificationCode}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/\D/g, "").slice(0, 6);
-                        setPasswordData(prev => ({ ...prev, verificationCode: value }));
-                        setPasswordErrors(prev => ({ ...prev, verificationCode: "" }));
-                      }}
-                      className={passwordErrors.verificationCode ? "error" : ""}
-                      placeholder="000000"
-                      maxLength={6}
-                      style={{ textAlign: 'center', fontSize: '24px', letterSpacing: '8px' }}
-                    />
-                    {passwordErrors.verificationCode && (
-                      <span className="error-message">{passwordErrors.verificationCode}</span>
-                    )}
-                  </div>
-
-                  <div className="resend-code-section">
-                    <button
-                      type="button"
-                      className="resend-code-btn"
-                      onClick={handleResendCode}
-                      disabled={countdown > 0}
-                    >
-                      {countdown > 0 
-                        ? `Resend code in ${countdown}s` 
-                        : "Resend code"
-                      }
-                    </button>
-                  </div>
-
-                  <div className="form-actions" style={{ display: 'flex', gap: '1rem' }}>
-                    <button 
-                      className="save-btn" 
-                      onClick={handleBackToPasswordForm}
-                      style={{ flex: 1, background: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-                    >
-                      Back
-                    </button>
-                    <button 
-                      className="save-btn" 
-                      onClick={handleVerifyAndChangePassword}
-                      style={{ flex: 1 }}
-                    >
-                      <FaLock /> Verify & Change Password
-                    </button>
-                  </div>
                 </div>
               )}
             </div>

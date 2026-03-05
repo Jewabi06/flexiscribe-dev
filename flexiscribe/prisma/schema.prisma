@@ -308,6 +308,24 @@ model VerificationCode {
   @@index([code])
 }
 
+model PasswordRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  type            String // "change" or "reset"
+  status          String    @default("pending") // "pending", "approved", "denied"
+  reason          String? // optional reason from the user
+  adminNote       String? // optional note from admin
+  newPasswordHash String? // hashed new password (stored when user provides it)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  resolvedAt      DateTime?
+  resolvedBy      String? // admin id who resolved
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 enum Role {
   ADMIN
   STUDENT
