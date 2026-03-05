@@ -4,12 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { Home, Users, GraduationCap, BarChart3, FileText, X } from "lucide-react";
+import { Home, Users, GraduationCap, BarChart3, FileText, KeyRound, X } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard", icon: Home },
   { label: "Manage Accounts", href: "/admin/manage-accounts", icon: Users },
   { label: "Manage Classes", href: "/admin/manage-classes", icon: GraduationCap },
+  { label: "Password Requests", href: "/admin/password-requests", icon: KeyRound },
   { label: "Class Analytics", href: "/admin/class-analytics", icon: BarChart3 },
   { label: "Audit Logs", href: "/admin/audit-logs", icon: FileText },
 ];
