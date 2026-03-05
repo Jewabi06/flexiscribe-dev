@@ -463,11 +463,6 @@ export default function StudentProfile() {
                     aria-hidden="true" 
                     tabIndex="-1"
                   />
-                    autoComplete="username" 
-                    style={{ display: 'none' }} 
-                    aria-hidden="true" 
-                    tabIndex="-1"
-                  />
                   {/* Current Password */}
                   <div className="form-group">
                     <label htmlFor="currentPassword">Current Password</label>
