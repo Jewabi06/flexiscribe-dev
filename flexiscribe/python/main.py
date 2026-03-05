@@ -194,11 +194,12 @@ def stop_transcription(req: StopRequest):
     session.stop_event.set()
 
     # Wait for whisper to finish its current transcription + remaining buffer.
+    # On CPU fallback, a single chunk can take 20-40 s (fp32) so allow enough time.
     print("[API] Waiting for whisper worker to finish...")
     if session.whisper_thread:
-        session.whisper_thread.join(timeout=15)
+        session.whisper_thread.join(timeout=90)
 
-    session.whisper_done.wait(timeout=10)
+    session.whisper_done.wait(timeout=30)
     print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
 
     # Wait for minute summaries to complete (NOT the final Cornell summary).

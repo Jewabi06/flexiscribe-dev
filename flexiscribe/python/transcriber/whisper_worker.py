@@ -57,12 +57,19 @@ _model = None
 _model_lock = threading.Lock()
 
 # Common Whisper hallucinations when given silence or noise
+# Common Whisper hallucinations when given silence or noise.
+# Also includes fragments from WHISPER_INITIAL_PROMPT that Whisper
+# sometimes regurgitates during quiet/unclear audio segments.
 _HALLUCINATION_PHRASES = {
     "you", "the", "i", "a", "is", "it", "and", "to",
     "thank you", "thanks for watching", "subscribe",
     "thank you for watching", "bye", "you.", "the.",
     "thanks", "thank", "please subscribe",
     "so", "uh", "um", "hmm",
+    # Prompt echo hallucinations (from WHISPER_INITIAL_PROMPT)
+    "ito ay isang", "ito ay isang lecture",
+    "halimbawa ng taglish", "this is a university lecture",
+    "this is a university lecture mixing filipino",
 }
 
 
@@ -90,13 +97,18 @@ def get_whisper_model():
 
 
 def _is_hallucination(text: str) -> bool:
-    """Check if transcribed text is a known Whisper hallucination."""
+    """Check if transcribed text is a known Whisper hallucination or prompt echo."""
     cleaned = text.strip().lower().rstrip(".!?,")
     if cleaned in _HALLUCINATION_PHRASES:
         return True
     # Also filter very short outputs (≤2 words) that are just filler
     words = cleaned.split()
     if len(words) <= 2 and all(w in _HALLUCINATION_PHRASES for w in words):
+        return True
+    # Filter prompt echoes: if the entire chunk is a substring of the
+    # initial prompt, Whisper is regurgitating context, not real speech.
+    from config import WHISPER_INITIAL_PROMPT
+    if WHISPER_INITIAL_PROMPT and cleaned in WHISPER_INITIAL_PROMPT.lower():
         return True
     return False
 
@@ -108,10 +120,13 @@ def _rms_energy(audio: np.ndarray) -> float:
 
 # ── Transcribe a single audio buffer ─────────────────────────────────────
 
-def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool):
+def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool, use_fp16: bool = False):
     """
     Resample -> energy gate -> normalise -> transcribe -> hallucination filter.
     Returns the transcribed text or None.
+
+    use_fp16 is determined by the caller based on the **actual** model device
+    (not the config value, which may be stale after a CUDA → CPU fallback).
     """
     if needs_resample:
         audio_data = _resample_audio(
@@ -143,7 +158,7 @@ def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool):
         best_of=None,
         temperature=WHISPER_TEMPERATURE,
         prompt=WHISPER_INITIAL_PROMPT,
-        fp16=WHISPER_FP16,
+        fp16=use_fp16,
         without_timestamps=True,
         suppress_blank=True,
     )
@@ -158,12 +173,13 @@ def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool):
         print(f'[DEBUG] Filtered hallucination: "{transcript_text}"')
         return None
 
-    # Log no-speech probability for diagnostics
-    if hasattr(result, "no_speech_prob"):
-        if result.no_speech_prob > 0.6:
-            print(f"[DEBUG] High no_speech_prob ({result.no_speech_prob:.2f}), "
-                  f"filtering: \"{transcript_text[:50]}\"")
-            return None
+    # Log no-speech probability for diagnostics only — do NOT filter.
+    # High no_speech_prob chunks may still contain valid speech (e.g.
+    # quiet speakers, background noise) and should be kept so no audio
+    # content is lost from the transcript.
+    if hasattr(result, "no_speech_prob") and result.no_speech_prob > 0.6:
+        print(f"[DEBUG] High no_speech_prob ({result.no_speech_prob:.2f}), "
+              f"keeping: \"{transcript_text[:50]}\"")
 
     return transcript_text
 
@@ -185,11 +201,20 @@ def whisper_worker(stop_event: threading.Event, session):
     model = get_whisper_model()
     needs_resample = AUDIO_NATIVE_RATE != WHISPER_SAMPLE_RATE
 
+    # Determine fp16 from the ACTUAL model device — not the config value.
+    # If CUDA failed and the model fell back to CPU, WHISPER_FP16 is still
+    # True (set at import time), but fp16 on CPU is emulated and ~3-5× slower.
+    actual_device = next(model.parameters()).device
+    use_fp16 = WHISPER_FP16 and actual_device.type == "cuda"
+
     print("[INFO] Whisper worker started.")
-    print(f"[INFO] Model={WHISPER_MODEL}, device={WHISPER_DEVICE}, "
-          f"fp16={WHISPER_FP16}, beam_size={WHISPER_BEAM_SIZE}, "
+    print(f"[INFO] Model={WHISPER_MODEL}, device={actual_device}, "
+          f"fp16={use_fp16}, beam_size={WHISPER_BEAM_SIZE}, "
           f"Language={WHISPER_LANGUAGE or 'auto-detect'}, "
           f"energy_threshold={AUDIO_ENERGY_THRESHOLD}")
+    if actual_device.type != WHISPER_DEVICE:
+        print(f"[WARN] Model is on {actual_device} (config wanted {WHISPER_DEVICE}). "
+              f"fp16 overridden to {use_fp16}.")
     print(f"[INFO] Audio device={AUDIO_DEVICE}, "
           f"native_rate={AUDIO_NATIVE_RATE}Hz, "
           f"whisper_rate={WHISPER_SAMPLE_RATE}Hz, "
@@ -224,6 +249,27 @@ def whisper_worker(stop_event: threading.Event, session):
         print(f"[LIVE] Chunk {session.live_chunk_counter}: {text[:80]}...")
 
     try:
+        # ── Flush stale PulseAudio buffer ──────────────────────────
+        # PulseAudio may hold residual audio from a previous session.
+        # Open a short-lived stream with a tiny blocksize to drain it.
+        _flush_buf = []
+        def _flush_cb(indata, frames, time_info, status):
+            _flush_buf.append(indata.copy())
+        try:
+            with sd.InputStream(
+                samplerate=AUDIO_NATIVE_RATE,
+                channels=CHANNELS,
+                device=AUDIO_DEVICE,
+                callback=_flush_cb,
+                blocksize=int(AUDIO_NATIVE_RATE * 0.1),  # 100 ms blocks
+            ):
+                time.sleep(0.5)  # let PulseAudio deliver any buffered audio
+            flushed = sum(len(b) for b in _flush_buf)
+            if flushed > 0:
+                print(f"[INFO] Flushed {flushed} stale samples from audio buffer.")
+        except Exception as e:
+            print(f"[WARN] Audio buffer flush failed (non-fatal): {e}")
+
         with sd.InputStream(
             samplerate=AUDIO_NATIVE_RATE,
             channels=CHANNELS,
@@ -244,7 +290,7 @@ def whisper_worker(stop_event: threading.Event, session):
 
                 # If stop was signalled, still transcribe this last buffered audio
                 t0 = time.time()
-                text = _transcribe_chunk(model, audio_data, needs_resample)
+                text = _transcribe_chunk(model, audio_data, needs_resample, use_fp16)
                 elapsed = time.time() - t0
                 if text:
                     _append_live_chunk(text)
@@ -255,7 +301,7 @@ def whisper_worker(stop_event: threading.Event, session):
             audio_data = _drain_buffer()
             if audio_data is not None:
                 print("[INFO] Processing remaining audio buffer on stop...")
-                text = _transcribe_chunk(model, audio_data, needs_resample)
+                text = _transcribe_chunk(model, audio_data, needs_resample, use_fp16)
                 if text:
                     _append_live_chunk(text)
 

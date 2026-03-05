@@ -168,17 +168,26 @@ WHISPER_TEMPERATURE = 0.0
 # ─── Summarizer settings ──────────────────────────────────────────────────
 OLLAMA_MODEL = "gemma3:1b"  # Fits Jetson Orin Nano (~815MB) alongside Whisper small
 
-# GPU layers for Ollama. 0 = run entirely on CPU, freeing the GPU for Whisper.
-# On Jetson Orin Nano, running Whisper + Ollama on the same GPU simultaneously
-# causes memory thrashing and severe latency.  gemma3:1b is small enough for
-# the 6× Cortex-A78AE CPU cores to handle at acceptable speed.
-OLLAMA_GPU_LAYERS = 0
+# GPU layers for Ollama.  99 = offload all layers to GPU.
+# On Jetson Orin Nano (7.4 GB shared), Whisper small FP16 (~0.9 GB) +
+# gemma3:1b Q4 (~0.8 GB) fit comfortably (~2 GB total).  Whisper only
+# uses the GPU in short 2-3 s bursts every 10 s, so Ollama can run on
+# the GPU during the 7-8 s idle gaps.  This gives ~4-6× faster summaries
+# compared to CPU-only.  Keep SUMMARY_MAX_WORKERS=1 so only one Ollama
+# inference hits the GPU at a time.
+OLLAMA_GPU_LAYERS = 99
 
 # Minute buffer interval (seconds)
 BUFFER_INTERVAL = 60
 
+# Maximum concurrent summary worker threads.  With Ollama on GPU, keep
+# this at 1 so only one Ollama inference shares the GPU with Whisper at
+# a time.  Two simultaneous GPU inferences would cause memory thrashing
+# and latency spikes on the Jetson Orin Nano's shared 7.4 GB.
+SUMMARY_MAX_WORKERS = 1
+
 # Frontend callback URL (Next.js API)
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://flexiscribe-dev.vercel.app")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://flexiscribe.vercel.app")
 
 # Shared secret for the async summary callback (FastAPI → Next.js)
 CALLBACK_SECRET = os.environ.get("FLEXISCRIBE_CALLBACK_SECRET", "")

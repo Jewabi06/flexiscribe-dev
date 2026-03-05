@@ -26,6 +26,10 @@ class TranscriptionSession:
         self.status = "running"  # running | stopping | completed | error
         self.transcription_id: Optional[str] = None  # DB record ID (set by stop endpoint)
 
+        # Lock for thread-safe minute_summaries / transcript_chunks writes
+        # (multiple summary threads may append concurrently)
+        self.summary_lock = threading.Lock()
+
         # Live data accumulation
         # live_chunks: every ~10s Whisper fragment for real-time display
         self.live_chunks: list = []
@@ -108,14 +112,16 @@ class TranscriptionSession:
         }
 
     def get_summary_json(self) -> dict:
-        """Return the minute summaries data in JSON format."""
+        """Return the minute summaries data in JSON format (thread-safe)."""
+        with self.summary_lock:
+            summaries_copy = list(self.minute_summaries)
         return {
             "metadata": {
                 "session_id": self.session_id,
                 "run_id": self.run_id,
                 "course_code": self.course_code,
             },
-            "summaries": self.minute_summaries,
+            "summaries": summaries_copy,
         }
 
     def get_final_summary_json(self) -> Optional[dict]:
@@ -182,12 +188,17 @@ class SessionManager:
     def get_active_session_for_educator(
         self, educator_id: str
     ) -> Optional[TranscriptionSession]:
-        """Get the currently running session for an educator (if any)."""
+        """Get the currently running or stopping session for an educator.
+
+        Also returns sessions in 'stopping' state because the old whisper
+        worker / audio stream may still be active.  Starting a new session
+        before the old one fully stops causes stale-audio bleed.
+        """
         with self._lock:
             for session in self._sessions.values():
                 if (
                     session.educator_id == educator_id
-                    and session.status == "running"
+                    and session.status in ("running", "stopping")
                 ):
                     return session
         return None
