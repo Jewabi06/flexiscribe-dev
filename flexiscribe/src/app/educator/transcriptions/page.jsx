@@ -70,10 +70,10 @@ export default function TranscriptionsPage() {
   }
 
   return (
-    <div className="h-full flex flex-col px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
+    <div className="h-screen flex flex-col px-3 sm:px-6 lg:px-8 py-4 sm:py-6 overflow-hidden">
       <TranscriptionHeader />
 
-      <div className="mt-3 sm:mt-4">
+      <div className="mt-3 sm:mt-4 flex-shrink-0">
         <CourseTabs
           courses={courses}
           activeCourse={activeCourse}
@@ -84,7 +84,7 @@ export default function TranscriptionsPage() {
         />
       </div>
 
-      {/* MAIN LAYOUT */}
+      {/* MAIN LAYOUT - FIXED */}
       <div className="
         flex-1
         mt-4 sm:mt-6
@@ -94,14 +94,14 @@ export default function TranscriptionsPage() {
         min-h-0
       ">
 
-        {/* LIST */}
+        {/* LIST - FIXED */}
         <aside className="
           overflow-y-auto
           pr-1
           pb-6
           rounded-xl
-          flex-shrink-0
-          max-h-[45vh] lg:max-h-none
+          h-full
+          min-h-0
           edu-scrollbar
         ">
           <div className="space-y-4 sm:space-y-6 px-1">
@@ -116,11 +116,13 @@ export default function TranscriptionsPage() {
           </div>
         </aside>
 
-        {/* PREVIEW */}
+        {/* PREVIEW - FIXED */}
         <main className="
           min-w-0
           flex
           flex-col
+          h-full
+          min-h-0
         ">
           <PreviewPanel transcript={selected} />
         </main>

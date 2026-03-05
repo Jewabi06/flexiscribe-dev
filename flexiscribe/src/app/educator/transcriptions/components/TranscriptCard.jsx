@@ -24,7 +24,7 @@ export default function TranscriptCard({
 
   return (
     <div
-      className={`bg-white dark:bg-[#2d2640] rounded-[20px] sm:rounded-[28px] overflow-hidden transition-all duration-300 ease-out cursor-pointer hover:translate-y-[-4px] ${
+      className={`bg-white dark:bg-[#2d2640] rounded-[20px] sm:rounded-[28px] overflow-hidden transition-all duration-300 ease-out cursor-pointer hover:translate-y-[-4px] flex-shrink-0 ${
         selected
           ? "ring-2 ring-[#9d8adb] shadow-[0_12px_30px_rgba(157,138,219,0.28)]"
           : "shadow-[0_8px_22px_rgba(0,0,0,0.12)] hover:shadow-[0_12px_28px_rgba(0,0,0,0.16)]"
@@ -66,7 +66,7 @@ export default function TranscriptCard({
         {/* ACTION */}
         <button
           onClick={(e) => { e.stopPropagation(); handleClick(); }}
-           className="mt-4 sm:mt-5 w-full rounded-[16px] border border-[#c8c1f1] py-3 sm:py-3.5 text-[#6f63a8] font-medium hover:bg-[#edeaff] hover:shadow-md transition-all duration-200"
+          className="mt-4 sm:mt-5 w-full rounded-[16px] border border-[#c8c1f1] py-3 sm:py-3.5 text-[#6f63a8] font-medium hover:bg-[#edeaff] hover:shadow-md transition-all duration-200"
         >
           View Transcript
         </button>
