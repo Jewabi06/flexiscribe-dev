@@ -23,9 +23,24 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from summarizer.summarizer import summarize_minute, summarize_cornell, summarize_motm
+from summarizer.summarizer import summarize_minute, summarize_cornell_from_summaries, summarize_motm
 from utils.json_writer import write_json
 from config import BUFFER_INTERVAL
+
+
+def _format_minute_summaries(minute_summaries):
+    """Format minute summary dicts into a structured text block for the Cornell prompt."""
+    parts = []
+    for ms in minute_summaries:
+        minute_num = ms.get("minute", "?")
+        timestamp = ms.get("timestamp", "")
+        summary = ms.get("summary", "")
+        key_points = ms.get("key_points", [])
+        block = f"Minute {minute_num} ({timestamp}):\nSummary: {summary}"
+        if key_points:
+            block += "\nKey points:\n" + "\n".join(f"- {kp}" for kp in key_points)
+        parts.append(block)
+    return "\n\n".join(parts)
 
 
 def _process_new_chunks(session, last_processed_idx, minute_counter):
@@ -110,13 +125,25 @@ def summarization_worker(stop_event: threading.Event, session):
             session, last_processed_idx, minute_counter,
         )
 
-        # ── Generate final summary based on session type ─────────────
-        if session.transcript_chunks:
-            full_text = "\n".join(c["text"] for c in session.transcript_chunks)
+        # ── Signal that all minute summaries are done ────────────────
+        # The stop endpoint waits on this event so it can return the
+        # transcript + minute summaries immediately without blocking on
+        # the (much slower) final Cornell/MOTM generation.
+        session.minutes_done.set()
+        print(f"[INFO] minutes_done signalled — {len(session.minute_summaries)} summaries ready.")
+
+        # ── Generate final summary from minute summaries ─────────────
+        # Using pre-computed minute summaries as input is much faster
+        # than feeding the entire raw transcript, especially for long
+        # lectures (1-2+ hours).
+        if session.minute_summaries:
+            # Format minute summaries into a structured text block
+            summaries_text = _format_minute_summaries(session.minute_summaries)
 
             if getattr(session, "session_type", "lecture") == "meeting":
-                # Generate Minutes of the Meeting (MOTM)
+                # Generate Minutes of the Meeting (MOTM) — uses raw transcript
                 print("[INFO] Generating Minutes of the Meeting (MOTM)...")
+                full_text = "\n".join(c["text"] for c in session.transcript_chunks)
                 try:
                     motm = summarize_motm(full_text)
                     session.final_summary = motm
@@ -137,10 +164,10 @@ def summarization_worker(stop_event: threading.Event, session):
                         "prepared_by": "To be determined",
                     }
             else:
-                # Generate Cornell Notes summary (default for lectures)
-                print("[INFO] Generating final Cornell summary...")
+                # Generate Cornell Notes from minute summaries
+                print("[INFO] Generating final Cornell summary from minute summaries...")
                 try:
-                    cornell = summarize_cornell(full_text)
+                    cornell = summarize_cornell_from_summaries(summaries_text)
                     session.final_summary = cornell
                     write_json(
                         session.get_final_summary_json(),
@@ -151,9 +178,9 @@ def summarization_worker(stop_event: threading.Event, session):
                     print(f"[ERROR] Final Cornell summary failed: {e}")
                     session.final_summary = {
                         "title": f"Lecture - {session.course_code}",
-                        "cue_questions": [],
-                        "notes": ["Summary generation failed. Raw text available."],
-                        "summary": full_text[:500],
+                        "key_concepts": [],
+                        "notes": [{"term": "Summary", "definition": "Summary generation failed. Minute summaries available.", "example": ""}],
+                        "summary": ["Review the per-minute summaries for details."],
                     }
 
         session.status = "completed"

@@ -26,7 +26,29 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = searchParams.get("limit");
 
+    // Resolve the educator record for the current user
+    const educator = await prisma.educator.findUnique({
+      where: { userId: user.userId },
+      select: { id: true },
+    });
+
+    if (!educator) {
+      return NextResponse.json({ error: "Educator profile not found" }, { status: 404 });
+    }
+
+    // Get all class IDs belonging to this educator
+    const educatorClasses = await prisma.class.findMany({
+      where: { educatorId: educator.id },
+      select: { id: true },
+    });
+
+    const classIds = educatorClasses.map((c) => c.id);
+
+    // Only return students who are enrolled in one of this educator's classes
     const students = await prisma.student.findMany({
+      where: classIds.length > 0
+        ? { classes: { some: { classId: { in: classIds } } } }
+        : { id: "__none__" },
       orderBy: { xp: "desc" },
       ...(limit && { take: parseInt(limit) }),
       select: {

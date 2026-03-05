@@ -22,6 +22,42 @@ Lecture segment:
 """
 
 
+def build_cornell_from_summaries_prompt(summaries_text: str) -> str:
+    return f"""
+Create a comprehensive Cornell Notes reviewer from these per-minute lecture summaries.
+The text may be in Filipino/Tagalog, English, or a mix of both (Taglish).
+Write all content preserving the language style used in the lecture.
+
+Rules:
+- All content must be factually based on the summaries provided.
+- Organize by topic in the order they appear.
+- Cover all major topics — ensure every significant concept appears in the reviewer.
+- Merge related key points from different minutes into cohesive notes.
+
+Uniqueness rules:
+- Vary your wording, sentence structure, and phrasing.
+- The output must be a fresh, original reviewer that faithfully captures the lesson.
+- All key concepts and terms must still be fully covered and accurate.
+
+Return ONLY valid JSON with no extra text:
+{{
+  "title": "A descriptive title for the lecture topic",
+  "key_concepts": ["Important keyword or concept 1", "Important keyword or concept 2"],
+  "notes": [
+    {{
+      "term": "Term or concept name",
+      "definition": "Clear definition of the term based on the lecture",
+      "example": "An example or application mentioned or implied in the lecture"
+    }}
+  ],
+  "summary": ["Concise takeaway point 1", "Concise takeaway point 2", "Concise takeaway point 3"]
+}}
+
+Per-minute lecture summaries:
+{summaries_text}
+"""
+
+
 def build_cornell_prompt(text: str) -> str:
     return f"""
 Create a comprehensive Cornell Notes reviewer from this full lecture transcript. The text may be in Filipino/Tagalog, English, or a mix of both (Taglish). Write all content preserving the language style used in the lecture.
