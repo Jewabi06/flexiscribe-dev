@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { FaHome, FaBook, FaGamepad, FaTrophy, FaBars, FaTimes, FaMoon, FaSun, FaArrowLeft, FaArrowRight } from "react-icons/fa";
 import "../../dashboard/styles.css";
@@ -19,6 +19,14 @@ export default function FillInQuiz({ quiz, questions }) {
 
   const currentQuestion = questions.questions[currentQuestionIndex];
   const totalQuestions = questions.questions.length;
+  const inputRef = useRef(null);
+
+  // Auto-focus the answer input when the question changes
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [currentQuestionIndex]);
 
   useEffect(() => {
     setMounted(true);
@@ -193,6 +201,7 @@ export default function FillInQuiz({ quiz, questions }) {
       <div className="fill-in-question">
         {parts[0]}
         <input
+          ref={inputRef}
           type="text"
           className="fill-in-input"
           value={userAnswer}
