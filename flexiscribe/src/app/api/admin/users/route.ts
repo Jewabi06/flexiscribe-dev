@@ -89,7 +89,6 @@ export async function GET(request: Request) {
       return {
         id: u.id,
         email: u.email || "",
-        phoneNumber: u.phoneNumber || "",
         role: u.role || "",
         fullName,
         username,
@@ -132,7 +131,6 @@ export async function POST(request: Request) {
     const {
       email,
       password,
-      phoneNumber,
       role,
       fullName,
       username,
@@ -202,7 +200,6 @@ export async function POST(request: Request) {
       data: {
         email,
         password: hashedPassword,
-        phoneNumber,
         role: role.toUpperCase(),
         status: "Active", // Set default status
         ...(role.toUpperCase() === "STUDENT" && {

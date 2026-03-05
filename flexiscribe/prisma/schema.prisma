@@ -15,7 +15,6 @@ model User {
   updatedAt   DateTime  @updatedAt
   token       String?   @unique
   tokenExpiry DateTime?
-  phoneNumber String?
   status      String    @default("Active")
   admin       Admin?
   educator    Educator?
