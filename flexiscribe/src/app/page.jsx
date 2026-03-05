@@ -3,14 +3,16 @@ import Link from "next/link";
 export default async function Landing({ searchParams }) {
   const params = await searchParams;
   const role = params?.role?.toLowerCase();
-  const roleParam = role === "student" || role === "educator" ? `?role=${role}` : "";
+  const roleParam = role === "student" || role === "educator" || role === "prototype" ? `?role=${role}` : "";
 
   const portalLabel =
     role === "student"
       ? "Student Portal"
       : role === "educator"
         ? "Educator Portal"
-        : "Student & Educator Portal";
+        : role === "prototype"
+          ? "Prototype"
+          : "Student & Educator Portal";
 
   return (
     <div className="container min-h-screen flex flex-col">
