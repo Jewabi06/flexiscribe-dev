@@ -179,3 +179,6 @@ BUFFER_INTERVAL = 60
 
 # Frontend callback URL (Next.js API)
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://flexiscribe-dev.vercel.app")
+
+# Shared secret for the async summary callback (FastAPI → Next.js)
+CALLBACK_SECRET = os.environ.get("FLEXISCRIBE_CALLBACK_SECRET", "")

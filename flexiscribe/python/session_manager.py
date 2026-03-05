@@ -21,8 +21,10 @@ class TranscriptionSession:
         self.run_id = time.strftime("%Y%m%d_%H%M%S")
         self.stop_event = threading.Event()
         self.whisper_done = threading.Event()  # Set when whisper finishes
+        self.minutes_done = threading.Event()  # Set when minute summaries are complete (before Cornell)
         self.started_at = time.time()
         self.status = "running"  # running | stopping | completed | error
+        self.transcription_id: Optional[str] = None  # DB record ID (set by stop endpoint)
 
         # Live data accumulation
         # live_chunks: every ~10s Whisper fragment for real-time display
@@ -59,6 +61,7 @@ class TranscriptionSession:
         # Thread references
         self.whisper_thread: Optional[threading.Thread] = None
         self.summarizer_thread: Optional[threading.Thread] = None
+        self.summary_callback_thread: Optional[threading.Thread] = None
 
     @property
     def duration_seconds(self) -> float:
