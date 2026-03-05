@@ -34,7 +34,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
+    <div className="h-full flex flex-col p-4 sm:p-6 lg:p-8 overflow-hidden">
       <ScheduleGrid
         classes={classes}
         days={days}

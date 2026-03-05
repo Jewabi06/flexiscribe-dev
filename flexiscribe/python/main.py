@@ -37,7 +37,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from config import OUTPUT_DIR, FRONTEND_URL
+from config import OUTPUT_DIR, FRONTEND_URL, CALLBACK_SECRET
 from session_manager import session_manager, TranscriptionSession
 from transcriber.whisper_worker import whisper_worker
 from transcriber.live_transcriber import summarization_worker
@@ -73,6 +73,7 @@ class StartRequest(BaseModel):
 
 class StopRequest(BaseModel):
     session_id: str
+    transcription_id: Optional[str] = None  # DB record ID for async callback
 
 class UploadConfirmRequest(BaseModel):
     session_id: str
@@ -166,7 +167,14 @@ def start_transcription(req: StartRequest):
 
 @app.post("/transcribe/stop")
 def stop_transcription(req: StopRequest):
-    """Stop a running transcription session and return final data."""
+    """
+    Stop a running transcription session.
+
+    Returns transcript + minute summaries immediately.  The final Cornell
+    summary is generated asynchronously — when it finishes, FastAPI posts
+    it to the Next.js callback endpoint so the reviewer (Lesson) is created
+    without blocking the educator's stop action.
+    """
 
     session = session_manager.get_session(req.session_id)
     if not session:
@@ -178,47 +186,125 @@ def stop_transcription(req: StopRequest):
             detail=f"Session is not running (status: {session.status})",
         )
 
+    # Store DB record ID for the async callback
+    if req.transcription_id:
+        session.transcription_id = req.transcription_id
+
     session.status = "stopping"
     session.stop_event.set()
 
     # Wait for whisper to finish its current transcription + remaining buffer.
-    # On Jetson with GPU, a single transcribe() call takes ~2-3 s for 10 s audio.
-    # We wait for whisper_done event (more reliable than thread.join timeout).
+    # On CPU fallback, a single chunk can take 20-40 s (fp32) so allow enough time.
     print("[API] Waiting for whisper worker to finish...")
     if session.whisper_thread:
-        session.whisper_thread.join(timeout=15)
+        session.whisper_thread.join(timeout=90)
 
-    # Double-check: wait for the whisper_done event in case the thread is still
-    # cleaning up.  This ensures we capture the very last chunk.
-    session.whisper_done.wait(timeout=10)
+    session.whisper_done.wait(timeout=30)
     print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
 
-    # Wait for summarizer: processes remaining chunks + generates Cornell
-    # summary via Ollama on CPU, which can take 30-60 s for longer lectures.
-    # We give it generous time since the frontend handles the delay.
-    print("[API] Waiting for summarizer to finish...")
-    if session.summarizer_thread:
-        session.summarizer_thread.join(timeout=120)
+    # Wait for minute summaries to complete (NOT the final Cornell summary).
+    # The summarizer processes remaining chunks then signals minutes_done
+    # before starting the slower Cornell generation.
+    print("[API] Waiting for minute summaries to complete...")
+    session.minutes_done.wait(timeout=60)
+    print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
 
-    print(f"[API] Stop complete. Status: {session.status}")
-
-    # Build response with all data
+    # Build response with transcript + minute summaries (no final_summary yet)
     transcript_data = session.get_transcript_json()
     live_transcript_data = session.get_live_transcript_json()
     summary_data = session.get_summary_json()
-    final_summary = session.get_final_summary_json()
+
+    # Spawn background thread to wait for Cornell summary + post callback
+    cb_thread = threading.Thread(
+        target=_summary_callback_worker,
+        args=(session,),
+        daemon=True,
+    )
+    session.summary_callback_thread = cb_thread
+    cb_thread.start()
 
     return {
         "session_id": session.session_id,
-        "status": session.status,
+        "status": "stopping",  # not "completed" yet — Cornell still generating
         "course_code": session.course_code,
         "duration": session.duration_formatted,
         "transcript": transcript_data,
         "live_transcript": live_transcript_data,
         "minute_summaries": summary_data,
-        "final_summary": final_summary,
+        "final_summary": None,  # will arrive asynchronously via callback
+        "summary_pending": True,
         "file_status": session.file_status,
     }
+
+
+# ─── Async summary callback worker ───────────────────────────────────────
+
+def _summary_callback_worker(session: TranscriptionSession):
+    """
+    Background thread: waits for the summarizer to finish generating the
+    final Cornell/MOTM summary, then POSTs it to the Next.js callback
+    endpoint so the reviewer (Lesson) and notifications are created.
+    """
+    try:
+        # Wait for the summarizer thread to fully complete (Cornell generation)
+        if session.summarizer_thread:
+            session.summarizer_thread.join(timeout=600)  # generous for long lectures on CPU
+
+        if not session.final_summary:
+            print(f"[CALLBACK] No final summary for session {session.session_id} — skipping callback.")
+            return
+
+        if not session.transcription_id:
+            print(f"[CALLBACK] No transcription_id for session {session.session_id} — skipping callback.")
+            return
+
+        print(f"[CALLBACK] Final summary ready. Posting to {FRONTEND_URL}...")
+
+        import requests
+        callback_url = f"{FRONTEND_URL}/api/transcribe/summary/callback"
+        payload = {
+            "session_id": session.session_id,
+            "transcription_id": session.transcription_id,
+            "final_summary": session.get_final_summary_json(),
+        }
+        headers = {"Content-Type": "application/json"}
+        if CALLBACK_SECRET:
+            headers["x-callback-secret"] = CALLBACK_SECRET
+
+        resp = requests.post(callback_url, json=payload, headers=headers, timeout=30)
+        if resp.ok:
+            print(f"[CALLBACK] Summary delivered successfully for session {session.session_id}.")
+        else:
+            print(f"[CALLBACK] Callback failed ({resp.status_code}): {resp.text[:200]}")
+
+    except Exception as e:
+        print(f"[CALLBACK] Error in summary callback worker: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+# ─── Poll summary status ─────────────────────────────────────────────────
+
+@app.get("/transcribe/summary/{session_id}")
+def get_summary_status(session_id: str):
+    """
+    Poll endpoint: check if the final summary is ready for a session.
+    Returns the summary if available, or status 'pending'.
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.final_summary:
+        return {
+            "status": "ready",
+            "final_summary": session.get_final_summary_json(),
+        }
+    else:
+        return {
+            "status": "pending",
+            "message": "Final summary is still being generated.",
+        }
 
 
 # ─── Session status / live data ──────────────────────────────────────────

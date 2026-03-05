@@ -73,10 +73,10 @@ export default function ScheduleGrid({
   });
 
   return (
-    <div className="w-full relative">
+    <div className="w-full relative flex flex-col h-full min-h-0">
 
       {/* HEADER */}
-      <div className="flex flex-col gap-3 mb-4 sm:mb-6">
+      <div className="flex flex-col gap-3 mb-4 sm:mb-6 shrink-0">
         <div className="flex items-center justify-between">
 
           <div className="flex items-center gap-2 sm:gap-3 flex-1">
@@ -92,9 +92,9 @@ export default function ScheduleGrid({
         </div>
       </div>
 
-      {/* GRID WRAPPER (scroll on mobile) */}
-      <div className="overflow-x-auto rounded-2xl touch-pan-x">
-        <div className="min-w-[640px] sm:min-w-[800px] lg:min-w-[900px] grid grid-cols-[90px_repeat(7,1fr)] sm:grid-cols-[110px_repeat(7,1fr)] lg:grid-cols-[130px_repeat(7,1fr)] border border-[#a99ae6] dark:border-[rgba(139,127,199,0.3)] rounded-2xl bg-white dark:bg-[#1e1b2e] overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
+      {/* GRID WRAPPER — scrollable inside only */}
+      <div className="flex-1 min-h-0 overflow-auto rounded-2xl touch-pan-x border border-[#a99ae6]/30 dark:border-[rgba(139,127,199,0.2)]">
+        <div className="min-w-[640px] sm:min-w-[800px] lg:min-w-[900px] grid grid-cols-[90px_repeat(7,1fr)] sm:grid-cols-[110px_repeat(7,1fr)] lg:grid-cols-[130px_repeat(7,1fr)] bg-white dark:bg-[#1e1b2e] shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
 
           <div className="bg-[#9b8ae0] text-white text-[10px] sm:text-xs font-semibold text-center p-2 sm:p-3 md:p-4">
             TIME

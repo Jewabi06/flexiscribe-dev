@@ -90,7 +90,10 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   const recordDate = meta.date ? new Date(meta.date).toLocaleDateString() : new Date().toLocaleDateString();
   const keyConcepts = s.key_concepts || s.cue_questions || [];
   const notes = s.notes || [];
-  const summaryArr = Array.isArray(s.summary) ? s.summary : (s.summary ? [s.summary] : []);
+  const summaryArr = Array.isArray(s.summary) ? s.summary
+    : (s.summary ? [s.summary]
+    : (Array.isArray(s.takeaways) ? s.takeaways
+    : (s.takeaways ? [s.takeaways] : [])));
 
   let html = `<div style="${pageStyle}">`;
 
@@ -143,6 +146,8 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
       html += `<li style="margin-bottom:6px; font-size:11pt;">${point}</li>`;
     });
     html += `</ul>`;
+  } else {
+    html += `<p style="font-size:11pt; color:var(--text-muted); font-style:italic;">Summary pending — will appear once fully generated.</p>`;
   }
   html += `</div>`;
 

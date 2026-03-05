@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import SearchBar from "@/layouts/educator/SearchBar";
 import ProfessorProfileCard from "@/components/educator/cards/ProfessorProfileCard";
 import ScheduleCard from "@/components/educator/cards/ScheduleCard";
@@ -7,8 +8,25 @@ import WelcomeCard from "@/components/educator/cards/WelcomeCard";
 import LectureRecordingsCard from "@/components/educator/cards/LectureRecordingsCard";
 import CalendarCard from "@/components/educator/cards/CalendarCard";
 import StudentsLeaderboardCard from "@/components/educator/cards/StudentsLeaderboardCard";
+import LoadingScreen from "@/components/shared/LoadingScreen";
 
 export default function DashboardPage() {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function init() {
+      try {
+        await fetch("/api/educator/profile");
+      } catch (_) {
+        // non-critical — proceed even on error
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, []);
+
+  if (loading) return <LoadingScreen />;
 
   return (
     <>

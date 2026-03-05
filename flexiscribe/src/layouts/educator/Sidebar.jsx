@@ -129,7 +129,7 @@ export default function Sidebar({ width = "350px" }) {
       {/* Logo */}
       <div className="flex items-center gap-1 w-full py-10 px-2 mb-0">
         <img
-          src="/img/flexiscribe-logo.png"
+          src="/img/fLexiScribe-logo.png"
           alt="fLexiScribe Logo"
           className="h-20 w-20"
         />

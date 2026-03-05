@@ -120,8 +120,11 @@ export default function StudentsLeaderboardCard() {
             </div>
           ))
         ) : topStudents.length === 0 ? (
-          <div className="text-center text-white/60 text-sm py-4">
-            No students yet
+          <div className="flex flex-col items-center justify-center gap-2 py-4 text-white/60">
+            <svg className="w-8 h-8 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <p className="text-sm text-center">No students enrolled<br/>in your classes yet.</p>
           </div>
         ) : (
           topStudents.map((s, i) => (
