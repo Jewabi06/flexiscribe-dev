@@ -149,11 +149,9 @@ export async function POST(request: NextRequest) {
             // Fetch educator name with prefix for notification
             const educator = await prisma.educator.findUnique({
               where: { id: updatedTranscription.educatorId },
-              select: { prefix: true, firstName: true, lastName: true, fullName: true },
+              select: { fullName: true },
             });
-            const educatorDisplayName = educator
-              ? `${educator.prefix ? educator.prefix + " " : ""}${educator.firstName || ""} ${educator.lastName || ""}`.trim() || educator.fullName
-              : "Your professor";
+            const educatorDisplayName = educator?.fullName || "Your professor";
 
             let notifTitle = "New Transcript Available";
             let notifMessage = `${educatorDisplayName} uploaded a new transcript "${updatedTranscription.title}"`;

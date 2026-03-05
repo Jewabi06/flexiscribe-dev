@@ -137,10 +137,8 @@ export async function POST(request: NextRequest) {
             select: { subject: true, section: true },
           });
 
-          // Build educator display name with prefix
-          const educatorDisplayName = educator.prefix
-            ? `${educator.prefix} ${educator.firstName || ""} ${educator.lastName || ""}`.trim()
-            : `${educator.firstName || ""} ${educator.lastName || ""}`.trim() || educator.fullName || "Your professor";
+          // Build educator display name
+          const educatorDisplayName = educator.fullName || "Your professor";
 
           const hasTranscript = !!rawText || !!transcriptJson;
           const hasSummary = !!summaryJson || (content && content.length > 0);

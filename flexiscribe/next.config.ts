@@ -5,7 +5,7 @@ const isDev = process.env.NODE_ENV === "development";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
-  // ── Turbopack (fast local refresh) ────────────────────────────────────────
+  // ── Turbopack ──────────────────────────────────────────────────────────────
   // Explicitly set root to this project directory so Turbopack doesn't pick
   // up the stray lockfile at C:\Users\Acer\package-lock.json
   turbopack: {
