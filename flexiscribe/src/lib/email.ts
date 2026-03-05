@@ -11,8 +11,8 @@ export interface EmailOptions {
  */
 export async function sendEmail({ to, subject, html }: EmailOptions) {
   try {
-    const user = process.env.BREVO_SMTP_USER;
-    const pass = process.env.BREVO_SMTP_PASS;
+    const user = process.env.BREVO_SMTP_USER?.trim();
+    const pass = process.env.BREVO_SMTP_PASS?.trim();
     if (!user || !pass) {
       throw new Error("BREVO_SMTP_USER and BREVO_SMTP_PASS environment variables must be set.");
     }
@@ -22,6 +22,7 @@ export async function sendEmail({ to, subject, html }: EmailOptions) {
       port: 587,
       secure: false,
       auth: { user, pass },
+      tls: { rejectUnauthorized: false },
     });
 
     console.log("Attempting to send email to:", to);

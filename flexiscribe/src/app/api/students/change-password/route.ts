@@ -122,9 +122,10 @@ export async function POST(request: NextRequest) {
       );
 
       if (!emailResult.success) {
-        console.error("Failed to send verification email:", emailResult.error);
+        const errMsg = emailResult.error instanceof Error ? emailResult.error.message : String(emailResult.error);
+        console.error("Failed to send verification email:", errMsg);
         return NextResponse.json(
-          { error: "Failed to send verification email. Please try again." },
+          { error: `Failed to send verification email: ${errMsg}` },
           { status: 500 }
         );
       }
