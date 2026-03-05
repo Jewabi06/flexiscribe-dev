@@ -20,8 +20,8 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
 
   const s = typeof summaryJson === "string" ? JSON.parse(summaryJson) : summaryJson;
 
-  // A4 page style: 210mm wide, proper margins, justified text
-  const pageStyle = `max-width:210mm; margin:0 auto; padding:20mm 18mm; font-family:'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size:12pt; line-height:1.7; color:#1a1a1a; text-align:justify;`;
+  // Simplified page style: font and text color are now handled globally by TinyMCE
+  const pageStyle = `max-width:210mm; margin:0 auto; padding:20mm 18mm; text-align:justify;`;
 
   // ─── Detect MOTM format (meeting) ───────────────────────────────
   const isMOTM = !!(s.meeting_title || s.agendas);
@@ -36,25 +36,23 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
 
     let html = `<div style="${pageStyle}">`;
 
-    // TOP: Meeting Title, Date, Time — each on its own line
-    html += `<div style="text-align:center; padding-bottom:16px; margin-bottom:24px; border-bottom:2px solid #333;">`;
-    html += `<h1 style="margin:0 0 10px 0; font-size:18pt; font-weight:700; color:#1a1a1a;">${meetingTitle}</h1>`;
-    html += `<p style="margin:3px 0; font-size:11pt; color:#444;">Date: ${date}</p>`;
-    html += `<p style="margin:3px 0; font-size:11pt; color:#444;">Time: ${time}</p>`;
+    html += `<div style="text-align:center; padding-bottom:16px; margin-bottom:24px; border-bottom:2px solid var(--border-color);">`;
+    html += `<h1 style="margin:0 0 10px 0; font-size:18pt; font-weight:700; color:var(--text-main);">${meetingTitle}</h1>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:var(--text-muted);">Date: ${date}</p>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:var(--text-muted);">Time: ${time}</p>`;
     html += `</div>`;
 
-    // MIDDLE: Agendas with subcontent (can span many pages)
     agendas.forEach((agenda, idx) => {
       const agendaTitle = agenda.title || `Agenda ${idx + 1}`;
       const keyPoints = agenda.key_points || [];
       const clarifications = agenda.important_clarifications || [];
 
       html += `<div style="margin-bottom:24px;">`;
-      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:#1a1a1a;">${idx + 1}. ${agendaTitle}</h2>`;
+      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:var(--text-main);">${idx + 1}. ${agendaTitle}</h2>`;
 
       if (keyPoints.length > 0) {
-        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt;">Key Points:</p>`;
-        html += `<ul style="margin:4px 0 12px 24px; padding:0;">`;
+        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Key Points:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
         keyPoints.forEach((pt) => {
           html += `<li style="margin-bottom:5px; font-size:11pt;">${pt}</li>`;
         });
@@ -62,8 +60,8 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
       }
 
       if (clarifications.length > 0) {
-        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt;">Important Clarifications:</p>`;
-        html += `<ul style="margin:4px 0 12px 24px; padding:0;">`;
+        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Important Clarifications:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
         clarifications.forEach((c) => {
           html += `<li style="margin-bottom:5px; font-size:11pt;">${c}</li>`;
         });
@@ -73,15 +71,13 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
       html += `</div>`;
     });
 
-    // Next meeting (if applicable)
     if (nextMeeting) {
-      html += `<div style="margin-top:12px; padding:8px 0;">`;
+      html += `<div style="margin-top:12px; padding:8px 0; color:var(--text-main);">`;
       html += `<p style="font-size:11pt;"><strong>Next Meeting:</strong> ${typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting))}</p>`;
       html += `</div>`;
     }
 
-    // BOTTOM: Prepared by
-    html += `<div style="border-top:2px solid #333; margin-top:32px; padding-top:16px;">`;
+    html += `<div style="border-top:2px solid var(--border-color); margin-top:32px; padding-top:16px; color:var(--text-main);">`;
     html += `<p style="font-size:11pt;"><strong>Prepared by:</strong> ${preparedBy}</p>`;
     html += `</div>`;
 
@@ -98,7 +94,6 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
 
   let html = `<div style="${pageStyle}">`;
 
-  // TOP ROW: Date (left) | Title (right) — separated by border
   html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
   html += `<tr>`;
   html += `<td style="padding:14px 16px; width:35%; text-align:left; vertical-align:middle; font-size:11pt; color:#444; border-bottom:2px solid #333;"><strong>Date:</strong> ${recordDate}</td>`;
@@ -106,36 +101,32 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   html += `</tr>`;
   html += `</table>`;
 
-  // MIDDLE: Key Concepts (left, narrower) | Notes (right, wider)
   html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
   html += `<tr>`;
 
-  // Key Concepts column — left
-  html += `<td style="width:35%; vertical-align:top; padding:16px; border-right:2px solid #333;">`;
-  html += `<p style="font-weight:700; font-size:11pt; color:#5b21b6; margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Key Concepts</p>`;
+  html += `<td style="width:35%; vertical-align:top; padding:16px; border-right:2px solid var(--border-color);">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Key Concepts</p>`;
   if (keyConcepts.length > 0) {
-    html += `<ul style="margin:0; padding:0 0 0 18px; list-style-type:disc;">`;
+    html += `<ul style="margin:0; padding:0 0 0 18px; list-style-type:disc; color:var(--text-main);">`;
     keyConcepts.forEach((concept) => {
-      html += `<li style="margin-bottom:8px; font-size:11pt; color:#333;">${concept}</li>`;
+      html += `<li style="margin-bottom:8px; font-size:11pt;">${concept}</li>`;
     });
     html += `</ul>`;
   }
   html += `</td>`;
 
-  // Notes column — right (wider)
   html += `<td style="width:65%; vertical-align:top; padding:16px;">`;
-  html += `<p style="font-weight:700; font-size:11pt; color:#5b21b6; margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Notes</p>`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Notes</p>`;
   if (Array.isArray(notes) && notes.length > 0) {
     notes.forEach((note) => {
       if (typeof note === "object" && note !== null) {
-        // Structured note: term / definition / example
         html += `<div style="margin-bottom:16px;">`;
-        if (note.term) html += `<p style="margin:0 0 3px 0; font-weight:700; font-size:11pt; color:#1a1a1a;">${note.term}</p>`;
-        if (note.definition) html += `<p style="margin:0 0 3px 0; font-size:11pt; color:#333;">${note.definition}</p>`;
-        if (note.example) html += `<p style="margin:0; font-size:10pt; color:#666; font-style:italic;">Example: ${note.example}</p>`;
+        if (note.term) html += `<p style="margin:0 0 3px 0; font-weight:700; font-size:11pt; color:var(--text-main);">${note.term}</p>`;
+        if (note.definition) html += `<p style="margin:0 0 3px 0; font-size:11pt; color:var(--text-main);">${note.definition}</p>`;
+        if (note.example) html += `<p style="margin:0; font-size:10pt; color:var(--text-muted); font-style:italic;">Example: ${note.example}</p>`;
         html += `</div>`;
       } else {
-        html += `<p style="margin:0 0 10px 0; font-size:11pt; color:#333;">${note}</p>`;
+        html += `<p style="margin:0 0 10px 0; font-size:11pt; color:var(--text-main);">${note}</p>`;
       }
     });
   }
@@ -144,13 +135,12 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   html += `</tr>`;
   html += `</table>`;
 
-  // BOTTOM: Summary (full width) — separated by border
-  html += `<div style="border-top:2px solid #333; padding:16px 0;">`;
-  html += `<p style="font-weight:700; font-size:11pt; color:#5b21b6; margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">Summary</p>`;
+  html += `<div style="border-top:2px solid var(--border-color); padding:16px 0;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">Summary</p>`;
   if (summaryArr.length > 0) {
-    html += `<ul style="margin:0; padding:0 0 0 18px;">`;
+    html += `<ul style="margin:0; padding:0 0 0 18px; color:var(--text-main);">`;
     summaryArr.forEach((point) => {
-      html += `<li style="margin-bottom:6px; font-size:11pt; color:#333;">${point}</li>`;
+      html += `<li style="margin-bottom:6px; font-size:11pt;">${point}</li>`;
     });
     html += `</ul>`;
   }
@@ -281,11 +271,40 @@ export default function ReviewerEditorPage() {
 
       // Build a temporary container with the editor content
       const container = document.createElement('div');
-      container.innerHTML = editorContent;
+      
+      // 1. INJECT LIGHT MODE VARIABLES: 
+      // This forces the PDF snapshot to always use your light theme colors,
+      // regardless of whether the app is currently in dark mode.
+      const printStyles = `
+        <style>
+          .pdf-export-wrapper {
+            --text-main: #1a1a1a;
+            --text-muted: #666666;
+            --border-color: #333333;
+            --accent-color: #5b21b6;
+            background-color: #ffffff;
+          }
+          /* Ensure tables retain their borders in the PDF */
+          .pdf-export-wrapper table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: fixed;
+          }
+          .pdf-export-wrapper table td, .pdf-export-wrapper table th {
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+          }
+        </style>
+      `;
+
+      // Wrap the content so the CSS variables apply correctly
+      container.innerHTML = printStyles + `<div class="pdf-export-wrapper">${editorContent}</div>`;
+      
       container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       container.style.fontSize = '12pt';
       container.style.lineHeight = '1.7';
       container.style.color = '#1a1a1a';
+      container.style.backgroundColor = '#ffffff'; // Force white background on the container
       container.style.textAlign = 'justify';
       container.style.maxWidth = '210mm';
       container.style.margin = '0 auto';
@@ -293,10 +312,11 @@ export default function ReviewerEditorPage() {
       const filename = `${(reviewer?.title || 'reviewer').replace(/[^a-zA-Z0-9 ]/g, '')}.pdf`;
 
       const opt = {
-        margin: [15, 15, 15, 15],
+        margin: [5, 5, 5, 5], // top, left, bottom, right
         filename,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        // 2. FORCE WHITE BACKGROUND: Ensure html2canvas doesn't render transparent pages
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, 
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
       };
@@ -364,7 +384,9 @@ export default function ReviewerEditorPage() {
         {!loading && (
           <div className="tinymce-wrapper">
             <Editor
-              key={contentLoaded ? 'loaded' : 'loading'}
+              // 1. COMBINED KEY: Forces re-mount when content loads OR theme changes
+              key={contentLoaded ? (darkMode ? 'loaded-dark' : 'loaded-light') : 'loading'}
+              
               tinymceScriptSrc="/tinymce/tinymce.min.js"
               initialValue={initialContentRef.current || "<p>Loading content...</p>"}
               onInit={(evt, editor) => {
@@ -389,12 +411,21 @@ export default function ReviewerEditorPage() {
                 ],
                 toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist | table | removeformat',
                 table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol | tablecellprops tablemergecells tablesplitcells',
+                
+                // 2. DYNAMIC STYLES: Define the variables at the root level
                 content_style: `
+                  :root {
+                    --text-main: ${darkMode ? '#e8e8e8' : '#1a1a1a'};
+                    --text-muted: ${darkMode ? '#a0a0a0' : '#666666'};
+                    --border-color: ${darkMode ? '#4c4172' : '#333333'};
+                    --accent-color: ${darkMode ? '#c5a6f9' : '#5b21b6'};
+                  }
                   body {
                     font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
                     font-size: 12pt;
                     line-height: 1.7;
-                    color: #1a1a1a;
+                    color: var(--text-main); 
+                    background-color: ${darkMode ? '#1a1625' : '#ffffff'};
                     max-width: 210mm;
                     margin: 0 auto;
                     padding: 20mm 18mm;
@@ -411,14 +442,17 @@ export default function ReviewerEditorPage() {
                     padding: 14px 16px;
                     vertical-align: top;
                     text-align: justify;
+                    border: 1px solid var(--border-color); 
                   }
-                  h1, h2, h3 { color: #1a1a1a; }
+                  h1, h2, h3 { color: var(--text-main); }
                   ul { margin: 4px 0 12px 24px; padding: 0; }
                   li { margin-bottom: 5px; }
                   p { margin: 0 0 8px 0; }
                 `,
+
                 skin: darkMode ? 'oxide-dark' : 'oxide',
                 content_css: darkMode ? 'dark' : 'default',
+                
                 branding: false,
                 resize: false,
                 statusbar: true,

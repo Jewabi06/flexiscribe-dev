@@ -10,7 +10,10 @@ import "./styles.css";
 /**
  * Convert transcriptJson chunks to readable HTML
  */
-function transcriptJsonToHtml(transcriptJson) {
+/**
+ * Convert transcriptJson chunks to readable HTML
+ */
+function transcriptJsonToHtml(transcriptJson, isDark = false) {
   if (!transcriptJson) return "<p>No transcript data available.</p>";
 
   const data = typeof transcriptJson === "string" ? JSON.parse(transcriptJson) : transcriptJson;
@@ -20,19 +23,26 @@ function transcriptJsonToHtml(transcriptJson) {
     return "<p>No transcript chunks available.</p>";
   }
 
+  // Dynamic colors based on theme
+  const bgColor = isDark ? "#2d2640" : "#faf5ff"; 
+  const textColor = isDark ? "#e8e8e8" : "#1a1a1a";
+  const headingColor = isDark ? "#c5a6f9" : "#7c3aed";
+  const borderColor = isDark ? "#c5a6f9" : "#7c3aed";
+  const mainTitleColor = isDark ? "#c5a6f9" : "#5b21b6";
+
   let html = '<div class="transcript-chunks">';
-  html += '<h1 style="text-align:center; color:#5b21b6; margin-bottom:24px;">Lecture Transcript</h1>';
+  html += `<h1 style="text-align:center; color:${mainTitleColor}; margin-bottom:24px;">Lecture Transcript</h1>`;
 
   chunks.forEach((chunk) => {
     const minute = chunk.minute ?? "";
     const timestamp = chunk.timestamp || "";
     const text = chunk.text || "";
 
-    html += `<div style="margin-bottom:16px; padding:12px 16px; border-left:4px solid #7c3aed; background:#faf5ff; border-radius:0 8px 8px 0;">`;
-    html += `<div style="font-size:12px; font-weight:700; color:#7c3aed; margin-bottom:4px;">`;
+    html += `<div style="margin-bottom:16px; padding:12px 16px; border-left:4px solid ${borderColor}; background:${bgColor}; border-radius:0 8px 8px 0; transition: background 0.3s ease;">`;
+    html += `<div style="font-size:12px; font-weight:700; color:${headingColor}; margin-bottom:4px;">`;
     html += `Minute ${minute}${timestamp ? ` — ${timestamp}` : ""}`;
     html += `</div>`;
-    html += `<div style="font-size:15px; line-height:1.7; color:#1a1a1a;">${text}</div>`;
+    html += `<div style="font-size:15px; line-height:1.7; color:${textColor};">${text}</div>`;
     html += `</div>`;
   });
 
@@ -63,6 +73,13 @@ export default function TranscriptViewerPage() {
       document.documentElement.classList.add("dark-mode");
     }
   }, []);
+
+  // NEW: Re-generate the HTML instantly whenever dark mode is toggled
+  useEffect(() => {
+    if (transcript) {
+      setHtmlContent(transcriptJsonToHtml(transcript.transcriptJson, darkMode));
+    }
+  }, [darkMode, transcript]);
 
   // Cleanup on unmount - exit fullscreen if active
   useEffect(() => {
@@ -123,11 +140,16 @@ export default function TranscriptViewerPage() {
       const html2pdf = (await import("html2pdf.js")).default;
       
       const container = document.createElement("div");
-      container.innerHTML = htmlContent;
+      
+      // FIX: Always generate a Light Mode version specifically for the PDF export
+      const pdfHtml = transcriptJsonToHtml(transcript.transcriptJson, false);
+      container.innerHTML = pdfHtml;
+      
       container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       container.style.fontSize = "12pt";
       container.style.lineHeight = "1.7";
       container.style.color = "#1a1a1a";
+      container.style.backgroundColor = "#ffffff"; // Force white background
       container.style.textAlign = "justify";
       container.style.maxWidth = "210mm";
       container.style.margin = "0 auto";
@@ -136,17 +158,17 @@ export default function TranscriptViewerPage() {
 
       await html2pdf()
         .set({
-          margin: [15, 15, 15, 15],
+          margin: [10, 10, 10, 10], // Reduced margins for better fit
           filename,
           image: { type: "jpeg", quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true },
+          // Added backgroundColor to html2canvas to prevent transparent PDF bugs
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, 
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         })
         .from(container)
         .save();
 
-      // Track the download for achievements
       fetch("/api/students/track-download", { method: "POST" }).catch(() => {});
     } catch (err) {
       console.error("Error downloading PDF:", err);
