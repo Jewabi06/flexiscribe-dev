@@ -1,3 +1,5 @@
+import nodemailer from "nodemailer";
+
 export interface EmailOptions {
   to: string;
   subject: string;
@@ -5,40 +7,33 @@ export interface EmailOptions {
 }
 
 /**
- * Send an email using Brevo Transactional Email API
+ * Send an email using Nodemailer + Outlook SMTP
  */
 export async function sendEmail({ to, subject, html }: EmailOptions) {
   try {
-    const apiKey = process.env.BREVO_API_KEY?.trim();
-    const senderEmail = process.env.BREVO_SENDER_EMAIL?.trim();
-    if (!apiKey || !senderEmail) {
-      throw new Error("BREVO_API_KEY and BREVO_SENDER_EMAIL environment variables must be set.");
+    const user = process.env.OUTLOOK_USER?.trim();
+    const pass = process.env.OUTLOOK_PASS?.trim();
+    if (!user || !pass) {
+      throw new Error("OUTLOOK_USER and OUTLOOK_PASS environment variables must be set.");
     }
 
-    console.log("Attempting to send email to:", to);
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "accept": "application/json",
-        "api-key": apiKey,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        sender: { name: "fLexiScribe", email: senderEmail },
-        to: [{ email: to }],
-        subject,
-        htmlContent: html,
-      }),
+    const transporter = nodemailer.createTransport({
+      host: "smtp.office365.com",
+      port: 587,
+      secure: false,
+      auth: { user, pass },
     });
 
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      throw new Error(`Brevo API error ${response.status}: ${JSON.stringify(errBody)}`);
-    }
+    console.log("Attempting to send email to:", to);
+    const info = await transporter.sendMail({
+      from: `fLexiScribe <${user}>`,
+      to,
+      subject,
+      html,
+    });
 
-    const data = await response.json();
-    console.log("Email sent successfully:", data.messageId);
-    return { success: true, data };
+    console.log("Email sent successfully:", info.messageId);
+    return { success: true, data: { id: info.messageId } };
   } catch (error) {
     console.error("Email sending error:", error);
     return { success: false, error };
