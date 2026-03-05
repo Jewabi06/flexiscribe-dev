@@ -1,8 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FaMoon, FaSun } from "react-icons/fa";
-import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
 import StudentSidebar from "@/layouts/student/StudentSidebar";
 import StudentHeader from "@/layouts/student/StudentHeader";
@@ -149,6 +147,36 @@ export default function StudentDashboard() {
       }
     };
 
+    // Re-read localStorage progress when user switches back to this tab
+    const refreshProgressFromStorage = () => {
+      setInProgressQuizzes((prev) => {
+        if (prev.length === 0) return prev;
+        const updated = prev.map((q) => {
+          const savedProgress = localStorage.getItem(`quiz-progress-${q.id}`);
+          if (savedProgress) {
+            const progress = JSON.parse(savedProgress);
+            return {
+              ...q,
+              answeredCount: progress.answeredCount || 0,
+              progressPercent: Math.round((progress.answeredCount / q.numQuestions) * 100),
+            };
+          }
+          return q;
+        });
+        updated.sort((a, b) => b.progressPercent - a.progressPercent);
+        return updated;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshProgressFromStorage();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Also refresh on window focus (covers same-window tab navigation)
+    window.addEventListener('focus', refreshProgressFromStorage);
+
     // Fetch recently added reviewers (transcriptions created within 24 hours)
     const fetchRecentReviewers = async () => {
       try {
@@ -170,7 +198,11 @@ export default function StudentDashboard() {
     fetchInProgressQuizzes();
     fetchRecentReviewers();
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', refreshProgressFromStorage);
+    };
   }, []);
 
   /* ============================================
@@ -308,23 +340,29 @@ export default function StudentDashboard() {
                     inProgressQuizzes.map((q) => (
                       <div
                         key={q.id}
-                        style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', cursor: 'pointer' }}
+                        style={{ 
+                          display: 'flex', 
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '12px', 
+                          width: '100%',
+                          minWidth: 0, 
+                          cursor: 'pointer' }}
                         onClick={() => router.push(`/student/quizzes/${q.id}`)}
                       >
-                        <div className="progress-circle">
-                          <CircularProgressbar
-                            value={q.progressPercent || 0}
-                            text={`${q.progressPercent || 0}%`}
-                            styles={buildStyles({
-                              textSize: '28px',
-                              pathColor: q.progressPercent > 0 ? 'var(--brand-secondary)' : 'rgba(255,255,255,0.3)',
-                              textColor: 'var(--accent-secondary)',
-                              trailColor: 'rgba(255,255,255,0.2)',
-                            })}
-                          />
+                        <div className="flex flex-col w-full gap-4">
+                          <div className="progress-bar w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                            <div
+                              className="bg-[var(--brand-tertiary)] text-[var(--accent-secondary)] font-semibold h-full rounded-full flex items-center justify-center text-[10px] leading-none transition-all duration-300"
+                              style={{ width: `${q.progressPercent || 0}%`, minWidth: q.progressPercent > 0 ? '2rem' : '0' }}
+                            >
+                              {q.progressPercent > 0 ? `${q.progressPercent}%` : ''}
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="progress-label">{q.lesson}</p>
+                        <div style={{ width: '100%', minWidth: 0, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <p className="progress-label" title={q.lesson}>{q.lesson}</p>
                           <p className="progress-section">{q.quizType} • {q.answeredCount > 0 ? `${q.answeredCount}/${q.numQuestions} answered` : `${q.numQuestions} questions`}</p>
                         </div>
                       </div>
@@ -380,7 +418,7 @@ export default function StudentDashboard() {
                         key={r.id}
                         className="document-preview"
                         style={{ cursor: 'pointer' }}
-                        onClick={() => router.push(`/student/reviewers/${r.class?.classCode || ''}/${r.id}`)}
+                        onClick={() => router.push(`/student/documents/${r.class?.classCode || ''}/${r.id}`)}
                       >
                         <div className="doc-icon">📄</div>
                         <div className="doc-info">
@@ -542,7 +580,7 @@ export default function StudentDashboard() {
                                 color: 'rgba(255, 255, 255, 0.6)',
                                 marginTop: '0.125rem'
                               }}>
-                                {user.level || 'Learner'}
+                                {calculateRank(user.xp || 0).name}
                               </div>
                             </div>
 

@@ -104,7 +104,7 @@ export default function MCQQuiz({ quiz, questions }) {
           </div>
           <nav className="nav-menu">
             <div className="nav-item" onClick={() => router.push('/student/dashboard')}><FaHome className="nav-icon" /><span>Dashboard</span></div>
-            <div className="nav-item" onClick={() => router.push('/student/reviewers')}><FaBook className="nav-icon" /><span>Reviewers</span></div>
+            <div className="nav-item" onClick={() => router.push('/student/documents')}><FaBook className="nav-icon" /><span>Documents</span></div>
             <div className="nav-item active" onClick={() => router.push('/student/quizzes')}><FaGamepad className="nav-icon" /><span>Quizzes</span></div>
             <div className="nav-item" onClick={() => router.push('/student/leaderboard')}><FaTrophy className="nav-icon" /><span>Leaderboard</span></div>
           </nav>
@@ -213,7 +213,7 @@ export default function MCQQuiz({ quiz, questions }) {
         </div>
         <nav className="nav-menu">
           <div className="nav-item" onClick={() => router.push('/student/dashboard')}><FaHome className="nav-icon" /><span>Dashboard</span></div>
-          <div className="nav-item" onClick={() => router.push('/student/reviewers')}><FaBook className="nav-icon" /><span>Reviewers</span></div>
+          <div className="nav-item" onClick={() => router.push('/student/documents')}><FaBook className="nav-icon" /><span>Documents</span></div>
           <div className="nav-item active" onClick={() => router.push('/student/quizzes')}><FaGamepad className="nav-icon" /><span>Quizzes</span></div>
           <div className="nav-item" onClick={() => router.push('/student/leaderboard')}><FaTrophy className="nav-icon" /><span>Leaderboard</span></div>
         </nav>
@@ -258,7 +258,7 @@ export default function MCQQuiz({ quiz, questions }) {
               <div className="mcq-options-grid">
                 {currentQuestion.options.map((option, index) => (
                   <button key={index} className={`mcq-option ${selectedAnswer === index ? 'selected' : ''}`} onClick={() => handleAnswerSelect(index)}>
-                    <span className="option-number">{index + 1}</span>
+                    <span className="option-number">{String.fromCharCode(65 + index)}</span>
                     <span className="option-text">{option}</span>
                   </button>
                 ))}

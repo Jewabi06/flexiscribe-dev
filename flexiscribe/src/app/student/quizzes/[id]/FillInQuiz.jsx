@@ -30,6 +30,14 @@ export default function FillInQuiz({ quiz, questions }) {
   const currentQuestion = questions.questions[currentQuestionIndex];
   const totalQuestions = questions.questions.length;
   const answersRef = useRef(answers);
+  const inputRef = useRef(null);
+
+  // Auto-focus the answer input when the question changes
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [currentQuestionIndex]);
 
   // Keep ref in sync for unmount/tab-change saves
   useEffect(() => { answersRef.current = answers; }, [answers]);
@@ -175,6 +183,7 @@ export default function FillInQuiz({ quiz, questions }) {
       <div className="fill-in-question">
         {parts[0]}
         <input
+          ref={inputRef}
           type="text"
           className="fill-in-input"
           value={userAnswer}
@@ -257,6 +266,9 @@ export default function FillInQuiz({ quiz, questions }) {
                       if (data.success) {
                         localStorage.removeItem(`quiz-answers-${quiz.id}`);
                         localStorage.removeItem(`quiz-progress-${quiz.id}`);
+                        setAnswers({});
+                        setUserAnswer("");
+                        setCurrentQuestionIndex(0);
                         trackActivity('quiz_completed');
                         const attemptLabel = data.attempt.isFirstAttempt ? '1st Attempt' : 'Retry (10% XP)';
                         // Store results for answer review modal

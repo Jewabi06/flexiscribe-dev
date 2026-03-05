@@ -221,7 +221,7 @@ export default function MCQQuiz({ quiz, questions }) {
                     className={`mcq-option ${selectedAnswer === index ? 'selected' : ''}`}
                     onClick={() => handleAnswerSelect(index)}
                   >
-                    <span className="option-number">{index + 1}</span>
+                    <span className="option-number">{String.fromCharCode(65 + index)}</span>
                     <span className="option-text">{option}</span>
                   </button>
                 ))}
@@ -251,9 +251,12 @@ export default function MCQQuiz({ quiz, questions }) {
                       });
                       const data = await res.json();
                       if (data.success) {
-                        // Clear saved answers from localStorage
+                        // Clear saved answers from localStorage and reset state for next attempt
                         localStorage.removeItem(`quiz-answers-${quiz.id}`);
                         localStorage.removeItem(`quiz-progress-${quiz.id}`);
+                        setAnswers({});
+                        setSelectedAnswer(null);
+                        setCurrentQuestionIndex(0);
                         // Track activity for streak
                         trackActivity('quiz_completed');
                         const attemptLabel = data.attempt.isFirstAttempt ? '1st Attempt' : 'Retry (10% XP)';

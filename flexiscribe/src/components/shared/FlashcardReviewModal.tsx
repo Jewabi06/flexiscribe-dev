@@ -144,8 +144,8 @@ export default function FlashcardReviewModal({
           box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
           animation: frmSlideUp 0.3s ease;
           outline: none;
-          user-select: none;
-          -webkit-user-select: none;
+          // user-select: none;
+          // -webkit-user-select: none;
         }
         :global(.dark-mode) .frm-panel {
           background: #2d2640;

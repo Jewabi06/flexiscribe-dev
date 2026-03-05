@@ -1,7 +1,7 @@
 "use client";
 
-import { Calendar, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Calendar, X, Search } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import ClassBlock from "./ClassBlock";
 import EducatorHeader from "@/layouts/educator/EducatorHeader";
 import { timeToMinutes } from "@/lib/timeSlots";
@@ -17,6 +17,7 @@ export default function ScheduleGrid({
 }) {
   const [activeClass, setActiveClass] = useState(null);
   const [userName, setUserName] = useState("Educator");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     async function fetchProfile() {
@@ -24,7 +25,7 @@ export default function ScheduleGrid({
         const res = await fetch("/api/educator/profile");
         if (res.ok) {
           const data = await res.json();
-          setUserName(data.educator.fullName.split(" ")[0] || "Educator");
+          setUserName(data.educator.username || data.educator.fullName.split(" ")[0] || "Educator");
         }
       } catch (error) {
         console.error("Failed to fetch profile:", error);
@@ -33,7 +34,18 @@ export default function ScheduleGrid({
     fetchProfile();
   }, []);
 
-  const schedule = classes.map((cls) => {
+  // Filter classes based on search
+  const filteredClasses = query.trim()
+    ? classes.filter(
+        (cls) =>
+          cls.subject?.toLowerCase().includes(query.toLowerCase()) ||
+          cls.section?.toLowerCase().includes(query.toLowerCase()) ||
+          cls.day?.toLowerCase().includes(query.toLowerCase()) ||
+          cls.room?.toLowerCase().includes(query.toLowerCase())
+      )
+    : classes;
+
+  const schedule = filteredClasses.map((cls) => {
     const startIndex = timeSlots.findIndex((t) =>
       t.startsWith(cls.startTime)
     );
@@ -61,26 +73,28 @@ export default function ScheduleGrid({
   });
 
   return (
-    <div className="w-full relative">
+    <div className="w-full relative flex flex-col h-full min-h-0">
 
       {/* HEADER */}
-      <div className="flex items-center justify-between mb-4 sm:mb-6">
+      <div className="flex flex-col gap-3 mb-4 sm:mb-6 shrink-0">
+        <div className="flex items-center justify-between">
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#9b8ae0] flex items-center justify-center text-white shadow-md">
-            <Calendar size={18} />
+          <div className="flex items-center gap-2 sm:gap-3 flex-1">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#9b8ae0] flex items-center justify-center text-white shadow-md">
+              <Calendar size={18} />
+            </div>
+            <h1 className="text-base sm:text-xl font-semibold text-[#6b5fcf] dark:text-[#c5b8f5]">
+              Schedule
+            </h1>
           </div>
-          <h1 className="text-base sm:text-xl font-semibold text-[#6b5fcf] dark:text-[#c5b8f5]">
-            Schedule
-          </h1>
-        </div>
 
-        <EducatorHeader userName={userName} />
+          <EducatorHeader userName={userName} />
+        </div>
       </div>
 
-      {/* GRID WRAPPER (scroll on mobile) */}
-      <div className="overflow-x-auto rounded-2xl touch-pan-x">
-        <div className="min-w-[640px] sm:min-w-[800px] lg:min-w-[900px] grid grid-cols-[90px_repeat(7,1fr)] sm:grid-cols-[110px_repeat(7,1fr)] lg:grid-cols-[130px_repeat(7,1fr)] border border-[#a99ae6] dark:border-[rgba(139,127,199,0.3)] rounded-2xl bg-white dark:bg-[#1e1b2e] overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
+      {/* GRID WRAPPER — scrollable inside only */}
+      <div className="flex-1 min-h-0 overflow-auto rounded-2xl touch-pan-x border border-[#a99ae6]/30 dark:border-[rgba(139,127,199,0.2)]">
+        <div className="min-w-[640px] sm:min-w-[800px] lg:min-w-[900px] grid grid-cols-[90px_repeat(7,1fr)] sm:grid-cols-[110px_repeat(7,1fr)] lg:grid-cols-[130px_repeat(7,1fr)] bg-white dark:bg-[#1e1b2e] shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
 
           <div className="bg-[#9b8ae0] text-white text-[10px] sm:text-xs font-semibold text-center p-2 sm:p-3 md:p-4">
             TIME
@@ -99,7 +113,7 @@ export default function ScheduleGrid({
           {timeSlots.map((time, rowIndex) => (
             <div key={time} className="contents">
 
-              <div className="border border-[#a99ae6] text-[9px] sm:text-[10px] md:text-[11px] text-[#7a6fcf] flex items-center justify-center h-[56px] px-1 text-center leading-tight">
+              <div className="border border-[#a99ae6] dark:border-[rgba(139,127,199,0.2)] text-[9px] sm:text-[10px] md:text-[11px] text-[#7a6fcf] dark:text-[#b0a8d4] flex items-center justify-center h-[56px] px-1 text-center leading-tight">
                 {time}
               </div>
 
@@ -120,7 +134,7 @@ export default function ScheduleGrid({
                 return (
                   <div
                     key={`${day}-${time}`}
-                    className="border border-[#a99ae6] h-[56px] relative transition-colors duration-200 hover:bg-[rgba(157,138,219,0.04)]"
+                    className="border border-[#a99ae6] dark:border-[rgba(139,127,199,0.2)] h-[56px] relative transition-colors duration-200 hover:bg-[rgba(157,138,219,0.04)] dark:hover:bg-[rgba(157,138,219,0.08)]"
                   >
                     {cls && (
                       <div

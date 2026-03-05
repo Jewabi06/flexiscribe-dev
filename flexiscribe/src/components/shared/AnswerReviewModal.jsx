@@ -51,19 +51,19 @@ export default function AnswerReviewModal({
   }, [isOpen]);
 
   // Block copy / cut / context-menu on the modal content
-  useEffect(() => {
-    if (!isOpen || !panelRef.current) return;
-    const el = panelRef.current;
-    const block = (e) => e.preventDefault();
-    el.addEventListener("copy", block);
-    el.addEventListener("cut", block);
-    el.addEventListener("contextmenu", block);
-    return () => {
-      el.removeEventListener("copy", block);
-      el.removeEventListener("cut", block);
-      el.removeEventListener("contextmenu", block);
-    };
-  }, [isOpen]);
+  // useEffect(() => {
+  //   if (!isOpen || !panelRef.current) return;
+  //   const el = panelRef.current;
+  //   const block = (e) => e.preventDefault();
+  //   el.addEventListener("copy", block);
+  //   el.addEventListener("cut", block);
+  //   el.addEventListener("contextmenu", block);
+  //   return () => {
+  //     el.removeEventListener("copy", block);
+  //     el.removeEventListener("cut", block);
+  //     el.removeEventListener("contextmenu", block);
+  //   };
+  // }, [isOpen]);
 
   if (!isOpen || !results) return null;
 
@@ -200,11 +200,11 @@ export default function AnswerReviewModal({
           box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
           animation: armSlideUp 0.3s ease;
           outline: none;
-          /* Prevent text selection / copying */
-          user-select: none;
-          -webkit-user-select: none;
-          -moz-user-select: none;
-          -ms-user-select: none;
+          // /* Prevent text selection / copying */
+          // user-select: none;
+          // -webkit-user-select: none;
+          // -moz-user-select: none;
+          // -ms-user-select: none;
         }
         :global(.dark-mode) .arm-panel {
           background: #2d2640;

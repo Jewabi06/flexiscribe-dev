@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import AchievementModal from "./AchievementModal";
 
 /**
- * AchievementContext — provides a global achievement notification system.
+ * AchievementContext — provides a global achievement & badge notification system.
  *
  * Usage:
  *   const { showAchievements, checkAchievements } = useAchievement();
@@ -11,7 +11,7 @@ import AchievementModal from "./AchievementModal";
  *   // Manually show achievements:
  *   showAchievements([{ id, name, description, icon, rarity }]);
  *
- *   // Re-check the API for newly earned achievements:
+ *   // Re-check the API for newly earned achievements & badges:
  *   await checkAchievements();
  */
 
@@ -46,18 +46,42 @@ export function AchievementProvider({ children }) {
     }
   }, [isOpen, queue]);
 
-  // Check the API for newly earned achievements.
+  // Check the API for newly earned achievements AND badges.
   const checkAchievements = useCallback(async () => {
     try {
+      // Check achievements
       const res = await fetch("/api/students/achievements");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.newlyEarned && data.newlyEarned.length > 0) {
-        const batch = data.achievements.filter((a) =>
-          data.newlyEarned.includes(a.id)
-        );
-        if (batch.length > 0) {
-          showAchievements(batch);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.newlyEarned && data.newlyEarned.length > 0) {
+          const batch = data.achievements.filter((a) =>
+            data.newlyEarned.includes(a.id)
+          );
+          if (batch.length > 0) {
+            showAchievements(batch);
+          }
+        }
+      }
+
+      // Also check badges
+      const badgeRes = await fetch("/api/students/badges");
+      if (badgeRes.ok) {
+        const badgeData = await badgeRes.json();
+        if (badgeData.newlyEarned && badgeData.newlyEarned.length > 0) {
+          const newBadges = badgeData.badges
+            .filter((b) => badgeData.newlyEarned.includes(b.id))
+            .map((b) => ({
+              id: b.id,
+              name: b.name || b.title,
+              title: b.name || b.title,
+              description: b.description,
+              icon: b.icon || "⭐",
+              category: "badge",
+              rarity: "badge",
+            }));
+          if (newBadges.length > 0) {
+            showAchievements(newBadges);
+          }
         }
       }
     } catch (err) {

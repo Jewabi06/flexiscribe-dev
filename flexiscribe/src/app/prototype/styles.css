@@ -1004,6 +1004,160 @@
   border-color: rgba(197, 166, 249, 0.5);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Session Type Toggle (Lecture / Meeting)
+   ═══════════════════════════════════════════════════════════════════════ */
+.session-type-toggle {
+  display: flex;
+  gap: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.session-type-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.session-type-btn:first-child {
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.session-type-btn:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.session-type-btn.active {
+  background: rgba(197, 166, 249, 0.3);
+  color: var(--accent-secondary);
+}
+
+.session-type-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Session Type Badge
+   ═══════════════════════════════════════════════════════════════════════ */
+.session-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  background: rgba(197, 166, 249, 0.2);
+  border: 1px solid rgba(197, 166, 249, 0.4);
+  color: var(--accent-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Session Type Selection Modal
+   ═══════════════════════════════════════════════════════════════════════ */
+.session-type-modal {
+  max-width: 480px;
+  background: linear-gradient(135deg, #1e1b3a 0%, #2d2756 100%);
+}
+
+.session-type-modal .guide-title,
+.session-type-modal .guide-subtitle {
+  color: #ffffff;
+}
+
+.session-type-modal .guide-header {
+  border-bottom-color: rgba(197, 166, 249, 0.3);
+}
+
+.session-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.session-type-option {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.session-type-option:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(197, 166, 249, 0.4);
+  transform: translateY(-2px);
+}
+
+.session-type-option.selected {
+  background: rgba(197, 166, 249, 0.2);
+  border-color: var(--accent-secondary);
+  box-shadow: 0 0 20px rgba(197, 166, 249, 0.2);
+}
+
+.session-type-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.session-type-icon.lecture-icon {
+  background: linear-gradient(135deg, #7c3aed, #5b21b6);
+  color: white;
+}
+
+.session-type-icon.meeting-icon {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+}
+
+.session-type-info {
+  flex: 1;
+}
+
+.session-type-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 0.25rem;
+}
+
+.session-type-desc {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.4;
+}
+
+.session-type-desc strong {
+  color: var(--accent-secondary);
+}
+
 .course-ready-label {
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.8rem;
@@ -1049,6 +1203,16 @@
    ═══════════════════════════════════════════════════════════════════════ */
 .course-select-modal {
   max-width: 500px;
+  background: linear-gradient(135deg, #1e1b3a 0%, #2d2756 100%);
+}
+
+.course-select-modal .guide-title,
+.course-select-modal .guide-subtitle {
+  color: #ffffff;
+}
+
+.course-select-modal .guide-header {
+  border-bottom-color: rgba(197, 166, 249, 0.3);
 }
 
 .course-list {

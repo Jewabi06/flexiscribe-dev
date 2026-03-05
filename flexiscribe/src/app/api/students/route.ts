@@ -8,6 +8,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       fullName,
+      firstName,
+      lastName,
+      suffix,
       studentNumber,
       username,
       yearLevel,
@@ -22,6 +25,8 @@ export async function POST(request: Request) {
     // Validate required fields
     if (
       !fullName ||
+      !firstName ||
+      !lastName ||
       !studentNumber ||
       !username ||
       !yearLevel ||

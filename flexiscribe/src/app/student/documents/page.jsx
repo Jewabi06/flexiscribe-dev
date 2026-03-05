@@ -25,8 +25,6 @@ export default function ReviewersPage() {
   const [loadingTranscripts, setLoadingTranscripts] = useState(true);
 
   // Join class state
-  const [joinError, setJoinError] = useState("");
-  const [joinSuccess, setJoinSuccess] = useState("");
   const [joining, setJoining] = useState(false);
 
   // Modal state for error messages
@@ -119,8 +117,6 @@ export default function ReviewersPage() {
   const handleAddClass = async () => {
     if (!classCode.trim()) return;
 
-    setJoinError("");
-    setJoinSuccess("");
     setJoining(true);
 
     try {
@@ -133,8 +129,13 @@ export default function ReviewersPage() {
       const data = await res.json();
 
       if (res.ok) {
-        setJoinSuccess(`Joined ${data.class.subject} — Section ${data.class.section}!`);
         setClassCode("");
+        setModalInfo({
+          isOpen: true,
+          title: "Class Joined!",
+          message: `Joined ${data.class.subject} — Section ${data.class.section}!`,
+          type: "success"
+        });
         // Refresh enrolled classes and transcripts
         const [classesRes, transRes] = await Promise.all([
           fetch('/api/students/classes'),
@@ -148,7 +149,6 @@ export default function ReviewersPage() {
           const tData = await transRes.json();
           setRawTranscripts(tData.transcriptions || []);
         }
-        setTimeout(() => setJoinSuccess(""), 3000);
       } else {
         setModalInfo({
           isOpen: true,
@@ -169,22 +169,45 @@ export default function ReviewersPage() {
     }
   };
 
-  const handleClassClick = (classItem) => {
-    router.push(`/student/reviewers/${classItem.classCode}`);
+  const handleClassClick = (classItem, type) => {
+    router.push(`/student/documents/${classItem.classCode}?type=${type}`);
   };
 
   const handleTranscriptClick = (transcript) => {
     const code = transcript.class?.classCode || transcript.course;
-    router.push(`/student/reviewers/transcripts/${code}`);
+    router.push(`/student/documents/transcripts/${code}`);
   };
+
+  // Group transcripts by class and sessionType for Reviewers (lecture) and MOTM (meeting)
+  const getSessionType = (t) => {
+    const title = (t.title || "").toLowerCase();
+    return title.includes("meeting") ? "meeting" : "lecture";
+  };
+
+  const groupByClassAndType = (transcripts, type) => {
+    const grouped = {};
+    transcripts.filter((t) => getSessionType(t) === type).forEach((t) => {
+      const key = t.class?.classCode || t.course;
+      if (!grouped[key]) {
+        grouped[key] = {
+          classCode: key,
+          subject: t.class?.subject || t.course,
+          section: t.class?.section || "",
+          count: 0,
+        };
+      }
+      grouped[key].count++;
+    });
+    return Object.values(grouped);
+  };
+
+  const reviewerGroups = groupByClassAndType(rawTranscripts, "lecture");
+  const motmGroups = groupByClassAndType(rawTranscripts, "meeting");
 
   // Don't render until mounted and data is loaded to avoid flash of default data
   if (!mounted || !currentTime || loadingClasses || loadingTranscripts) {
     return <LoadingScreen />;
   }
-
-  // Calculate clock hand angles
-  // Format time and date
 
   return (
     <div className="dashboard-container">
@@ -214,41 +237,75 @@ export default function ReviewersPage() {
                 disabled={joining}
                 style={{ fontFamily: 'monospace', letterSpacing: '0.1em', textTransform: 'uppercase' }}
               />
-              {joinSuccess && (
-                <div className="join-feedback success">{joinSuccess}</div>
-              )}
+
             </div>
             <button className="add-class-btn" onClick={handleAddClass} disabled={joining}>
               {joining ? "Joining..." : "Join Class"}
             </button>
           </div>
 
-          {/* Enrolled Classes Section */}
+          {/* Reviewers Section */}
           <div className="section-container">
-            <h2 className="section-title">Summaries</h2>
-            {loadingClasses ? (
+            <h2 className="section-title">Reviewers</h2>
+            {loadingTranscripts ? (
               <div className="empty-state-container">
-                <p className="empty-state-text">Loading summaries...</p>
+                <p className="empty-state-text">Loading reviewers...</p>
               </div>
-            ) : enrolledClasses.length === 0 ? (
+            ) : reviewerGroups.length === 0 ? (
               <div className="empty-state-container">
                 <FaFolderOpen className="empty-state-icon" />
-                <h3 className="empty-state-heading">No Summaries Available</h3>
-                <p className="empty-state-text">Enter a class code above to join a class and view summaries.</p>
+                <h3 className="empty-state-heading">No Reviewers Available</h3>
+                <p className="empty-state-text">There are no reviewers available for your enrolled classes yet.</p>
               </div>
             ) : (
               <div className="folders-grid">
-                {enrolledClasses.map((classItem) => (
+                {reviewerGroups.map((group) => (
                   <div
-                    key={classItem.id}
+                    key={group.classCode}
                     className="folder-card"
-                    onClick={() => handleClassClick(classItem)}
+                    onClick={() => handleClassClick({ classCode: group.classCode }, "lecture")}
                   >
                     <div className="folder-icon-wrapper">
                       <FaFolderOpen className="folder-icon" />
                     </div>
-                    <div className="folder-label">{classItem.subject}</div>
-                    <div className="folder-sublabel">Section {classItem.section}</div>
+                    <div className="folder-label">{group.subject}</div>
+                    <div className="folder-sublabel">
+                      {group.section ? `Section ${group.section} \u2022 ` : ""}{group.count} reviewer{group.count !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* MOTM Section */}
+          <div className="section-container">
+            <h2 className="section-title">Minutes of the Meeting</h2>
+            {loadingTranscripts ? (
+              <div className="empty-state-container">
+                <p className="empty-state-text">Loading...</p>
+              </div>
+            ) : motmGroups.length === 0 ? (
+              <div className="empty-state-container">
+                <FaFolderOpen className="empty-state-icon" />
+                <h3 className="empty-state-heading">No MOTM Available</h3>
+                <p className="empty-state-text">There are no minutes of the meeting for your enrolled classes yet.</p>
+              </div>
+            ) : (
+              <div className="folders-grid">
+                {motmGroups.map((group) => (
+                  <div
+                    key={group.classCode}
+                    className="folder-card"
+                    onClick={() => handleClassClick({ classCode: group.classCode }, "meeting")}
+                  >
+                    <div className="folder-icon-wrapper">
+                      <FaFolderOpen className="folder-icon" />
+                    </div>
+                    <div className="folder-label">{group.subject}</div>
+                    <div className="folder-sublabel">
+                      {group.section ? `Section ${group.section} \u2022 ` : ""}{group.count} MOTM{group.count !== 1 ? "s" : ""}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -289,7 +346,7 @@ export default function ReviewersPage() {
                     <div
                       key={group.classCode}
                       className="folder-card"
-                      onClick={() => router.push(`/student/reviewers/transcripts/${group.classCode}`)}
+                      onClick={() => router.push(`/student/documents/transcripts/${group.classCode}`)}
                     >
                       <div className="folder-icon-wrapper">
                         <FaFileAlt className="folder-icon" />

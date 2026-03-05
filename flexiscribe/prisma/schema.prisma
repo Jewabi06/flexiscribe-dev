@@ -11,12 +11,11 @@ model User {
   email       String    @unique
   password    String
   role        Role
-  status      String    @default("Active")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   token       String?   @unique
   tokenExpiry DateTime?
-  phoneNumber String?
+  status      String    @default("Active")
   admin       Admin?
   educator    Educator?
   student     Student?
@@ -35,16 +34,16 @@ model Student {
   username         String?              @unique
   avatar           String?
   xp               Int                  @default(0)
-  streakCount      Int                  @default(0)
   lastActivityDate String?
+  streakCount      Int                  @default(0)
   downloadCount    Int                  @default(0)
+  notifications    Notification[]
   quizzes          Quiz[]
   quizAttempts     QuizAttempt[]
   user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievements     StudentAchievement[]
   badges           StudentBadge[]
   classes          StudentClass[]
-  notifications    Notification[]
 }
 
 model Educator {
@@ -86,10 +85,10 @@ model Quiz {
   type           QuizType
   difficulty     Difficulty
   totalQuestions Int
-  title          String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   studentId      String?
+  title          String?
   lesson         Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   student        Student?       @relation(fields: [studentId], references: [id], onDelete: Cascade)
   attempts       QuizAttempt[]
@@ -116,10 +115,10 @@ model QuizAttempt {
   quizId         String
   studentId      String
   score          Float
-  startedAt      DateTime?
   totalQuestions Int
   answers        Json
   completedAt    DateTime  @default(now())
+  startedAt      DateTime?
   quiz           Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
   student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
@@ -133,9 +132,9 @@ model Achievement {
   description         String
   icon                String
   category            String
+  createdAt           DateTime             @default(now())
   requirementType     String
   requirementValue    Int
-  createdAt           DateTime             @default(now())
   studentAchievements StudentAchievement[]
 }
 
@@ -220,6 +219,7 @@ model Transcription {
   status         String   @default("COMPLETED")
   summaryJson    Json?
   transcriptJson Json?
+  sessionType    String   @default("lecture")
   class          Class?   @relation(fields: [classId], references: [id])
   educator       Educator @relation(fields: [educatorId], references: [id], onDelete: Cascade)
 
@@ -240,6 +240,8 @@ model Notification {
   updatedAt  DateTime  @updatedAt
   adminId    String?
   studentId  String?
+  activityId String?
+  deleted    Boolean   @default(false)
   admin      Admin?    @relation(fields: [adminId], references: [id], onDelete: Cascade)
   educator   Educator? @relation(fields: [educatorId], references: [id], onDelete: Cascade)
   student    Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -248,6 +250,7 @@ model Notification {
   @@index([adminId])
   @@index([studentId])
   @@index([read])
+  @@index([activityId])
 }
 
 model Admin {
@@ -292,6 +295,37 @@ model Activity {
   @@index([createdAt])
 }
 
+model VerificationCode {
+  id        String   @id @default(cuid())
+  userId    String
+  code      String
+  purpose   String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@index([code])
+}
+
+model PasswordRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  type            String // "change" or "reset"
+  status          String    @default("pending") // "pending", "approved", "denied"
+  reason          String? // optional reason from the user
+  adminNote       String? // optional note from admin
+  newPasswordHash String? // hashed new password (stored when user provides it)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  resolvedAt      DateTime?
+  resolvedBy      String? // admin id who resolved
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 enum Role {
   ADMIN
   STUDENT
@@ -315,17 +349,4 @@ enum Difficulty {
   EASY
   MEDIUM
   HARD
-}
-
-model VerificationCode {
-  id        String   @id @default(cuid())
-  userId    String
-  code      String
-  purpose   String // "password-reset" | "password-change"
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId, purpose])
-  @@index([code])
 }

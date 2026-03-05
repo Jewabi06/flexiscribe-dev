@@ -44,7 +44,7 @@ export default function EducatorLogin() {
 
   const handleBack = () => {
     if (isPrototypeMode) {
-      router.push("/");
+      router.push("/?role=educator");
     } else {
       router.push("/auth/role-selection?role=educator");
     }
@@ -168,6 +168,7 @@ export default function EducatorLogin() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="off"
               />
               {/* Eye toggle */}
               <button

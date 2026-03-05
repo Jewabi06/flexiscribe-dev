@@ -2,7 +2,7 @@ import prisma from "@/lib/db";
 import { NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
 
-// GET /api/admin/search?q=<query> — Search users, classes, activities
+// GET /api/admin/search?q=<query> — Search users, classes, transcripts, activities
 export async function GET(request: Request) {
   try {
     const user = await verifyAuth(request);
@@ -27,6 +27,7 @@ export async function GET(request: Request) {
           { email: { contains, mode: "insensitive" } },
           { student: { fullName: { contains, mode: "insensitive" } } },
           { student: { username: { contains, mode: "insensitive" } } },
+          { student: { studentNumber: { contains, mode: "insensitive" } } },
           { educator: { fullName: { contains, mode: "insensitive" } } },
           { educator: { username: { contains, mode: "insensitive" } } },
           { admin: { fullName: { contains, mode: "insensitive" } } },
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
         educator: true,
         admin: true,
       },
-      take: 5,
+      take: 8,
     });
 
     const userResults = users.map((u) => {
@@ -47,11 +48,15 @@ export async function GET(request: Request) {
         u.educator?.fullName ||
         u.admin?.fullName ||
         u.email;
+      const role = u.role;
+      const detail = u.student
+        ? `${role} • ${u.student.studentNumber} • ${u.email}`
+        : `${role} • ${u.email}`;
       return {
         id: u.id,
         type: "user" as const,
         title: name,
-        subtitle: `${u.role} • ${u.email}`,
+        subtitle: detail,
         href: "/admin/manage-accounts",
       };
     });
@@ -64,6 +69,8 @@ export async function GET(request: Request) {
           { section: { contains, mode: "insensitive" } },
           { classCode: { contains, mode: "insensitive" } },
           { room: { contains, mode: "insensitive" } },
+          { day: { contains, mode: "insensitive" } },
+          { educator: { fullName: { contains, mode: "insensitive" } } },
         ],
       },
       include: {
@@ -76,8 +83,54 @@ export async function GET(request: Request) {
       id: c.id,
       type: "class" as const,
       title: `${c.subject} - ${c.section}`,
-      subtitle: `${c.classCode} • ${c.educator.fullName} • Room ${c.room}`,
+      subtitle: `${c.classCode} • ${c.educator.fullName} • ${c.day} • Room ${c.room}`,
       href: "/admin/manage-classes",
+    }));
+
+    // Search transcriptions
+    const transcriptions = await prisma.transcription.findMany({
+      where: {
+        OR: [
+          { title: { contains, mode: "insensitive" } },
+          { course: { contains, mode: "insensitive" } },
+          { educator: { fullName: { contains, mode: "insensitive" } } },
+        ],
+      },
+      include: {
+        educator: { select: { fullName: true } },
+        class: { select: { subject: true, section: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    });
+
+    const transcriptResults = transcriptions.map((t) => ({
+      id: t.id,
+      type: "transcript" as const,
+      title: t.title,
+      subtitle: `${t.educator.fullName} • ${t.course}${t.class ? ` • ${t.class.subject} ${t.class.section}` : ""} • ${t.status}`,
+      href: "/admin/manage-classes",
+    }));
+
+    // Search audit logs
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { action: { contains, mode: "insensitive" } },
+          { details: { contains, mode: "insensitive" } },
+          { userName: { contains, mode: "insensitive" } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    });
+
+    const auditResults = auditLogs.map((a) => ({
+      id: a.id,
+      type: "activity" as const,
+      title: a.action,
+      subtitle: `${a.userName} • ${a.userRole}${a.details ? " • " + a.details : ""}`,
+      href: "/admin/audit-logs",
     }));
 
     // Search activities
@@ -101,9 +154,35 @@ export async function GET(request: Request) {
       href: "/admin/audit-logs",
     }));
 
+    // Search departments
+    const departments = await prisma.department.findMany({
+      where: {
+        name: { contains, mode: "insensitive" },
+      },
+      include: {
+        _count: { select: { educators: true } },
+      },
+      take: 3,
+    });
+
+    const departmentResults = departments.map((d) => ({
+      id: d.id,
+      type: "department" as const,
+      title: d.name,
+      subtitle: `Department • ${d._count.educators} educator(s)`,
+      href: "/admin/manage-accounts",
+    }));
+
     return NextResponse.json(
       {
-        results: [...userResults, ...classResults, ...activityResults],
+        results: [
+          ...userResults,
+          ...classResults,
+          ...transcriptResults,
+          ...auditResults,
+          ...activityResults,
+          ...departmentResults,
+        ],
       },
       { status: 200 }
     );

@@ -157,6 +157,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="off"
               />
               {/* Eye toggle */}
               <button

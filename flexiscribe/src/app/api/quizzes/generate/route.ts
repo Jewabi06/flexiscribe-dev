@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
     // e.g. "JOIN Operation" → also adds "INNER JOIN", "LEFT JOIN" etc.
     // This lets the deterministic FIB generator produce items with correct,
     // verbatim answers instead of mismatching broad terms to specific sentences.
+    // Keep the original (pre-expansion) list for Easy MCQ — expanded variants
+    // produce fragment terms like "learning discovers" that are not valid concepts.
+    const originalKeyConcepts = [...keyConcepts];
     if (keyConcepts.length > 0) {
       keyConcepts = expandKeyConcepts(keyConcepts, quizContent);
     }
@@ -147,7 +150,8 @@ export async function POST(request: NextRequest) {
       difficulty as 'EASY' | 'MEDIUM' | 'HARD',
       count,
       resolvedModel,
-      keyConcepts
+      keyConcepts,
+      originalKeyConcepts
     );
 
     // Compute the sequence number: count existing quizzes of the same lesson + type + student, then +1
@@ -259,7 +263,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint to retrieve available lessons
+// GET endpoint to retrieve available reviewers for quiz generation.
+// Only returns Cornell Notes reviewers — MOTM records are excluded.
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -273,6 +278,7 @@ export async function GET(request: NextRequest) {
         id: true,
         title: true,
         subject: true,
+        content: true,
         createdAt: true,
         _count: {
           select: {
@@ -285,9 +291,19 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Filter out MOTM (meeting) records — only reviewers are quiz-eligible
+    const reviewers = lessons.filter(l => {
+      try {
+        const parsed = JSON.parse(l.content);
+        return parsed.type !== 'motm';
+      } catch {
+        return true; // plain-text lessons are also valid
+      }
+    });
+
     return NextResponse.json({
       success: true,
-      lessons: lessons.map(l => ({
+      lessons: reviewers.map(l => ({
         id: l.id,
         title: l.title,
         subject: l.subject,

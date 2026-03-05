@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook } from "react-icons/fa";
+import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers, FaChalkboardTeacher } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import "./styles.css";
 
@@ -22,6 +22,8 @@ export default function PrototypeDashboard() {
   const [isStopping, setIsStopping] = useState(false);
   const [duration, setDuration] = useState("0m 0s");
   const [showCourseSelect, setShowCourseSelect] = useState(false);
+  const [showSessionTypeSelect, setShowSessionTypeSelect] = useState(false);
+  const [sessionType, setSessionType] = useState("lecture"); // "lecture" | "meeting"
 
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -192,7 +194,8 @@ export default function PrototypeDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseCode: selectedCourse,
-          title: `${selectedCourse} - Lecture ${new Date().toLocaleDateString()}`,
+          sessionType: sessionType,
+          title: `${selectedCourse} - ${sessionType === "meeting" ? "Meeting" : "Lecture"} ${new Date().toLocaleDateString()}`,
         }),
       });
 
@@ -320,10 +323,13 @@ export default function PrototypeDashboard() {
       const data = await res.json();
       setIsRecording(false);
       setIsStopping(false);
-      setStatusMessage(
-        `Transcription saved! ${data.chunks_count} chunks recorded. ` +
-        (data.has_summary ? "Cornell summary generated." : "No summary generated.")
-      );
+
+      const formatLabel = sessionType === "meeting" ? "MOTM" : "Cornell Notes";
+      let msg = `Transcription saved! ${data.chunks_count} chunks recorded. `;
+      if (data.has_summary) msg += `${formatLabel} summary generated. `;
+      if (data.lesson_created) msg += "Lesson created for quizzes.";
+      else if (!data.has_summary) msg += "No summary generated.";
+      setStatusMessage(msg);
 
       // Update live chunks with final data (10s chunks, includes final buffer flush)
       if (data.live_transcript?.chunks) {
@@ -435,6 +441,16 @@ export default function PrototypeDashboard() {
               {/* Step 4 */}
               <div className="guide-step">
                 <div className="guide-step-number">4</div>
+                <div className="guide-step-icon"><FaChalkboardTeacher /></div>
+                <div className="guide-step-content">
+                  <h3 className="guide-step-title">SESSION TYPE</h3>
+                  <p className="guide-step-text">Choose <strong>Lecture</strong> for Cornell Notes or <strong>Meeting</strong><br />for Minutes of the Meeting (MOTM) format.</p>
+                </div>
+              </div>
+
+              {/* Step 5 */}
+              <div className="guide-step">
+                <div className="guide-step-number">5</div>
                 <div className="guide-step-icon"><FaPlay /></div>
                 <div className="guide-step-content">
                   <h3 className="guide-step-title">START RECORD</h3>
@@ -442,9 +458,9 @@ export default function PrototypeDashboard() {
                 </div>
               </div>
 
-              {/* Step 5 */}
+              {/* Step 6 */}
               <div className="guide-step">
-                <div className="guide-step-number">5</div>
+                <div className="guide-step-number">6</div>
                 <div className="guide-step-icon"><div className="stop-icon"></div></div>
                 <div className="guide-step-content">
                   <h3 className="guide-step-title">STOP RECORD</h3>
@@ -492,7 +508,7 @@ export default function PrototypeDashboard() {
                       onClick={() => {
                         setSelectedCourse(code);
                         setShowCourseSelect(false);
-                        setStatusMessage(`Course ${code} selected. Ready to record.`);
+                        setShowSessionTypeSelect(true);
                       }}
                     >
                       <div className="course-option-code">{code}</div>
@@ -503,6 +519,59 @@ export default function PrototypeDashboard() {
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session Type Selection Modal */}
+      {showSessionTypeSelect && (
+        <div className="guide-overlay" onClick={() => setShowSessionTypeSelect(false)}>
+          <div className="guide-modal session-type-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="guide-close" onClick={() => setShowSessionTypeSelect(false)}>✕</button>
+
+            <div className="guide-header">
+              <div className="guide-step-icon"><FaChalkboardTeacher /></div>
+              <div>
+                <h2 className="guide-title">Session Type</h2>
+                <p className="guide-subtitle">How should the AI format your notes?</p>
+              </div>
+            </div>
+
+            <div className="session-type-list">
+              <button
+                className={`session-type-option ${sessionType === "lecture" ? "selected" : ""}`}
+                onClick={() => {
+                  setSessionType("lecture");
+                  setShowSessionTypeSelect(false);
+                  setStatusMessage(`${selectedCourse} — Lecture selected. Ready to record.`);
+                }}
+              >
+                <div className="session-type-icon lecture-icon">
+                  <FaChalkboardTeacher />
+                </div>
+                <div className="session-type-info">
+                  <div className="session-type-name">Lecture</div>
+                  <div className="session-type-desc">Generates <strong>Cornell Notes</strong> with cue questions, notes, and summary.</div>
+                </div>
+              </button>
+
+              <button
+                className={`session-type-option ${sessionType === "meeting" ? "selected" : ""}`}
+                onClick={() => {
+                  setSessionType("meeting");
+                  setShowSessionTypeSelect(false);
+                  setStatusMessage(`${selectedCourse} — Meeting selected. Ready to record.`);
+                }}
+              >
+                <div className="session-type-icon meeting-icon">
+                  <FaUsers />
+                </div>
+                <div className="session-type-info">
+                  <div className="session-type-name">Meeting</div>
+                  <div className="session-type-desc">Generates <strong>Minutes of the Meeting</strong> with agenda, decisions, and action items.</div>
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -534,7 +603,7 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Course Selector Bar */}
+        {/* Course & Session Type Selector Bar */}
         <div className="course-selector-bar">
           <button
             className={`course-select-btn ${selectedCourse ? "has-course" : ""}`}
@@ -544,13 +613,31 @@ export default function PrototypeDashboard() {
             <FaBook />
             <span>{selectedCourse || "Select Course"}</span>
           </button>
-          {selectedCourse && !isRecording && (
-            <span className="course-ready-label">Ready to record for {selectedCourse}</span>
-          )}
+
+          {/* Session Type Toggle */}
+          <div className="session-type-toggle">
+            <button
+              className={`session-type-btn ${sessionType === "lecture" ? "active" : ""}`}
+              onClick={() => { setSessionType("lecture"); if (!isRecording) setShowSessionTypeSelect(true); }}
+              disabled={isRecording}
+            >
+              <FaChalkboardTeacher />
+              <span>Lecture</span>
+            </button>
+            <button
+              className={`session-type-btn ${sessionType === "meeting" ? "active" : ""}`}
+              onClick={() => { setSessionType("meeting"); if (!isRecording) setShowSessionTypeSelect(true); }}
+              disabled={isRecording}
+            >
+              <FaUsers />
+              <span>Meeting</span>
+            </button>
+          </div>
+          
           {isRecording && (
             <div className="recording-info">
               <span className="recording-dot"></span>
-              <span className="recording-label">REC &mdash; {selectedCourse}</span>
+              <span className="recording-label">REC &mdash; {selectedCourse} ({sessionType === "meeting" ? "Meeting" : "Lecture"})</span>
               <span className="recording-duration">{duration}</span>
             </div>
           )}

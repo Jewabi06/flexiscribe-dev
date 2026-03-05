@@ -29,57 +29,68 @@ export default function LectureRecordingsCard() {
   return (
     <div
       className="
-        relative overflow-visible
+        relative overflow-hidden
         bg-gradient-to-br from-[#9d8adb] to-[#4c4172]
         rounded-[16px] md:rounded-[24px] lg:rounded-[36px]
         px-3 sm:px-4 md:px-3 lg:px-4 pt-3 sm:pt-4 pb-4 sm:pb-6
         shadow-[0_4px_20px_rgba(0,0,0,0.08)]
-        text-white min-h-[360px] sm:min-h-[420px] md:min-h-[400px] lg:min-h-[720px] xl:min-h-[760px]
+        text-white
+        h-[580px] sm:h-[600px] md:h-[680px] lg:h-[720px] xl:h-[640px]
         flex flex-col
         transition-all duration-300
         hover:translate-y-[-4px] hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)]
       "
     >
-      {/* HEADER */}
-      <div className="flex items-center justify-between mb-2 sm:mb-3 px-4 sm:px-6 md:px-8 lg:px-10">
-        <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-bold">
+      {/* HEADER - Centered */}
+      <div className="flex items-center justify-center mb-2 sm:mb-3 px-2 sm:px-4 md:px-6">
+        <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold">
           Lecture Recordings
         </h3>
       </div>
 
-      {/* LIST */}
-      <div className="space-y-4 flex-1">
+      {/* ILLUSTRATION - Above the transcript items */}
+      <div className="relative flex justify-center mb-3 sm:mb-4">
+        <Image
+          src="/speech-text-sticker.png"
+          alt="Speech to Text"
+          width={500}
+          height={500}
+          className="
+            w-[400px] sm:w-[420px] md:w-[440px] lg:w-[460px] xl:w-[480px]
+            object-contain
+          "
+        />
+      </div>
+
+      <div className="text-right p-2">Recents</div>
+
+      {/* LIST - Grouped as chunks */}
+      <div className="space-y-3 sm:space-y-4 flex-1 overflow-y-auto px-1">
         {loading ? (
           <>  
             {[1, 2, 3].map((i) => (
-              <div key={i} className="space-y-2">
-                <div className="flex justify-between px-1 sm:px-2">
+              <div key={i} className="bg-white/10 rounded-lg p-2 space-y-2">
+                <div className="flex justify-between px-1">
                   <span className="inline-block w-20 h-3 bg-white/20 rounded animate-pulse" />
                   <span className="inline-block w-12 h-3 bg-white/20 rounded animate-pulse" />
                 </div>
-                <div className="bg-white/20 rounded-full px-4 sm:px-8 py-2 sm:py-3 h-10 animate-pulse" />
+                <div className="bg-white/20 rounded-full px-4 py-2 h-8 animate-pulse" />
               </div>
             ))}
           </>
+        ) : lectures.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 py-6 text-white/60">
+            <svg className="w-10 h-10 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <p className="text-sm text-center">No lecture recordings yet.<br/>Start a session to see transcripts here.</p>
+          </div>
         ) : (
           lectures.map((lecture, index) => (
             <LectureItem key={index} {...lecture} />
           ))
         )}
       </div>
-
-      {/* ILLUSTRATION */}
-      <Image
-        src="/speech-text-sticker.png"
-        alt="Speech to Text"
-        width={500}
-        height={500}
-        className="
-          absolute bottom-[-20px] left-[-85px]
-          max-w-none pointer-events-none select-none
-          hidden md:block
-        "
-      />
     </div>
   );
 }
@@ -88,23 +99,38 @@ export default function LectureRecordingsCard() {
 
 function LectureItem({ date, duration, course }) {
   return (
-    <div className="space-y-2">
-      <div className="flex justify-between text-xs sm:text-sm text-white/90 px-1 sm:px-2">
-        <span>{date}</span>
-        <span>{duration}</span>
+    <div className="bg-white/5 rounded-lg p-2 sm:p-3 space-y-3 backdrop-blur-sm transition-all duration-300 hover:bg-white/10">
+      {/* Date and Time - Side by side with minimalist icons */}
+      <div className="flex items-center justify-between px-1">
+        {/* Date with icon */}
+        <div className="flex items-center gap-1.5">
+          <svg className="w-3 h-3 sm:w-4 sm:h-4 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span className="text-[10px] sm:text-xs text-white/80">{date}</span>
+        </div>
+        
+        {/* Time with icon */}
+        <div className="flex items-center gap-1.5">
+          <svg className="w-3 h-3 sm:w-4 sm:h-4 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-[10px] sm:text-xs font-medium text-white/90">{duration}</span>
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-[#2d2640] rounded-full px-4 sm:px-8 py-2 sm:py-3 flex items-center gap-4 sm:gap-7 shadow-sm transition-all duration-300 hover:shadow-md hover:translate-y-[-2px]">
+      {/* Transcript Link and Course - Grouped together */}
+      <div className="bg-white dark:bg-[#2d2640] rounded-full px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-center gap-2 sm:gap-3 shadow-sm transition-all duration-300 hover:shadow-md hover:translate-y-[-2px] text-xs sm:text-sm">
         <Link
           href={`/educator/transcriptions?course=${course}`}
-          className="text-[#6f63a8] font-medium hover:underline transition-colors duration-200"
+          className="text-[#6f63a8] text-[16px] font-medium hover:underline transition-colors duration-200 whitespace-nowrap"
         >
           View Transcript
         </Link>
 
         <span className="text-[#6f63a8]">|</span>
 
-        <span className="font-semibold text-[#6f63a8]">
+        <span className="font-semibold text-[#6f63a8] text-[16px] whitespace-nowrap">
           {course}
         </span>
       </div>

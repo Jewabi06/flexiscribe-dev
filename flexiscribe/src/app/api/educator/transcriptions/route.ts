@@ -137,20 +137,23 @@ export async function POST(request: NextRequest) {
             select: { subject: true, section: true },
           });
 
+          // Build educator display name
+          const educatorDisplayName = educator.fullName || "Your professor";
+
           const hasTranscript = !!rawText || !!transcriptJson;
           const hasSummary = !!summaryJson || (content && content.length > 0);
           let notifType = "transcript";
           let notifTitle = "New Transcript Available";
-          let notifMessage = `A new transcript "${title}" has been uploaded`;
+          let notifMessage = `${educatorDisplayName} uploaded a new transcript "${title}"`;
           
           if (hasSummary && hasTranscript) {
             notifType = "transcript_summary";
             notifTitle = "New Transcript & Summary Available";
-            notifMessage = `A new transcript and summary "${title}" has been uploaded`;
+            notifMessage = `${educatorDisplayName} uploaded a new transcript and summary "${title}"`;
           } else if (hasSummary) {
             notifType = "summary";
             notifTitle = "New Summary Available";
-            notifMessage = `A new summary "${title}" has been uploaded`;
+            notifMessage = `${educatorDisplayName} uploaded a new summary "${title}"`;
           }
 
           if (classInfo) {

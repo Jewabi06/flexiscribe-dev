@@ -1,8 +1,10 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { FaBell, FaFileAlt, FaBook, FaCheck, FaTrophy, FaMedal, FaGamepad } from "react-icons/fa";
 
 export default function NotificationMenu() {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -28,7 +30,7 @@ export default function NotificationMenu() {
   // Fetch notifications on mount and poll every 30 seconds
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
+    const interval = setInterval(fetchNotifications, 5000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
@@ -62,11 +64,49 @@ export default function NotificationMenu() {
         body: JSON.stringify({ markAllRead: true }),
       });
       if (res.ok) {
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        setNotifications([]);
         setUnreadCount(0);
       }
     } catch (error) {
       console.error("Failed to mark notifications as read:", error);
+    }
+  };
+
+  // Navigate to the relevant tab based on notification type, then delete it
+  const handleNotificationClick = async (notif) => {
+    // Remove from local state immediately
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    setUnreadCount((prev) => (notif.read ? prev : Math.max(0, prev - 1)));
+    setIsOpen(false);
+
+    // Delete from database
+    try {
+      await fetch("/api/students/notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationId: notif.id }),
+      });
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+
+    // Navigate to the relevant tab
+    switch (notif.type) {
+      case "transcript":
+      case "summary":
+      case "transcript_summary":
+        router.push("/student/documents");
+        break;
+      case "quiz_generated":
+        router.push("/student/quizzes");
+        break;
+      case "achievement":
+      case "badge":
+        router.push("/student/rank");
+        break;
+      default:
+        router.push("/student/dashboard");
+        break;
     }
   };
 
@@ -156,6 +196,7 @@ export default function NotificationMenu() {
               notifications.map((notif) => (
                 <div
                   key={notif.id}
+                  onClick={() => handleNotificationClick(notif)}
                   style={{
                     display: "flex",
                     alignItems: "flex-start",
@@ -163,9 +204,11 @@ export default function NotificationMenu() {
                     padding: "12px 16px",
                     borderBottom: "1px solid rgba(157, 138, 219, 0.1)",
                     background: notif.read ? "transparent" : "rgba(157, 138, 219, 0.06)",
-                    cursor: "default",
+                    cursor: "pointer",
                     transition: "background 0.2s ease",
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(157, 138, 219, 0.12)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = notif.read ? "transparent" : "rgba(157, 138, 219, 0.06)"; }}
                 >
                   <div style={{
                     width: "36px",

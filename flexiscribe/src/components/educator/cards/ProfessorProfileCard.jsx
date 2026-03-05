@@ -1,9 +1,9 @@
 "use client";
 
 /* ================= IMPORTS ================= */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Sun, Moon, X, Lock, Eye, EyeOff } from "lucide-react";
+import { Bell, Sun, Moon, X, Lock, Eye, EyeOff, FileText, BookOpen, CheckCircle, User, LogOut } from "lucide-react";
 
 /* ================= MAIN ================= */
 
@@ -11,19 +11,24 @@ export default function ProfessorProfileCard() {
   const router = useRouter();
   const [openNotif, setOpenNotif] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [dark, setDark] = useState(false);
 
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(true);
   const [educator, setEducator] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Mobile/tablet dropdown
+  const [mobileDropdownOpen, setMobileDropdownOpen] = useState(false);
+  const [mobileNotifOpen, setMobileNotifOpen] = useState(false);
+  const mobileRef = useRef(null);
+  const desktopNotifRef = useRef(null);
 
   /* THEME INIT */
   useEffect(() => {
     const stored = localStorage.getItem("theme");
     const isDark = stored === "dark";
-
     setDark(isDark);
     document.documentElement.classList.toggle("dark", isDark);
   }, []);
@@ -50,25 +55,44 @@ export default function ProfessorProfileCard() {
     fetchProfile();
   }, []);
 
-  /* FETCH NOTIFICATIONS */
-  useEffect(() => {
-    async function fetchNotifications() {
-      try {
-        const res = await fetch("/api/educator/notifications?limit=10");
-        if (res.ok) {
-          const data = await res.json();
-          setNotifications(data.notifications);
-        }
-      } catch (error) {
-        console.error("Failed to fetch notifications:", error);
+  /* FETCH NOTIFICATIONS - with polling */
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch("/api/educator/notifications?limit=20");
+      if (res.ok) {
+        const data = await res.json();
+        const notifs = data.notifications || [];
+        setNotifications(notifs);
+        setUnreadCount(notifs.filter((n) => !n.read).length);
       }
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
     }
+  }, []);
+
+  useEffect(() => {
     fetchNotifications();
+    const interval = setInterval(fetchNotifications, 5000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  /* CLOSE ON OUTSIDE CLICK */
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (mobileRef.current && !mobileRef.current.contains(e.target)) {
+        setMobileDropdownOpen(false);
+        setMobileNotifOpen(false);
+      }
+      if (desktopNotifRef.current && !desktopNotifRef.current.contains(e.target)) {
+        setOpenNotif(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   function toggleDarkMode() {
     const next = !dark;
-
     setDark(next);
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
@@ -76,18 +100,12 @@ export default function ProfessorProfileCard() {
 
   async function handleSignOut() {
     try {
-      // Call logout API to clear the auth cookie
       await fetch("/api/auth/logout", { method: "POST" });
-      
-      // Clear any client-side storage
       localStorage.clear();
       sessionStorage.clear();
-      
-      // Redirect to login
       window.location.href = "/auth/educator/login";
     } catch (error) {
       console.error("Logout error:", error);
-      // Redirect anyway
       window.location.href = "/auth/educator/login";
     }
   }
@@ -97,33 +115,134 @@ export default function ProfessorProfileCard() {
       await fetch("/api/educator/notifications/mark-all-read", {
         method: "POST",
       });
-      // Refresh notifications
-      const res = await fetch("/api/educator/notifications?limit=10");
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications);
-      }
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadCount(0);
     } catch (error) {
       console.error("Failed to mark all as read:", error);
     }
   }
 
-  function handleViewAllNotifications() {
-    // You can create a dedicated notifications page
-    router.push("/educator/notifications");
+  // Click notification: navigate, soft delete
+  async function handleNotificationClick(notif) {
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    setUnreadCount((prev) => (notif.read ? prev : Math.max(0, prev - 1)));
+    setOpenNotif(false);
+    setMobileNotifOpen(false);
+    setMobileDropdownOpen(false);
+
+    try {
+      await fetch(`/api/educator/notifications/${notif.id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+
+    switch (notif.type) {
+      case "transcript":
+      case "summary":
+      case "transcript_summary":
+        router.push("/educator/transcriptions");
+        break;
+      default:
+        router.push("/educator/dashboard");
+        break;
+    }
+  }
+
+  function getNotificationIcon(type) {
+    switch (type) {
+      case "transcript":
+        return <FileText size={16} style={{ color: "#9d8adb" }} />;
+      case "summary":
+      case "transcript_summary":
+        return <BookOpen size={16} style={{ color: "#9d8adb" }} />;
+      default:
+        return <Bell size={16} style={{ color: "#9d8adb" }} />;
+    }
+  }
+
+  function formatTimeAgo(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHour = Math.floor(diffMs / 3600000);
+    const diffDay = Math.floor(diffMs / 86400000);
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return date.toLocaleDateString();
   }
 
   const initial = loading ? "..." : (name?.charAt(0)?.toUpperCase() || "?");
 
+  /* SHARED NOTIFICATION DROPDOWN CONTENT */
+  function renderNotifDropdown(isOpen) {
+    if (!isOpen) return null;
+    return (
+      <div className="absolute right-0 top-12 w-[320px] sm:w-[380px] bg-white dark:bg-[#2d2640] text-gray-800 dark:text-[#e8e8e8] rounded-xl border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-50 overflow-hidden">
+        <div className="px-4 py-3 flex justify-between items-center border-b border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.2)]">
+          <h3 className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">Notifications</h3>
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="text-xs text-[#9d8adb] hover:underline font-medium flex items-center gap-1"
+            >
+              <CheckCircle size={12} /> Mark all read
+            </button>
+          )}
+        </div>
+        <div className="max-h-[350px] overflow-y-auto edu-scrollbar">
+          {notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-gray-500 dark:text-[#b0a8d4]">
+              <span style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>{"🔔"}</span>
+              <span className="text-sm">No notifications yet</span>
+            </div>
+          ) : (
+            notifications.map((notif) => (
+              <div
+                key={notif.id}
+                onClick={() => handleNotificationClick(notif)}
+                className={`flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.1)] dark:hover:bg-[rgba(139,127,199,0.12)] transition-all duration-200 cursor-pointer ${
+                  !notif.read ? "bg-[rgba(157,138,219,0.06)] dark:bg-[rgba(139,127,199,0.08)]" : ""
+                }`}
+              >
+                <div className="w-9 h-9 rounded-[10px] bg-[rgba(157,138,219,0.12)] flex items-center justify-center shrink-0">
+                  {getNotificationIcon(notif.type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-[0.85rem] ${!notif.read ? "font-bold" : "font-medium"} text-[#4c4172] dark:text-[#c5b8f5]`}>
+                    {notif.title}
+                  </div>
+                  <div className="text-[0.8rem] text-gray-600 dark:text-[#b0a8d4] leading-snug">
+                    {notif.message}
+                  </div>
+                  <div className="text-[0.72rem] text-gray-400 dark:text-[#8a82b0] mt-1">
+                    {formatTimeAgo(notif.createdAt)}
+                  </div>
+                </div>
+                {!notif.read && (
+                  <div className="w-2 h-2 rounded-full bg-[#9d8adb] shrink-0 mt-2 animate-pulse" />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <>
-        {/* MOBILE BUTTON - shimmer */}
-        <div className="md:hidden flex justify-end mb-2">
+        {/* MOBILE/TABLET shimmer */}
+        <div className="lg:hidden flex justify-end">
           <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] animate-pulse" />
         </div>
-        {/* DESKTOP - shimmer */}
-        <div className="hidden md:block">
+        {/* DESKTOP shimmer */}
+        <div className="hidden lg:block">
           <div className="w-full min-h-[140px] sm:min-h-[160px] md:min-h-[170px] lg:min-h-[180px] bg-gradient-to-br from-[#9d8adb] to-[#4c4172] rounded-[16px] md:rounded-[24px] lg:rounded-[30px] animate-pulse" />
         </div>
       </>
@@ -132,53 +251,111 @@ export default function ProfessorProfileCard() {
 
   return (
     <>
-      {/* MOBILE BUTTON */}
-      <div className="md:hidden flex justify-end mb-2">
+      {/* ========== MOBILE / TABLET: Avatar button + Dropdown ========== */}
+      <div className="lg:hidden flex items-center gap-2 relative" ref={mobileRef}>
+        {/* Notification Bell */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setMobileNotifOpen(!mobileNotifOpen);
+              setMobileDropdownOpen(false);
+              if (!mobileNotifOpen) fetchNotifications();
+            }}
+            className="w-10 h-10 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#9d8adb] flex items-center justify-center shadow-[0_2px_10px_rgba(157,138,219,0.3)] transition-all duration-300 hover:scale-105 active:scale-95 relative"
+          >
+            <Bell size={17} className="text-white" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-[20px] px-1 bg-[#e74c3c] rounded-full flex items-center justify-center text-white text-[10px] font-bold border-2 border-white dark:border-[#1a1625]">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </button>
+          {renderNotifDropdown(mobileNotifOpen)}
+        </div>
+
+        {/* Profile Avatar */}
         <button
-          onClick={() => setMobileOpen(true)}
-          className="w-11 h-11 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#4c4172] flex items-center justify-center shadow-[0_4px_15px_rgba(157,138,219,0.3)] text-white font-semibold transition-all duration-300 hover:scale-105 active:scale-95"
+          onClick={() => {
+            setMobileDropdownOpen(!mobileDropdownOpen);
+            setMobileNotifOpen(false);
+          }}
+          className="w-11 h-11 rounded-full bg-gradient-to-br from-[#9d8adb] to-[#9d8adb] flex items-center justify-center shadow-[0_2px_10px_rgba(157,138,219,0.3)] text-white font-semibold transition-all duration-300 hover:scale-105 active:scale-95"
         >
           {initial}
         </button>
+
+        {/* Dropdown Menu */}
+        {mobileDropdownOpen && (
+          <div className="absolute right-0 top-14 min-w-[220px] bg-white dark:bg-[#2d2640] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] z-50 overflow-hidden">
+            {/* User Info + Theme Toggle */}
+            <div className="px-4 py-3 border-b border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.2)] flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">{educator.username}</p>
+                <p className="text-xs text-[#666] dark:text-[#b0a8d4]">Instructor</p>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleDarkMode();
+                }}
+                className="w-8 h-8 rounded-full bg-[rgba(157,138,219,0.12)] dark:bg-[rgba(139,127,199,0.2)] flex items-center justify-center hover:bg-[rgba(157,138,219,0.25)] dark:hover:bg-[rgba(139,127,199,0.35)] transition-colors duration-200"
+              >
+                {dark ? <Moon size={15} className="text-[#9d8adb]" /> : <Sun size={15} className="text-[#9d8adb]" />}
+              </button>
+            </div>
+
+            <div className="py-1">
+              {/* Edit Profile */}
+              <button
+                onClick={() => {
+                  setMobileDropdownOpen(false);
+                  setEditOpen(true);
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-[#4c4172] dark:text-[#e8e8e8] hover:bg-[rgba(157,138,219,0.08)] dark:hover:bg-[rgba(139,127,199,0.12)] flex items-center gap-3 transition-colors duration-200"
+              >
+                <User size={16} className="text-[#9d8adb]" />
+                Edit Profile
+              </button>
+
+              {/* Sign Out */}
+              <button
+                onClick={() => {
+                  setMobileDropdownOpen(false);
+                  handleSignOut();
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm hover:bg-[rgba(231,76,60,0.1)] flex items-center gap-3 text-[#e74c3c] transition-colors duration-200"
+              >
+                <LogOut size={16} />
+                Sign Out
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* DESKTOP */}
-      <div className="hidden md:block">
+      {/* ========== DESKTOP: Big gradient card ========== */}
+      <div className="hidden lg:block">
         <ProfileCard
           name={name}
+          username={educator?.username || "Educator"}
           dark={dark}
           toggleDarkMode={toggleDarkMode}
           openNotif={openNotif}
-          setOpenNotif={setOpenNotif}
+          setOpenNotif={(v) => {
+            setOpenNotif(v);
+            if (v) fetchNotifications();
+          }}
           setEditOpen={setEditOpen}
           handleSignOut={handleSignOut}
           notifications={notifications}
+          unreadCount={unreadCount}
           handleMarkAllRead={handleMarkAllRead}
-          handleViewAllNotifications={handleViewAllNotifications}
+          handleNotificationClick={handleNotificationClick}
+          getNotificationIcon={getNotificationIcon}
+          formatTimeAgo={formatTimeAgo}
+          desktopNotifRef={desktopNotifRef}
         />
       </div>
-
-      {/* MOBILE PROFILE */}
-      {mobileOpen && (
-        <Modal onClose={() => setMobileOpen(false)}>
-          <ProfileCard
-            mobile
-            name={name}
-            dark={dark}
-            toggleDarkMode={toggleDarkMode}
-            openNotif={openNotif}
-            setOpenNotif={setOpenNotif}
-            setEditOpen={(v) => {
-              setMobileOpen(false);
-              setEditOpen(v);
-            }}
-            handleSignOut={handleSignOut}
-            notifications={notifications}
-            handleMarkAllRead={handleMarkAllRead}
-            handleViewAllNotifications={handleViewAllNotifications}
-          />
-        </Modal>
-      )}
 
       {/* EDIT PROFILE */}
       {editOpen && (
@@ -191,15 +368,15 @@ export default function ProfessorProfileCard() {
           />
         </Modal>
       )}
-
     </>
   );
 }
 
-/* ================= PROFILE CARD ================= */
+/* ================= PROFILE CARD (DESKTOP) ================= */
 
 function ProfileCard({
   name,
+  username,
   dark,
   toggleDarkMode,
   openNotif,
@@ -207,9 +384,12 @@ function ProfileCard({
   setEditOpen,
   handleSignOut,
   notifications,
+  unreadCount,
   handleMarkAllRead,
-  handleViewAllNotifications,
-  mobile = false,
+  handleNotificationClick,
+  getNotificationIcon,
+  formatTimeAgo,
+  desktopNotifRef,
 }) {
   return (
     <div
@@ -228,32 +408,78 @@ function ProfileCard({
       style={{ zIndex: openNotif ? 60 : "auto" }}
     >
       {/* NOTIFICATION */}
-      <div className="absolute top-6 right-6">
-        <button 
+      <div className="absolute top-6 right-6" ref={desktopNotifRef}>
+        <button
           onClick={() => setOpenNotif(!openNotif)}
-          className="transition-all duration-300 hover:scale-110 active:scale-95"
+          className="transition-all duration-300 hover:scale-110 active:scale-95 relative"
         >
           <Bell size={22} />
-          {notifications.filter(n => !n.read).length > 0 && (
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#e74c3c] rounded-full border-2 border-[#9d8adb]" style={{ animation: 'eduPulse 2s ease-in-out infinite' }} />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#e74c3c] rounded-full flex items-center justify-center text-[9px] font-bold border-2 border-[#4c4172]">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
           )}
         </button>
 
         {openNotif && (
-          <NotifDropdown
-            notifications={notifications}
-            onMarkAllRead={handleMarkAllRead}
-            onViewAll={handleViewAllNotifications}
-          />
+          <div className="edu-dropdown-animate absolute right-0 mt-3 w-[320px] sm:w-[380px] bg-white dark:bg-[#2d2640] text-gray-800 dark:text-[#e8e8e8] rounded-xl border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-50 overflow-hidden">
+            <div className="px-4 py-3 flex justify-between items-center border-b border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.2)]">
+              <h3 className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">Notifications</h3>
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllRead}
+                  className="text-xs text-[#9d8adb] hover:underline font-medium flex items-center gap-1"
+                >
+                  <CheckCircle size={12} /> Mark all read
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-[350px] overflow-y-auto edu-scrollbar">
+              {notifications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-gray-500 dark:text-[#b0a8d4]">
+                  <span style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>{"🔔"}</span>
+                  <span className="text-sm">No notifications yet</span>
+                </div>
+              ) : (
+                notifications.map((notif) => (
+                  <div
+                    key={notif.id}
+                    onClick={() => handleNotificationClick(notif)}
+                    className={`flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.1)] dark:hover:bg-[rgba(139,127,199,0.12)] transition-all duration-200 cursor-pointer ${
+                      !notif.read ? "bg-[rgba(157,138,219,0.06)] dark:bg-[rgba(139,127,199,0.08)]" : ""
+                    }`}
+                  >
+                    <div className="w-9 h-9 rounded-[10px] bg-[rgba(157,138,219,0.12)] flex items-center justify-center shrink-0">
+                      {getNotificationIcon(notif.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-[0.85rem] ${!notif.read ? "font-bold" : "font-medium"} text-[#4c4172] dark:text-[#c5b8f5]`}>
+                        {notif.title}
+                      </div>
+                      <div className="text-[0.8rem] text-gray-600 dark:text-[#b0a8d4] leading-snug">
+                        {notif.message}
+                      </div>
+                      <div className="text-[0.72rem] text-gray-400 dark:text-[#8a82b0] mt-1">
+                        {formatTimeAgo(notif.createdAt)}
+                      </div>
+                    </div>
+                    {!notif.read && (
+                      <div className="w-2 h-2 rounded-full bg-[#9d8adb] shrink-0 mt-2 animate-pulse" />
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         )}
       </div>
 
       {/* USER INFO */}
       <div className="flex items-center gap-4">
         <Avatar name={name} />
-
         <div>
-          <p className="text-base sm:text-lg md:text-xl font-semibold">{name}</p>
+          <p className="text-base sm:text-lg md:text-xl font-semibold">{username}</p>
           <p className="text-white/80 text-xs sm:text-sm">Instructor</p>
         </div>
       </div>
@@ -266,10 +492,8 @@ function ProfileCard({
         >
           Edit Profile
         </p>
-
         <span className="text-white/30">|</span>
-
-        <p 
+        <p
           onClick={handleSignOut}
           className="cursor-pointer hover:text-[#e74c3c] transition-colors duration-200 hover:underline"
         >
@@ -288,95 +512,6 @@ function ProfileCard({
   );
 }
 
-/* ================= NOTIFICATIONS ================= */
-
-function NotifDropdown({ notifications = [], onMarkAllRead, onViewAll }) {
-  function formatTime(createdAt) {
-    const now = new Date();
-    const created = new Date(createdAt);
-    const diffInSeconds = Math.floor((now - created) / 1000);
-    
-    if (diffInSeconds < 60) return "Just now";
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} mins ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} days ago`;
-    return created.toLocaleDateString();
-  }
-
-  return (
-    <div className="edu-dropdown-animate absolute right-0 mt-3 w-[320px] sm:w-[380px] bg-white dark:bg-[#2d2640] text-gray-800 dark:text-[#e8e8e8] rounded-xl border border-[rgba(157,138,219,0.15)] dark:border-[rgba(139,127,199,0.25)] shadow-[0_8px_24px_rgba(0,0,0,0.15)] z-50 overflow-hidden">
-      <div className="px-4 py-3 flex justify-between items-center border-b border-[rgba(157,138,219,0.2)] dark:border-[rgba(139,127,199,0.2)]">
-        <h3 className="text-sm font-semibold text-[#4c4172] dark:text-[#e8e8e8]">Notifications</h3>
-
-        <button
-          onClick={onMarkAllRead}
-          className="text-xs text-[#9d8adb] hover:underline font-medium"
-        >
-          Mark all as read
-        </button>
-      </div>
-
-      <div className="max-h-[350px] overflow-y-auto edu-scrollbar">
-        {notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-gray-500">
-            <span style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔔</span>
-            <span className="text-sm">No notifications</span>
-          </div>
-        ) : (
-          notifications.map((item) => (
-            <NotifItem
-              key={item.id}
-              title={item.title}
-              message={item.message}
-              time={formatTime(item.createdAt)}
-              unread={!item.read}
-            />
-          ))
-        )}
-      </div>
-
-      <div className="px-4 py-2 text-center border-t">
-        <button
-          onClick={onViewAll}
-          className="text-xs text-gray-500 hover:text-gray-700"
-        >
-          View all notifications
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function NotifItem({ title, message, time, unread }) {
-  const initial = title?.charAt(0)?.toUpperCase() || "N";
-  
-  return (
-    <div
-      className={`
-        edu-notif-item flex gap-3 px-4 py-3 hover:bg-[rgba(157,138,219,0.08)] dark:hover:bg-[rgba(139,127,199,0.12)] transition-all duration-200 cursor-pointer
-        ${unread ? "bg-[rgba(157,138,219,0.06)] dark:bg-[rgba(139,127,199,0.08)]" : "bg-white dark:bg-transparent"}
-      `}
-    >
-      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#9d8adb]/30 to-[#4c4172]/20 text-[#6b5cbf] flex items-center justify-center text-xs font-semibold shrink-0">
-        {initial}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-sm">
-          <span className="font-medium text-[#4c4172] dark:text-[#c5b8f5]">{title}</span>{" "}
-          <span className="text-gray-600 dark:text-[#b0a8d4]">{message}</span>
-        </p>
-
-        <p className="text-xs text-gray-400 mt-1">{time}</p>
-      </div>
-
-      {unread && (
-        <span className="w-2 h-2 bg-[#9d8adb] rounded-full mt-2 shrink-0" style={{ animation: 'eduPulse 2s ease-in-out infinite' }} />
-      )}
-    </div>
-  );
-}
-
 /* ================= EDIT PROFILE ================= */
 
 function EditProfile({ setEditOpen, educator, setEducator, setName }) {
@@ -390,15 +525,14 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
 
   // Change Password state
   const [cpOpen, setCpOpen] = useState(false);
-  const [cpStep, setCpStep] = useState(1);
-  const [cpData, setCpData] = useState({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+  const [cpData, setCpData] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [cpErrors, setCpErrors] = useState({});
   const [cpLoading, setCpLoading] = useState(false);
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
-  const [cpCountdown, setCpCountdown] = useState(0);
   const [cpSuccess, setCpSuccess] = useState(false);
+  const [cpRequestPending, setCpRequestPending] = useState(false);
 
   useEffect(() => {
     if (educator) {
@@ -412,11 +546,22 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
   }, [educator]);
 
   useEffect(() => {
-    if (cpCountdown > 0) {
-      const timer = setTimeout(() => setCpCountdown(cpCountdown - 1), 1000);
-      return () => clearTimeout(timer);
+    // Check for existing pending password request
+    async function checkPendingRequest() {
+      try {
+        const res = await fetch("/api/educator/change-password");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.request?.status === "pending") {
+            setCpRequestPending(true);
+          }
+        }
+      } catch (e) {
+        console.error("Error checking password request:", e);
+      }
     }
-  }, [cpCountdown]);
+    checkPendingRequest();
+  }, []);
 
   async function handleSave() {
     setLoading(true);
@@ -464,63 +609,29 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
     return Object.keys(newErrors).length === 0;
   }
 
-  async function cpSendCode() {
-    setCpLoading(true);
-    setCpCountdown(60);
-    try {
-      const res = await fetch("/api/educator/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send-code", currentPassword: cpData.currentPassword, newPassword: cpData.newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setCpErrors({ currentPassword: data.error || "Failed to send code" });
-        setCpCountdown(0);
-        return false;
-      }
-      return true;
-    } catch {
-      setCpErrors({ currentPassword: "An error occurred. Please try again." });
-      setCpCountdown(0);
-      return false;
-    } finally {
-      setCpLoading(false);
-    }
-  }
-
-  async function cpHandleContinue() {
+  async function cpSubmitRequest() {
     if (!cpValidate()) return;
-    const sent = await cpSendCode();
-    if (sent) setCpStep(2);
-  }
-
-  async function cpHandleVerify() {
-    if (!cpData.verificationCode || cpData.verificationCode.length !== 6) {
-      setCpErrors({ verificationCode: "Please enter the 6-digit code" });
-      return;
-    }
     setCpLoading(true);
     try {
       const res = await fetch("/api/educator/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "verify-and-change", verificationCode: cpData.verificationCode }),
+        body: JSON.stringify({ currentPassword: cpData.currentPassword, newPassword: cpData.newPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setCpErrors({ verificationCode: data.error || "Verification failed" });
+        setCpErrors({ currentPassword: data.error || "Failed to submit request" });
         return;
       }
       setCpSuccess(true);
+      setCpRequestPending(true);
       setTimeout(() => {
         setCpSuccess(false);
         setCpOpen(false);
-        setCpStep(1);
-        setCpData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
-      }, 2000);
+        setCpData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      }, 3000);
     } catch {
-      setCpErrors({ verificationCode: "An error occurred" });
+      setCpErrors({ currentPassword: "An error occurred. Please try again." });
     } finally {
       setCpLoading(false);
     }
@@ -528,11 +639,9 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
 
   function cpClose() {
     setCpOpen(false);
-    setCpStep(1);
-    setCpData({ currentPassword: "", newPassword: "", confirmPassword: "", verificationCode: "" });
+    setCpData({ currentPassword: "", newPassword: "", confirmPassword: "" });
     setCpErrors({});
     setCpSuccess(false);
-    setCpCountdown(0);
   }
 
   return (
@@ -632,9 +741,16 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
             {cpSuccess ? (
               <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm py-2">
                 <Lock size={16} />
-                <span>Password changed successfully!</span>
+                <span>Your password change request has been submitted to the admin for approval.</span>
               </div>
-            ) : cpStep === 1 ? (
+            ) : cpRequestPending ? (
+              <div style={{ 
+                padding: '0.75rem 1rem', borderRadius: '8px',
+                background: '#fff3e0', border: '1px solid #ffe0b2', color: '#e65100', fontSize: '0.85rem'
+              }}>
+                <strong>Pending Request:</strong> You already have a password change request awaiting admin approval. You will be notified once it is processed.
+              </div>
+            ) : (
               <div className="space-y-3 text-sm">
                 <div>
                   <label className="block mb-1 font-medium text-[#4c4172]">Current Password</label>
@@ -643,6 +759,7 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
                       type={showCurrentPw ? "text" : "password"}
                       value={cpData.currentPassword}
                       onChange={(e) => { setCpData(p => ({...p, currentPassword: e.target.value})); setCpErrors(p => ({...p, currentPassword: ""})); }}
+                      autoComplete="off"
                       className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${cpErrors.currentPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
                     />
                     <button type="button" onClick={() => setShowCurrentPw(!showCurrentPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -659,6 +776,7 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
                       type={showNewPw ? "text" : "password"}
                       value={cpData.newPassword}
                       onChange={(e) => { setCpData(p => ({...p, newPassword: e.target.value})); setCpErrors(p => ({...p, newPassword: ""})); }}
+                      autoComplete="off"
                       className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${cpErrors.newPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
                     />
                     <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -676,6 +794,7 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
                       type={showConfirmPw ? "text" : "password"}
                       value={cpData.confirmPassword}
                       onChange={(e) => { setCpData(p => ({...p, confirmPassword: e.target.value})); setCpErrors(p => ({...p, confirmPassword: ""})); }}
+                      autoComplete="off"
                       className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${cpErrors.confirmPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
                     />
                     <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -687,61 +806,15 @@ function EditProfile({ setEditOpen, educator, setEducator, setName }) {
 
                 <div className="flex justify-end mt-2">
                   <button
-                    onClick={cpHandleContinue}
+                    onClick={cpSubmitRequest}
                     className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white text-sm disabled:opacity-50 transition-all duration-300 hover:shadow-[0_4px_15px_rgba(157,138,219,0.4)] hover:translate-y-[-1px] flex items-center gap-2"
                     disabled={cpLoading}
                   >
                     <Lock size={14} />
-                    {cpLoading ? "Sending..." : "Continue"}
+                    {cpLoading ? "Submitting..." : "Submit Change Request"}
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-3 text-sm">
-                <p className="text-gray-600 dark:text-[#b0a8d4]">
-                  A 6-digit code was sent to <strong className="text-[#4c4172] dark:text-[#c5b8f5]">{educator?.user?.email || ""}</strong>.
-                </p>
-
-                <div>
-                  <label className="block mb-1 font-medium text-[#4c4172]">Verification Code</label>
-                  <input
-                    type="text"
-                    value={cpData.verificationCode}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
-                      setCpData(p => ({...p, verificationCode: v}));
-                      setCpErrors(p => ({...p, verificationCode: ""}));
-                    }}
-                    placeholder="000000"
-                    maxLength={6}
-                    className={`w-full px-4 py-3 rounded-xl border-2 ${cpErrors.verificationCode ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)] text-center text-2xl tracking-[8px] font-mono`}
-                  />
-                  {cpErrors.verificationCode && <p className="text-red-500 text-xs mt-1">{cpErrors.verificationCode}</p>}
-                </div>
-
-                <div className="text-center">
-                  <button onClick={() => { if (cpCountdown <= 0) cpSendCode(); }} disabled={cpCountdown > 0} className="text-xs text-[#9d8adb] hover:underline disabled:opacity-50">
-                    {cpCountdown > 0 ? `Resend code in ${cpCountdown}s` : "Resend code"}
-                  </button>
-                </div>
-
-                <div className="flex justify-between mt-2">
-                  <button
-                    onClick={() => { setCpStep(1); setCpErrors({}); setCpData(p => ({...p, verificationCode: ""})); }}
-                    className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm hover:bg-gray-200 transition-colors duration-200"
-                    disabled={cpLoading}
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={cpHandleVerify}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white text-sm disabled:opacity-50 transition-all duration-300 hover:shadow-[0_4px_15px_rgba(157,138,219,0.4)] hover:translate-y-[-1px] flex items-center gap-2"
-                    disabled={cpLoading || cpData.verificationCode.length !== 6}
-                  >
-                    <Lock size={14} />
-                    {cpLoading ? "Verifying..." : "Verify & Change"}
-                  </button>
-                </div>
+                <p className="text-xs text-gray-400 text-center">Your request will be sent to the admin for approval.</p>
               </div>
             )}
           </div>
@@ -795,281 +868,6 @@ function Avatar({ name }) {
   return (
     <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-white/30 flex items-center justify-center text-lg sm:text-xl font-semibold uppercase shadow-[inset_0_2px_8px_rgba(0,0,0,0.1)] transition-transform duration-300 hover:scale-105">
       {name?.charAt(0) || "?"}
-    </div>
-  );
-}
-
-/* ================= CHANGE PASSWORD ================= */
-
-function ChangePassword({ educatorEmail, setChangePasswordOpen }) {
-  const [step, setStep] = useState(1); // 1: passwords, 2: verification
-  const [formData, setFormData] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-    verificationCode: "",
-  });
-  const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [showCurrentPw, setShowCurrentPw] = useState(false);
-  const [showNewPw, setShowNewPw] = useState(false);
-  const [showConfirmPw, setShowConfirmPw] = useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const [successMsg, setSuccessMsg] = useState("");
-
-  useEffect(() => {
-    if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [countdown]);
-
-  function handleChange(e) {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
-  }
-
-  function validate() {
-    const newErrors = {};
-    if (!formData.currentPassword) newErrors.currentPassword = "Current password is required";
-    if (!formData.newPassword) {
-      newErrors.newPassword = "New password is required";
-    } else if (formData.newPassword.length < 8) {
-      newErrors.newPassword = "Password must be at least 8 characters";
-    }
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword = "Please confirm your password";
-    } else if (formData.newPassword !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
-    }
-    if (formData.currentPassword === formData.newPassword) {
-      newErrors.newPassword = "New password must be different from current password";
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }
-
-  async function sendCode() {
-    setLoading(true);
-    setCountdown(60);
-    try {
-      const res = await fetch("/api/educator/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "send-code",
-          currentPassword: formData.currentPassword,
-          newPassword: formData.newPassword,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrors({ currentPassword: data.error || "Failed to send code" });
-        setCountdown(0);
-        return false;
-      }
-      return true;
-    } catch {
-      setErrors({ currentPassword: "An error occurred. Please try again." });
-      setCountdown(0);
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleContinue() {
-    if (!validate()) return;
-    const sent = await sendCode();
-    if (sent) setStep(2);
-  }
-
-  async function handleVerify() {
-    if (!formData.verificationCode || formData.verificationCode.length !== 6) {
-      setErrors({ verificationCode: "Please enter the 6-digit code" });
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch("/api/educator/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "verify-and-change",
-          verificationCode: formData.verificationCode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrors({ verificationCode: data.error || "Verification failed" });
-        return;
-      }
-      setSuccessMsg("Password changed successfully!");
-      setTimeout(() => setChangePasswordOpen(false), 2000);
-    } catch {
-      setErrors({ verificationCode: "An error occurred" });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleResend() {
-    if (countdown > 0) return;
-    await sendCode();
-  }
-
-  if (successMsg) {
-    return (
-      <div className="bg-white dark:bg-[#2d2640] dark:text-[#e8e8e8] w-full rounded-[20px] p-6 text-center">
-        <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-4">
-          <Lock size={28} className="text-green-600 dark:text-green-400" />
-        </div>
-        <h2 className="text-xl font-semibold mb-2 text-[#4c4172] dark:text-[#c5b8f5]">Success!</h2>
-        <p className="text-gray-600 dark:text-[#b0a8d4]">{successMsg}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white dark:bg-[#2d2640] dark:text-[#e8e8e8] w-full rounded-[20px] p-6 text-gray-700">
-      <div className="flex items-center gap-3 mb-5">
-        <Lock size={22} className="text-[#8b5cf6]" />
-        <h2 className="text-xl font-semibold text-[#4c4172] dark:text-[#c5b8f5]">
-          Change Password
-        </h2>
-      </div>
-
-      {/* Step 1: Enter passwords */}
-      {step === 1 && (
-        <div className="space-y-4 text-sm">
-          <div>
-            <label className="block mb-1 font-medium text-[#4c4172]">Current Password</label>
-            <div className="relative">
-              <input
-                type={showCurrentPw ? "text" : "password"}
-                name="currentPassword"
-                value={formData.currentPassword}
-                onChange={handleChange}
-                className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${errors.currentPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
-              />
-              <button type="button" onClick={() => setShowCurrentPw(!showCurrentPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                {showCurrentPw ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            {errors.currentPassword && <p className="text-red-500 text-xs mt-1">{errors.currentPassword}</p>}
-          </div>
-
-          <div>
-            <label className="block mb-1 font-medium text-[#4c4172]">New Password</label>
-            <div className="relative">
-              <input
-                type={showNewPw ? "text" : "password"}
-                name="newPassword"
-                value={formData.newPassword}
-                onChange={handleChange}
-                className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${errors.newPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
-              />
-              <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                {showNewPw ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            {errors.newPassword && <p className="text-red-500 text-xs mt-1">{errors.newPassword}</p>}
-            <p className="text-xs text-gray-400 mt-1">Must be at least 8 characters</p>
-          </div>
-
-          <div>
-            <label className="block mb-1 font-medium text-[#4c4172]">Confirm New Password</label>
-            <div className="relative">
-              <input
-                type={showConfirmPw ? "text" : "password"}
-                name="confirmPassword"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                className={`w-full px-4 py-2.5 pr-10 rounded-xl border-2 ${errors.confirmPassword ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)]`}
-              />
-              <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                {showConfirmPw ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-            {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <button
-              onClick={() => setChangePasswordOpen(false)}
-              className="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 transition-all duration-200 hover:bg-gray-200"
-              disabled={loading}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleContinue}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white disabled:opacity-50 transition-all duration-300 hover:shadow-[0_4px_15px_rgba(157,138,219,0.4)] hover:translate-y-[-2px] flex items-center gap-2"
-              disabled={loading}
-            >
-              <Lock size={16} />
-              {loading ? "Sending..." : "Continue"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Verification code */}
-      {step === 2 && (
-        <div className="space-y-4 text-sm">
-          <p className="text-gray-600 dark:text-[#b0a8d4]">
-            A 6-digit verification code has been sent to <strong className="text-[#4c4172] dark:text-[#c5b8f5]">{educatorEmail}</strong>. 
-            Enter the code below to confirm the password change.
-          </p>
-
-          <div>
-            <label className="block mb-1 font-medium text-[#4c4172]">Verification Code</label>
-            <input
-              type="text"
-              name="verificationCode"
-              value={formData.verificationCode}
-              onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, "").slice(0, 6);
-                setFormData((prev) => ({ ...prev, verificationCode: value }));
-                setErrors((prev) => ({ ...prev, verificationCode: "" }));
-              }}
-              placeholder="000000"
-              maxLength={6}
-              className={`w-full px-4 py-3 rounded-xl border-2 ${errors.verificationCode ? "border-red-400" : "border-[rgba(157,138,219,0.3)]"} outline-none transition-all duration-200 focus:border-[#9d8adb] focus:shadow-[0_0_0_3px_rgba(157,138,219,0.1)] text-center text-2xl tracking-[8px] font-mono`}
-            />
-            {errors.verificationCode && <p className="text-red-500 text-xs mt-1">{errors.verificationCode}</p>}
-          </div>
-
-          <div className="text-center">
-            <button
-              onClick={handleResend}
-              disabled={countdown > 0}
-              className="text-xs text-[#9d8adb] hover:underline disabled:opacity-50"
-            >
-              {countdown > 0 ? `Resend code in ${countdown}s` : "Resend code"}
-            </button>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-4">
-            <button
-              onClick={() => { setStep(1); setErrors({}); setFormData((prev) => ({ ...prev, verificationCode: "" })); }}
-              className="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-700 transition-all duration-200 hover:bg-gray-200"
-              disabled={loading}
-            >
-              Back
-            </button>
-            <button
-              onClick={handleVerify}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#9d8adb] to-[#4c4172] text-white disabled:opacity-50 transition-all duration-300 hover:shadow-[0_4px_15px_rgba(157,138,219,0.4)] hover:translate-y-[-2px] flex items-center gap-2"
-              disabled={loading || formData.verificationCode.length !== 6}
-            >
-              <Lock size={16} />
-              {loading ? "Verifying..." : "Verify & Change Password"}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

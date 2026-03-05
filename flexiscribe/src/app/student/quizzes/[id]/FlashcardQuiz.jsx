@@ -260,6 +260,9 @@ export default function FlashcardQuiz({ quiz, questions }) {
                       if (data.success) {
                         localStorage.removeItem(`quiz-flipped-${quiz.id}`);
                         localStorage.removeItem(`quiz-progress-${quiz.id}`);
+                        setFlippedStates({});
+                        setIsFlipped(false);
+                        setCurrentQuestionIndex(0);
                         trackActivity('flashcard_session');
                         setAttemptData(data.attempt);
                         setShowReviewModal(true);

@@ -28,36 +28,13 @@ export async function GET(request: Request) {
       where.role = role.toUpperCase();
     }
 
-    // Date filtering
+    // Date filtering — values come in as day-count strings ("7", "30", "90")
     if (dateFilter && dateFilter !== "All" && dateFilter !== "All Dates") {
-      const now = new Date();
-      let startDate = new Date();
-
-      switch (dateFilter) {
-        case "Last 7 days":
-          startDate.setDate(now.getDate() - 7);
-          where.createdAt = { gte: startDate };
-          break;
-        case "Last 30 days":
-          startDate.setDate(now.getDate() - 30);
-          where.createdAt = { gte: startDate };
-          break;
-        case "Last 3 months":
-          startDate.setMonth(now.getMonth() - 3);
-          where.createdAt = { gte: startDate };
-          break;
-        case "Today":
-          startDate.setHours(0, 0, 0, 0);
-          where.createdAt = { gte: startDate };
-          break;
-        case "This Week":
-          startDate.setDate(now.getDate() - 7);
-          where.createdAt = { gte: startDate };
-          break;
-        case "This Month":
-          startDate.setMonth(now.getMonth() - 1);
-          where.createdAt = { gte: startDate };
-          break;
+      const days = parseInt(dateFilter, 10);
+      if (!isNaN(days)) {
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        where.createdAt = { gte: startDate };
       }
     }
 
@@ -112,7 +89,6 @@ export async function GET(request: Request) {
       return {
         id: u.id,
         email: u.email || "",
-        phoneNumber: u.phoneNumber || "",
         role: u.role || "",
         fullName,
         username,
@@ -155,7 +131,6 @@ export async function POST(request: Request) {
     const {
       email,
       password,
-      phoneNumber,
       role,
       fullName,
       username,
@@ -225,7 +200,6 @@ export async function POST(request: Request) {
       data: {
         email,
         password: hashedPassword,
-        phoneNumber,
         role: role.toUpperCase(),
         status: "Active", // Set default status
         ...(role.toUpperCase() === "STUDENT" && {
