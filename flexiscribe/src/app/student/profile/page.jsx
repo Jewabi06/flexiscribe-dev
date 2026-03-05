@@ -491,6 +491,19 @@ export default function StudentProfile() {
               {/* Step 1: Enter Passwords */}
               {passwordStep === 1 && (
                 <div className="password-form">
+                  {/* FIX: HIDDEN HONEY-TRAP FIELD 
+                    This tricks the browser's password manager into auto-filling the username 
+                    here instead of leaking it into the dashboard search bar. 
+                  */}
+                  <input 
+                    type="text" 
+                    name="username" 
+                    autoComplete="username" 
+                    style={{ display: 'none' }} 
+                    aria-hidden="true" 
+                    tabIndex="-1"
+                  />
+                  {/* Current Password */}
                   <div className="form-group">
                     <label htmlFor="currentPassword">Current Password</label>
                     <div className="password-input-container">
@@ -500,7 +513,7 @@ export default function StudentProfile() {
                         name="currentPassword"
                         value={passwordData.currentPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="off"
+                        autoComplete="current-password" /* Update 'off' to a semantic tag */
                         className={passwordErrors.currentPassword ? "error" : ""}
                       />
                       <button
@@ -516,6 +529,7 @@ export default function StudentProfile() {
                     )}
                   </div>
 
+                  {/* New Password */}
                   <div className="form-group">
                     <label htmlFor="newPassword">New Password</label>
                     <div className="password-input-container">
@@ -525,7 +539,7 @@ export default function StudentProfile() {
                         name="newPassword"
                         value={passwordData.newPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="off"
+                        autoComplete="new-password"
                         className={passwordErrors.newPassword ? "error" : ""}
                       />
                       <button
@@ -542,6 +556,7 @@ export default function StudentProfile() {
                     <span className="hint-text">Password must be at least 8 characters</span>
                   </div>
 
+                  {/* Confirm New Password */}
                   <div className="form-group">
                     <label htmlFor="confirmPassword">Confirm New Password</label>
                     <div className="password-input-container">
@@ -551,7 +566,7 @@ export default function StudentProfile() {
                         name="confirmPassword"
                         value={passwordData.confirmPassword}
                         onChange={handlePasswordChange}
-                        autoComplete="off"
+                        autoComplete="new-password"
                         className={passwordErrors.confirmPassword ? "error" : ""}
                       />
                       <button
