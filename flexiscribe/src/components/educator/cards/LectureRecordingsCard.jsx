@@ -44,7 +44,7 @@ export default function LectureRecordingsCard() {
       {/* HEADER - Centered */}
       <div className="flex items-center justify-center mb-2 sm:mb-3 px-2 sm:px-4 md:px-6">
         <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold">
-          Lecture Recordings
+          Recordings
         </h3>
       </div>
 

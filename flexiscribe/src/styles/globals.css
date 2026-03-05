@@ -1166,6 +1166,8 @@ body {
 /* Base (Mobile First) */
 .neu-footer {
   width: 100%;
+  position: relative;
+  z-index: 40;
   background: var(--brand-primary);
   box-shadow: 0 -8px 24px var(--neu-shadow-dark);
   backdrop-filter: blur(8px);

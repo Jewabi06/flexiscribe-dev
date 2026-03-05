@@ -82,12 +82,12 @@ export default function SidebarClient() {
       {/* Sidebar */}
       <div
         className={`
-          fixed top-0 left-0 
+          fixed top-0 left-0
           z-50
           h-screen
           transition-transform duration-300 ease-out
           ${open ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0 md:static
+          md:translate-x-0 md:fixed
           shadow-xl md:shadow-none
         `}
       >
