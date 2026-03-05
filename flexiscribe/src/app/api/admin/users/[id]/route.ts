@@ -22,7 +22,6 @@ export async function PATCH(
     const body = await request.json();
     const {
       email,
-      phoneNumber,
       fullName,
       username,
       password,
@@ -50,7 +49,6 @@ export async function PATCH(
     // Update user data
     const updateData: any = {};
     if (email !== undefined) updateData.email = email;
-    if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
     if (status !== undefined) updateData.status = status;
     if (password) {
       updateData.password = await bcrypt.hash(password, 10);

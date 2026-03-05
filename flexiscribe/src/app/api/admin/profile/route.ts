@@ -21,7 +21,6 @@ export async function GET(request: Request) {
         user: {
           select: {
             email: true,
-            phoneNumber: true,
           },
         },
       },
@@ -42,7 +41,6 @@ export async function GET(request: Request) {
           fullName: admin.fullName,
           avatar: admin.avatar,
           email: admin.user.email,
-          phoneNumber: admin.user.phoneNumber,
         },
       },
       { status: 200 }
@@ -69,7 +67,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { fullName, username, phoneNumber, currentPassword, newPassword } = body;
+    const { fullName, username, currentPassword, newPassword } = body;
 
     const admin = await prisma.admin.findUnique({
       where: { userId: user.userId },
@@ -126,19 +124,10 @@ export async function PATCH(request: Request) {
       });
     }
 
-    // Update phone number in user table
-    if (phoneNumber !== undefined) {
-      await prisma.user.update({
-        where: { id: user.userId },
-        data: { phoneNumber },
-      });
-    }
-
     // Build description of what changed
     const changes: string[] = [];
     if (fullName !== undefined) changes.push("name");
     if (username !== undefined) changes.push("username");
-    if (phoneNumber !== undefined) changes.push("phone");
     if (newPassword) changes.push("password");
     const changeDesc = changes.length > 0 ? changes.join(", ") : "profile";
 
