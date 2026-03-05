@@ -1158,3 +1158,43 @@ body {
   .ls-logo { width: 120px; height: 120px; }
   .ls-bar-track { width: 200px; }
   .ls-label { font-size: 0.95rem; }}
+
+/* ============================================
+   FOOTER — MOBILE-FIRST
+   ============================================ */
+
+/* Base (Mobile First) */
+.neu-footer {
+  width: 100%;
+  background: var(--brand-primary);
+  box-shadow: 0 -8px 24px var(--neu-shadow-dark);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  
+  /* 1. Control Thickness */
+  padding: 10px 16px;
+  flex-shrink: 0; /* Prevents the footer from stretching vertically */
+  
+  /* 2. Alignment */
+  display: flex;
+  align-items: center;
+  justify-content: center; /* Center text on mobile */
+}
+
+/* 3. Text Improvements */
+.copyright-text {
+  margin: 0; /* Kills default browser margins that cause bloating */
+  color: rgba(255, 255, 255, 0.7); /* Premium muted white */
+  font-size: 12px;
+  letter-spacing: 0.5px; /* Adds a touch of modern spacing */
+}
+
+/* Desktop overrides */
+@media (min-width: 640px) {
+  .neu-footer {
+    padding: 12px 24px;
+    justify-content: flex-end; /* Right-align text on larger screens */
+  }
+}
