@@ -6,7 +6,7 @@ import "./styles.css";
 
 export default function EducatorLayout({ children }) {
   return (
-    <div className="edu-layout-wrapper flex h-screen overflow-hidden bg-white dark:bg-[#1a1625] transition-colors duration-300">
+    <div className="edu-layout-wrapper flex h-screen overflow-hidden bg-white dark:bg-[#1a1625] transition-colors duration-300 md:ml-[350px]">
       {/* Sidebar — z-50 so it always sits above the footer */}
       <div className="relative z-50 shrink-0">
         <SidebarClient />
