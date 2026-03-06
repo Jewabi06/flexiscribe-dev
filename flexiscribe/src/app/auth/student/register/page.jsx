@@ -142,10 +142,10 @@ export default function StudentRegister() {
       return;
     }
 
-    // Validate email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Validate email - must be a @gmail.com address
+    const emailRegex = /^[^\s@]+@gmail\.com$/i;
     if (!emailRegex.test(email)) {
-      setError("Please enter a valid email address");
+      setError("Please enter a valid Gmail address (e.g. example@gmail.com)");
       return;
     }
 
@@ -276,9 +276,10 @@ export default function StudentRegister() {
               </label>
               <input
                 type="text"
+                inputMode="numeric"
                 className="neu-input"
                 value={studentNumber}
-                onChange={(e) => setStudentNumber(e.target.value)}
+                onChange={(e) => setStudentNumber(e.target.value.replace(/\D/g, ''))}
                 placeholder="220XXXX"
               />
             </div>
