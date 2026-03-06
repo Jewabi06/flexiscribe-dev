@@ -373,10 +373,10 @@ export default function PrototypeDashboard() {
       await fetch("/api/auth/logout", { method: "POST" });
       localStorage.clear();
       sessionStorage.clear();
-      window.location.href = "/";
+      window.location.href = "/auth/educator/login?redirect=prototype";
     } catch (error) {
       console.error("Logout error:", error);
-      window.location.href = "/";
+      window.location.href = "/auth/educator/login?redirect=prototype";
     }
   };
 
