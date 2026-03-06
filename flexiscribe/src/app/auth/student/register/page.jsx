@@ -136,9 +136,9 @@ export default function StudentRegister() {
       return;
     }
 
-    // Username: alphanumeric + underscores, 3–30 chars
-    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
-      setError("Username must be 3–30 characters and contain only letters, numbers, or underscores");
+    // Username: alphanumeric + underscores, 3–10 chars
+    if (!/^[a-zA-Z0-9_]{3,10}$/.test(username)) {
+      setError("Username must be 3–10 characters and contain only letters, numbers, or underscores");
       return;
     }
 
@@ -385,7 +385,8 @@ export default function StudentRegister() {
                 className="neu-input"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="juandelacruz"
+                maxLength={10}
+                placeholder="juandelacr"
               />
             </div>
 

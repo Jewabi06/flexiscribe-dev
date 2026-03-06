@@ -47,6 +47,14 @@ export async function POST(request: Request) {
       );
     }
 
+    // Validate username length
+    if (!/^[a-zA-Z0-9_]{3,10}$/.test(username)) {
+      return NextResponse.json(
+        { error: "Username must be 3–10 characters and contain only letters, numbers, or underscores" },
+        { status: 400 }
+      );
+    }
+
     // Validate password length
     if (password.length < 6) {
       return NextResponse.json(
