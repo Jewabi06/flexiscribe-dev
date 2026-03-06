@@ -144,10 +144,10 @@ export default function EducatorRegister() {
       return;
     }
 
-    // Validate email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Validate email - must be a @gmail.com address
+    const emailRegex = /^[^\s@]+@gmail\.com$/i;
     if (!emailRegex.test(email)) {
-      setError("Please enter a valid email address");
+      setError("Please enter a valid Gmail address (e.g. example@gmail.com)");
       return;
     }
 
