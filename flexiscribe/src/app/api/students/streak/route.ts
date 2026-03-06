@@ -34,10 +34,8 @@ export async function GET(request: NextRequest) {
 
       if (daysDiff === 0) {
         isActive = true;
-      } else if (daysDiff === 1) {
-        isActive = false;
       } else {
-        // Streak broken
+        // Streak broken — inactive for 1+ days
         count = 0;
       }
     }
@@ -96,15 +94,9 @@ export async function POST(request: NextRequest) {
         (currentDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      if (daysDiff === 1) {
-        // Consecutive day — increment
-        newCount = student.streakCount + 1;
-        isActive = true;
-      } else if (daysDiff > 1) {
-        // Streak broken — restart
-        newCount = 1;
-        isActive = true;
-      }
+      // Inactive for 1+ days — streak broken, restart at 1
+      newCount = 1;
+      isActive = true;
     } else {
       // First activity ever
       newCount = 1;
