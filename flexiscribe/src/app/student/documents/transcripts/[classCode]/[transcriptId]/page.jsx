@@ -10,9 +10,6 @@ import "./styles.css";
 /**
  * Convert transcriptJson chunks to readable HTML
  */
-/**
- * Convert transcriptJson chunks to readable HTML
- */
 function transcriptJsonToHtml(transcriptJson, isDark = false) {
   if (!transcriptJson) return "<p>No transcript data available.</p>";
 
@@ -34,14 +31,13 @@ function transcriptJsonToHtml(transcriptJson, isDark = false) {
   html += `<h1 style="text-align:center; color:${mainTitleColor}; margin-bottom:24px;">Lecture Transcript</h1>`;
 
   chunks.forEach((chunk) => {
-    const minute = chunk.minute ?? "";
     const timestamp = chunk.timestamp || "";
     const text = chunk.text || "";
 
     html += `<div style="margin-bottom:16px; padding:12px 16px; border-left:4px solid ${borderColor}; background:${bgColor}; border-radius:0 8px 8px 0; transition: background 0.3s ease;">`;
-    html += `<div style="font-size:12px; font-weight:700; color:${headingColor}; margin-bottom:4px;">`;
-    html += `Minute ${minute}${timestamp ? ` — ${timestamp}` : ""}`;
-    html += `</div>`;
+    if (timestamp) {
+      html += `<div style="font-size:12px; font-weight:700; color:${headingColor}; margin-bottom:4px;">[${timestamp}]</div>`;
+    }
     html += `<div style="font-size:15px; line-height:1.7; color:${textColor};">${text}</div>`;
     html += `</div>`;
   });
@@ -74,7 +70,7 @@ export default function TranscriptViewerPage() {
     }
   }, []);
 
-  // NEW: Re-generate the HTML instantly whenever dark mode is toggled
+  // Re-generate the HTML instantly whenever dark mode is toggled
   useEffect(() => {
     if (transcript) {
       setHtmlContent(transcriptJsonToHtml(transcript.transcriptJson, darkMode));
@@ -106,10 +102,18 @@ export default function TranscriptViewerPage() {
     const loadTranscript = async () => {
       try {
         setLoading(true);
+        // Use the transcriptId as the ID parameter for the API
         const response = await fetch(`/api/students/transcriptions/${transcriptId}`);
+        
         if (!response.ok) {
+          if (response.status === 403) {
+            throw new Error("Access denied. You are not enrolled in this class.");
+          } else if (response.status === 404) {
+            throw new Error("Transcript not found.");
+          }
           throw new Error(`Failed to load transcript: ${response.status}`);
         }
+        
         const data = await response.json();
         const transcription = data.transcription;
         setTranscript(transcription);
@@ -119,12 +123,14 @@ export default function TranscriptViewerPage() {
         setLoading(false);
       } catch (err) {
         console.error("Error loading transcript:", err);
-        setError("Failed to load transcript data.");
+        setError(err.message || "Failed to load transcript data.");
         setLoading(false);
       }
     };
 
-    loadTranscript();
+    if (transcriptId) {
+      loadTranscript();
+    }
   }, [transcriptId]);
 
   const handleZoomIn = () => {
@@ -141,7 +147,7 @@ export default function TranscriptViewerPage() {
       
       const container = document.createElement("div");
       
-      // FIX: Always generate a Light Mode version specifically for the PDF export
+      // Always generate a Light Mode version specifically for the PDF export
       const pdfHtml = transcriptJsonToHtml(transcript.transcriptJson, false);
       container.innerHTML = pdfHtml;
       
@@ -161,7 +167,6 @@ export default function TranscriptViewerPage() {
           margin: [10, 10, 10, 10], // Reduced margins for better fit
           filename,
           image: { type: "jpeg", quality: 0.98 },
-          // Added backgroundColor to html2canvas to prevent transparent PDF bugs
           html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, 
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
@@ -234,13 +239,19 @@ export default function TranscriptViewerPage() {
     }
   };
 
+  // COURSE CODE: from the transcript.course field (e.g., "CS101", "MATH202")
+  const courseCode = transcript?.course || "N/A";
+  
+  // CLASS CODE: from URL parameter (the enrollment code)
+  const enrollmentCode = classCode || "N/A";
+
   if (!loading && !transcript && error) {
     return (
       <div className="docx-viewer-container">
         <div className="error-message">
           <h2>Transcript not found</h2>
           <p>{error}</p>
-          <button onClick={() => router.push(`/student/documents/transcripts/${classCode}`)}>
+          <button onClick={() => router.push(`/student/documents/transcripts/${classCode || ''}`)}>
             Go Back
           </button>
         </div>
@@ -253,7 +264,7 @@ export default function TranscriptViewerPage() {
       {/* Toolbar */}
       <div className="docx-toolbar">
         <div className="toolbar-left">
-          <button className="back-btn" onClick={() => router.push(`/student/documents/transcripts/${classCode}`)}>
+          <button className="back-btn" onClick={() => router.push(`/student/documents/transcripts/${classCode || ''}`)}>
             <FaArrowLeft className="back-icon" />
             <span>Back</span>
           </button>
@@ -261,7 +272,7 @@ export default function TranscriptViewerPage() {
           <div className="document-title">
             <h2>{transcript?.title || 'Loading...'}</h2>
             <div className="document-info">
-              <span className="info-badge">{classCode}</span>
+              <span className="info-badge">{courseCode}</span>
               {transcript?.duration && <span>{transcript.duration}</span>}
               {transcript?.date && <span>{new Date(transcript.date).toLocaleDateString()}</span>}
             </div>
