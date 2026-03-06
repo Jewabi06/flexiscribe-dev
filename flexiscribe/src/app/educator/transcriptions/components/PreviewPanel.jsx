@@ -53,7 +53,7 @@ export default function PreviewPanel({ transcript }) {
   return (
     <div className="h-full rounded-[20px] sm:rounded-[28px] lg:rounded-[42px] bg-gradient-to-br from-[#9d8adb] to-[#7d6ac4] p-4 sm:p-6 flex flex-col transition-all duration-300">
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4 flex-shrink-0">
         <div className="flex items-center gap-3">
           <h2 className="text-white text-sm font-semibold">Transcribed Preview</h2>
           {transcript && hasJsonData && (
@@ -92,7 +92,7 @@ export default function PreviewPanel({ transcript }) {
           )}
         </div>
         {transcript && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {transcript.status === "PENDING" && (
               <span className="text-xs text-yellow-300 bg-yellow-500/20 px-3 py-1 rounded-full">
                 Pending
@@ -100,7 +100,7 @@ export default function PreviewPanel({ transcript }) {
             )}
             <button
               onClick={download}
-               className="self-start sm:self-auto text-white text-xs bg-white/20 px-4 py-1.5 rounded-full hover:bg-white/30 hover:scale-105 active:scale-95 transition-all duration-200"
+              className="self-start sm:self-auto text-white text-xs bg-white/20 px-4 py-1.5 rounded-full hover:bg-white/30 hover:scale-105 active:scale-95 transition-all duration-200"
             >
               Download PDF
             </button>
@@ -108,8 +108,8 @@ export default function PreviewPanel({ transcript }) {
         )}
       </div>
 
-      {/* FRAME */}
-       <div className="relative flex-1 rounded-[16px] sm:rounded-[24px] lg:rounded-[30px] bg-[#2f2b47] p-3 sm:p-6 overflow-hidden">
+      {/* FRAME - Fixed height container */}
+      <div className="relative flex-1 rounded-[16px] sm:rounded-[24px] lg:rounded-[30px] bg-[#2f2b47] p-3 sm:p-6 overflow-hidden min-h-0">
         {!transcript && (
           <div className="h-full flex items-center justify-center">
             <p className="text-white/70 text-sm">Select a transcript to preview</p>
@@ -118,10 +118,14 @@ export default function PreviewPanel({ transcript }) {
 
         {transcript && (
           <>
-            <div className="h-full overflow-auto flex justify-center">
+            {/* Scrollable content area */}
+            <div className="h-full overflow-y-auto flex justify-center">
               <div
                 className="origin-top transition-transform duration-300 w-full sm:w-auto"
-                style={{ transform: `scale(${zoom})` }}
+                style={{ 
+                  transform: `scale(${zoom})`,
+                  transformOrigin: 'top center'
+                }}
               >
                 <div
                   ref={pdfRef}
@@ -129,11 +133,12 @@ export default function PreviewPanel({ transcript }) {
                     fontFamily: "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
                     backgroundColor: '#ffffff',
                     width: '560px',
-                    minHeight: '792px',
+                    minHeight: 'auto',
+                    height: 'auto',
                     border: '1px solid #1a1a1a',
                     boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
                   }}
-                  className="w-full sm:w-[560px] min-h-[380px] sm:min-h-[560px] lg:min-h-[792px]"
+                  className="w-full sm:w-[560px]"
                 >
                   {/* ═══════ SUMMARY VIEW ═══════ */}
                   {activeTab === "summary" && (
@@ -365,8 +370,8 @@ export default function PreviewPanel({ transcript }) {
               </div>
             </div>
 
-            {/* ZOOM */}
-            <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-5 bg-[#3a355c] text-white px-4 py-2 rounded-full text-xs">
+            {/* ZOOM CONTROLS */}
+            <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-5 bg-[#3a355c] text-white px-4 py-2 rounded-full text-xs z-10">
               <button onClick={() => setZoom((z) => Math.max(0.8, z - 0.1))}>−</button>
               <span>{Math.round(zoom * 100)}%</span>
               <button onClick={() => setZoom((z) => Math.min(1.4, z + 0.1))}>+</button>
