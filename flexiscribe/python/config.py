@@ -187,7 +187,10 @@ BUFFER_INTERVAL = 60
 SUMMARY_MAX_WORKERS = 1
 
 # Frontend callback URL (Next.js API)
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://flexiscribe.vercel.app")
+# Use NGROK_URL if available (for local development), otherwise FRONTEND_URL (for production)
+NGROK_URL = os.environ.get("NGROK_URL", "")
+FRONTEND_URL = NGROK_URL if NGROK_URL else os.environ.get("FRONTEND_URL", "https://flexiscribe.vercel.app")
 
 # Shared secret for the async summary callback (FastAPI → Next.js)
-CALLBACK_SECRET = os.environ.get("FLEXISCRIBE_CALLBACK_SECRET", "")
+# Fallback ensures callbacks are always authenticated even without env var.
+CALLBACK_SECRET = os.environ.get("FLEXISCRIBE_CALLBACK_SECRET", "fls-cb-s3cr3t-k7m9x2")

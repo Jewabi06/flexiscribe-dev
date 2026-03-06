@@ -241,12 +241,14 @@ def whisper_worker(stop_event: threading.Event, session):
     def _append_live_chunk(text):
         """Append a transcribed fragment to session.live_chunks."""
         session.live_chunk_counter += 1
+        # Use 0-based elapsed time instead of wall clock time
+        timestamp = session.get_elapsed_timestamp()
         session.live_chunks.append({
             "chunk_id": session.live_chunk_counter,
-            "timestamp": time.strftime("%H:%M:%S"),
+            "timestamp": timestamp,
             "text": text,
         })
-        print(f"[LIVE] Chunk {session.live_chunk_counter}: {text[:80]}...")
+        print(f"[LIVE] Chunk {session.live_chunk_counter} at {timestamp}: {text[:80]}...")
 
     try:
         # ── Flush stale PulseAudio buffer ──────────────────────────

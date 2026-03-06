@@ -81,6 +81,15 @@ class TranscriptionSession:
         if hrs > 0:
             return f"{hrs}h {mins}m {secs}s"
         return f"{mins}m {secs}s"
+    
+    def get_elapsed_timestamp(self, ref_time: float = None) -> str:
+        """Get elapsed time from session start in MM:SS format (0-based)."""
+        if ref_time is None:
+            ref_time = time.time()
+        elapsed = int(ref_time - self.started_at)
+        mins = elapsed // 60
+        secs = elapsed % 60
+        return f"{mins:02d}:{secs:02d}"
 
     def get_transcript_json(self) -> dict:
         """Return the full transcript data in JSON format with timestamps."""
