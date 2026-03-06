@@ -169,8 +169,8 @@ export default function StudentLeaderboard() {
   const topThree = leaderboard.slice(0, 3);
   const restOfLeaderboard = leaderboard.slice(3);
 
-  // Display only the number of users based on displayedCount
-  const displayedLeaderboard = leaderboard.slice(0, displayedCount);
+  // Display only the number of users based on displayedCount (skip top 3 since they're in the podium)
+  const displayedLeaderboard = restOfLeaderboard.slice(0, displayedCount);
 
   // Find current user's rank
   const currentUserRank = leaderboard.find(user => user.username === studentProfile?.username);
