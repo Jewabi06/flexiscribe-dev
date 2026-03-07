@@ -4,7 +4,11 @@ import prisma from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     // Fetch all students ordered by XP descending, include quiz attempt counts
+    // Ghost users are excluded from the public leaderboard
     const students = await prisma.student.findMany({
+      where: {
+        user: { isGhost: false },
+      },
       select: {
         id: true,
         studentNumber: true,

@@ -47,6 +47,7 @@ export async function GET(request: Request) {
       "Birth Date",
       "Created At",
       "Status",
+      "Is Ghost",
     ].join(","));
 
     // Data rows
@@ -100,6 +101,7 @@ export async function GET(request: Request) {
         birthDate,
         u.createdAt.toISOString(),
         status,
+        u.isGhost ? "Yes" : "No",
       ].join(","));
     });
 

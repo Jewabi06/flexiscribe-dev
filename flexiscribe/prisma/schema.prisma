@@ -16,9 +16,12 @@ model User {
   token       String?   @unique
   tokenExpiry DateTime?
   status      String    @default("Active")
+  isGhost     Boolean   @default(false)
   admin       Admin?
   educator    Educator?
   student     Student?
+
+  @@index([isGhost])
 }
 
 model Student {

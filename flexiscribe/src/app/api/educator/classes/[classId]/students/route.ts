@@ -59,9 +59,9 @@ export async function GET(
       );
     }
 
-    // Fetch enrolled students via StudentClass join table
+    // Fetch enrolled non-ghost students via StudentClass join table
     const enrollments = await prisma.studentClass.findMany({
-      where: { classId },
+      where: { classId, student: { user: { isGhost: false } } },
       include: {
         student: {
           select: {

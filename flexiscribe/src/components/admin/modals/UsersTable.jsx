@@ -138,8 +138,16 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
               >
                 {/* NAME */}
                 <div>
-                  <p className="font-semibold text-[#4c4172]">
+                  <p className="font-semibold text-[#4c4172] flex items-center gap-1">
                     {u.fullName || u.name || "N/A"}
+                    {u.isGhost && (
+                      <span
+                        title="Ghost account – hidden from students"
+                        className="ml-1 text-xs bg-[#ede9fe] text-[#6f63a6] border border-[#c9bff8] rounded-full px-2 py-0.5 font-medium"
+                      >
+                        👻 Ghost
+                      </span>
+                    )}
                   </p>
                   <p className="text-sm text-[#7b6fae]">{u.email || "N/A"}</p>
                 </div>
@@ -200,8 +208,16 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
               {/* HEADER */}
               <div className="flex justify-between">
                 <div>
-                  <p className="font-semibold text-[#4c4172]">
+                  <p className="font-semibold text-[#4c4172] flex items-center gap-1">
                     {u.fullName || u.name || "N/A"}
+                    {u.isGhost && (
+                      <span
+                        title="Ghost account"
+                        className="ml-1 text-xs bg-[#ede9fe] text-[#6f63a6] border border-[#c9bff8] rounded-full px-2 py-0.5 font-medium"
+                      >
+                        👻 Ghost
+                      </span>
+                    )}
                   </p>
                   <p className="text-sm text-[#7b6fae]">{u.email || "N/A"}</p>
                 </div>

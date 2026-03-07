@@ -14,12 +14,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Educators must not see ghost students; admins can see all
+    const ghostFilter = authResult.role === "ADMIN" ? {} : { user: { isGhost: false } };
+
     const students = await prisma.student.findMany({
+      where: ghostFilter,
       include: {
         user: {
           select: {
             email: true,
             createdAt: true,
+            isGhost: true,
           },
         },
       },

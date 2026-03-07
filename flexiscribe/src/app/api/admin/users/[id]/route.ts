@@ -26,6 +26,7 @@ export async function PATCH(
       username,
       password,
       status,
+      isGhost,
       ...additionalData
     } = body;
 
@@ -50,6 +51,7 @@ export async function PATCH(
     const updateData: any = {};
     if (email !== undefined) updateData.email = email;
     if (status !== undefined) updateData.status = status;
+    if (isGhost !== undefined) updateData.isGhost = Boolean(isGhost);
     if (password) {
       updateData.password = await bcrypt.hash(password, 10);
     }
@@ -101,11 +103,19 @@ export async function PATCH(
       }
     }
 
+    // Build a human-readable change summary for the audit log
+    const changeNotes: string[] = [];
+    if (email !== undefined && email !== existingUser.email) changeNotes.push(`email changed`);
+    if (status !== undefined && status !== existingUser.status) changeNotes.push(`status → ${status}`);
+    if (isGhost !== undefined && Boolean(isGhost) !== existingUser.isGhost)
+      changeNotes.push(`ghost flag → ${Boolean(isGhost)}`);
+    const changeSummary = changeNotes.length > 0 ? ` (${changeNotes.join(", ")})` : "";
+
     // Log activity
     await prisma.activity.create({
       data: {
         action: "User Updated",
-        description: `Updated user: ${email || existingUser.email}`,
+        description: `Updated user: ${email || existingUser.email}${changeSummary}`,
         userRole: "ADMIN",
         userName: "Admin",
         userId: user.userId,
@@ -115,7 +125,7 @@ export async function PATCH(
     await prisma.auditLog.create({
       data: {
         action: "USER_UPDATED",
-        details: `Updated user: ${email || existingUser.email}`,
+        details: `Updated user: ${email || existingUser.email} (${existingUser.role})${changeSummary}`,
         userRole: "ADMIN",
         userName: "Admin",
         userId: user.userId,

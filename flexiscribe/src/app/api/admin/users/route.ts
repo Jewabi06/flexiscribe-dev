@@ -93,6 +93,7 @@ export async function GET(request: Request) {
         fullName,
         username,
         status: userStatus,
+        isGhost: u.isGhost ?? false,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt,
         ...additionalInfo,
@@ -134,6 +135,7 @@ export async function POST(request: Request) {
       role,
       fullName,
       username,
+      isGhost,
       ...additionalData
     } = body;
 
@@ -196,12 +198,16 @@ export async function POST(request: Request) {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user with role-specific data
+    // isGhost is only valid for STUDENT accounts
+    const ghostValue = role.toUpperCase() === "STUDENT" ? Boolean(isGhost) : false;
+
     const newUser = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         role: role.toUpperCase(),
         status: "Active", // Set default status
+        isGhost: ghostValue,
         ...(role.toUpperCase() === "STUDENT" && {
           student: {
             create: {
