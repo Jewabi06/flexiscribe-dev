@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { generateQuizWithGemma, getBestAvailableModel, cleanSummaryForQuiz, expandKeyConcepts } from '@/lib/ollama';
+import { generateQuizWithGemma, getBestAvailableModel, cleanLessonForQuiz, expandKeyConcepts } from '@/lib/ollama';
 import { verifyAuth } from '@/lib/auth';
 
 // Allow up to 5 minutes for remote Ollama inference (batch quiz generation)
@@ -88,30 +88,97 @@ export async function POST(request: NextRequest) {
     // Build quiz content from structured JSON reviewer data (preferred) or
     // fall back to plain text for backwards compatibility.
     let quizContent: string;
-    let keyConcepts: { term: string; definition: string }[] = [];
+    let keyConcepts: { term: string; definition: string; example?: string }[] = [];
+    let notes: { term: string; definition: string; example?: string }[] | undefined;
     try {
       const reviewerJson = JSON.parse(lesson.content);
-      // Convert structured reviewer JSON into a dense, quiz-optimized summary
+      // Convert structured reviewer JSON into dense, quiz-optimized lesson content
       const parts: string[] = [];
+
+      // Handle summary — may be a string or a string[] (Python format)
       if (reviewerJson.summary) {
-        parts.push(reviewerJson.summary);
+        if (Array.isArray(reviewerJson.summary)) {
+          parts.push(reviewerJson.summary.join('\n'));
+        } else if (typeof reviewerJson.summary === 'string') {
+          // Guard: skip if the summary string is itself a JSON blob
+          const s = reviewerJson.summary.trim();
+          const looksLikeJson = (s.startsWith('{') || s.startsWith('[')) &&
+            (s.match(/"[a-z_]{1,30}"\s*:/gi) || []).length >= 3;
+          if (!looksLikeJson) {
+            parts.push(s);
+          }
+        }
       }
-      if (Array.isArray(reviewerJson.keyConcepts)) {
-        // Preserve structured keyConcepts for the generation pipeline
-        keyConcepts = reviewerJson.keyConcepts
-          .filter((c: any) => c.term && c.definition)
-          .map((c: any) => ({ term: String(c.term), definition: String(c.definition) }));
-        parts.push(
-          reviewerJson.keyConcepts
-            .map((c: { term: string; definition: string }) => `${c.term}: ${c.definition}`)
-            .join('\n')
+
+      // ── Extract keyConcepts from whichever format is present ──
+      // Format 1 (callback-transformed): { keyConcepts: [{term, definition, example?}] }
+      // Format 2 (raw Python):           { notes: [{term, definition, example?}], key_concepts: [string] }
+      let rawConcepts: any[] | null = null;
+      if (Array.isArray(reviewerJson.keyConcepts) && reviewerJson.keyConcepts.length > 0) {
+        rawConcepts = reviewerJson.keyConcepts;
+      } else if (Array.isArray(reviewerJson.notes) && reviewerJson.notes.length > 0) {
+        // Fall back to Python `notes` format
+        const keyConceptNames: string[] = Array.isArray(reviewerJson.key_concepts) ? reviewerJson.key_concepts : [];
+        rawConcepts = reviewerJson.notes.map(
+          (n: any, i: number) => {
+            if (typeof n === 'object' && n.term) {
+              return { term: n.term, definition: n.definition || '', ...(n.example ? { example: n.example } : {}) };
+            }
+            return { term: keyConceptNames[i] || `Concept ${i + 1}`, definition: typeof n === 'string' ? n : '' };
+          }
         );
+        console.log(`Quiz content: fell back to Python 'notes' format — found ${rawConcepts!.length} concepts`);
       }
+
+      if (rawConcepts && rawConcepts.length > 0) {
+        // Preserve structured keyConcepts for the generation pipeline
+        keyConcepts = rawConcepts
+          .filter((c: any) => c.term && c.definition)
+          .map((c: any) => ({ term: String(c.term).trim(), definition: String(c.definition).trim(), ...(c.example ? { example: String(c.example).trim() } : {}) }));
+        // Preserve the full notes array (with examples) for deterministic FIB and validation.
+        // Include ALL notes that have a term — even those without definitions — so
+        // note-example bypass in validateFillInBlankItem works for every note.
+        notes = rawConcepts
+          .filter((c: any) => c.term)
+          .map((c: any) => ({ term: String(c.term).trim(), definition: String(c.definition || '').trim(), ...(c.example ? { example: String(c.example).trim() } : {}) }));
+
+        // Build prose-format sentences from notes so both the deterministic FIB
+        // and the LLM see natural language — NOT "Term: Definition" or JSON-like
+        // format that causes the model to blank field names instead of concepts.
+        const proseParts: string[] = [];
+        for (const c of keyConcepts) {
+          // Template 1: "Term refers to definition"
+          if (c.definition.length > 15) {
+            proseParts.push(`${c.term} refers to ${c.definition.charAt(0).toLowerCase()}${c.definition.slice(1)}`);
+          }
+          // Template 2: "An example of Term is example" (always includes the term)
+          if (c.example && c.example.length > 10) {
+            proseParts.push(`An example of ${c.term} is ${c.example.charAt(0).toLowerCase()}${c.example.slice(1)}`);
+          }
+          // Template 3: "Term is defined as definition"
+          if (c.definition.length > 15) {
+            proseParts.push(`${c.term} is defined as ${c.definition.charAt(0).toLowerCase()}${c.definition.slice(1)}`);
+          }
+        }
+        if (proseParts.length > 0) {
+          parts.push(proseParts.join('\n'));
+        }
+      }
+
       if (Array.isArray(reviewerJson.importantFacts)) {
         parts.push(reviewerJson.importantFacts.join('\n'));
       }
-      if (reviewerJson.detailedContent) {
-        parts.push(reviewerJson.detailedContent);
+      // Guard: only include detailedContent if it is NOT a JSON blob.
+      // Some lesson formats store the entire structured data here as a
+      // stringified JSON object which would leak "term": / "definition":
+      // syntax into the quiz content.
+      if (reviewerJson.detailedContent && typeof reviewerJson.detailedContent === 'string') {
+        const dc = reviewerJson.detailedContent.trim();
+        const looksLikeJson = (dc.startsWith('{') || dc.startsWith('[')) &&
+          (dc.match(/"[a-z_]{1,30}"\s*:/gi) || []).length >= 3;
+        if (!looksLikeJson) {
+          parts.push(dc);
+        }
       }
       quizContent = parts.join('\n\n');
     } catch {
@@ -119,11 +186,12 @@ export async function POST(request: NextRequest) {
       quizContent = lesson.content;
     }
 
-    // Clean the summary: strip greetings, conversational fillers, and meta-text
+    // Clean the lesson content: strip greetings, conversational fillers, and meta-text
     // that would pollute fill-in-blank sentences if copied verbatim.
-    quizContent = cleanSummaryForQuiz(quizContent);
+    quizContent = cleanLessonForQuiz(quizContent);
+    console.log(`Quiz content built: ${quizContent.length} chars, ${keyConcepts.length} key concepts`);
 
-    // Expand key concepts with variant terms found in the summary text.
+    // Expand key concepts with variant terms found in the lesson content.
     // e.g. "JOIN Operation" → also adds "INNER JOIN", "LEFT JOIN" etc.
     // This lets the deterministic FIB generator produce items with correct,
     // verbatim answers instead of mismatching broad terms to specific sentences.
@@ -134,7 +202,7 @@ export async function POST(request: NextRequest) {
       keyConcepts = expandKeyConcepts(keyConcepts, quizContent);
     }
 
-    // Summary quality gate — short summaries produce hallucinated filler
+    // Lesson content quality gate — short content produces hallucinated filler
     if (!quizContent || quizContent.trim().length < 200) {
       return NextResponse.json(
         { error: 'Reviewer content is too short to generate meaningful questions. The lesson needs at least 200 characters of content.' },
@@ -151,8 +219,21 @@ export async function POST(request: NextRequest) {
       count,
       resolvedModel,
       keyConcepts,
-      originalKeyConcepts
+      originalKeyConcepts,
+      notes
     );
+
+    // Guard: if the generator returned zero items, return a clear error
+    // instead of creating a 0-question quiz in the database.
+    if (!generatedQuiz.items || generatedQuiz.items.length === 0) {
+      return NextResponse.json(
+        {
+          error: generatedQuiz.warning || 'Could not generate any valid quiz items from this lesson content.',
+          stats: generatedQuiz.stats,
+        },
+        { status: 422 }
+      );
+    }
 
     // Compute the sequence number: count existing quizzes of the same lesson + type + student, then +1
     const existingCount = await prisma.quiz.count({
