@@ -138,16 +138,16 @@ export default function EducatorRegister() {
       return;
     }
 
-    // Username: alphanumeric + underscores, 3–30 chars
-    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
-      setError("Username must be 3–30 characters and contain only letters, numbers, or underscores");
+    // Username: alphanumeric + underscores, 3–10 chars
+    if (!/^[a-zA-Z0-9_]{3,10}$/.test(username)) {
+      setError("Username must be 3–10 characters and contain only letters, numbers, or underscores");
       return;
     }
 
-    // Validate email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Validate email - must be a @gmail.com address
+    const emailRegex = /^[^\s@]+@gmail\.com$/i;
     if (!emailRegex.test(email)) {
-      setError("Please enter a valid email address");
+      setError("Please enter a valid Gmail address (e.g. example@gmail.com)");
       return;
     }
 
@@ -353,7 +353,8 @@ export default function EducatorRegister() {
                 className="neu-input"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="mariasantos"
+                maxLength={10}
+                placeholder="mariasanto"
               />
             </div>
 

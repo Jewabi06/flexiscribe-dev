@@ -38,11 +38,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Validate email format - must be a @gmail.com address
+    const emailRegex = /^[^\s@]+@gmail\.com$/i;
     if (!emailRegex.test(email)) {
       return NextResponse.json(
-        { error: "Invalid email format" },
+        { error: "Only Gmail addresses are accepted (e.g. example@gmail.com)" },
+        { status: 400 }
+      );
+    }
+
+    // Validate username length
+    if (!/^[a-zA-Z0-9_]{3,10}$/.test(username)) {
+      return NextResponse.json(
+        { error: "Username must be 3–10 characters and contain only letters, numbers, or underscores" },
         { status: 400 }
       );
     }

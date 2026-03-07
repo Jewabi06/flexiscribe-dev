@@ -240,7 +240,7 @@ export default function QuizzesPage() {
       setModalInfo({
         isOpen: true,
         title: genResult.error?.includes('Ollama') ? 'Connection Error' : 'Generation Failed',
-        message: `${genResult.error || 'Unknown error'}${genResult.details ? '\n' + genResult.details : ''}`,
+        message: `${genResult.error || 'Unknown error'}${genResult.details}`,
         type: 'error',
       });
       clearGenResult();

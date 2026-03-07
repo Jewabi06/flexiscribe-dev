@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
-const CALLBACK_SECRET = process.env.FLEXISCRIBE_CALLBACK_SECRET || "";
+const CALLBACK_SECRET = process.env.FLEXISCRIBE_CALLBACK_SECRET || "fls-cb-s3cr3t-k7m9x2";
 
 /**
  * POST /api/transcribe/summary/callback

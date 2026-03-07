@@ -258,10 +258,9 @@ def _summary_callback_worker(session: TranscriptionSession):
             print(f"[CALLBACK] No transcription_id for session {session.session_id} — skipping callback.")
             return
 
-        print(f"[CALLBACK] Final summary ready. Posting to {FRONTEND_URL}...")
-
         import requests
         callback_url = f"{FRONTEND_URL}/api/transcribe/summary/callback"
+        print(f"[CALLBACK] Final summary ready. Posting to {callback_url}...")
         payload = {
             "session_id": session.session_id,
             "transcription_id": session.transcription_id,

@@ -32,7 +32,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from summarizer.summarizer import summarize_minute, summarize_cornell_from_summaries, summarize_motm
+from summarizer.summarizer import summarize_minute, summarize_cornell_context_aware, summarize_motm
 from utils.json_writer import write_json
 from config import BUFFER_INTERVAL, SUMMARY_MAX_WORKERS
 
@@ -97,7 +97,8 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
         return new_idx, minute_counter
 
     minute_counter += 1
-    timestamp = time.strftime("%H:%M:%S")
+    # Use 0-based elapsed time instead of wall clock time
+    timestamp = session.get_elapsed_timestamp()
 
     # ── Save transcript chunk immediately (fast, no Ollama) ───────
     chunk = {
@@ -107,7 +108,7 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     }
     session.transcript_chunks.append(chunk)
     write_json(session.get_transcript_json(), session.transcript_path)
-    print(f"[TRANSCRIPT] Minute {minute_counter}: {combined_text[:80]}...")
+    print(f"[TRANSCRIPT] Minute {minute_counter} at {timestamp}: {combined_text[:80]}...")
 
     # ── Submit summary to thread pool (non-blocking) ─────────────
     future = executor.submit(
@@ -206,9 +207,12 @@ def summarization_worker(stop_event: threading.Event, session):
                         "prepared_by": "To be determined",
                     }
             else:
-                print("[INFO] Generating final Cornell summary from minute summaries...")
+                print("[INFO] Generating context-aware Cornell summary...")
                 try:
-                    cornell = summarize_cornell_from_summaries(summaries_text)
+                    cornell = summarize_cornell_context_aware(
+                        session.transcript_chunks,
+                        session.minute_summaries,
+                    )
                     session.final_summary = cornell
                     write_json(
                         session.get_final_summary_json(),
