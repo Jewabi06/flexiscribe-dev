@@ -12,17 +12,28 @@ export default function DashboardPage() {
     totalStudents: 0,
     totalEducators: 0,
     activeUsers: 0,
+    inactiveUsers: 0,
+    totalUsers: 0,
+    totalQuizzes: 0,
     flashcards: 0,
     mcqs: 0,
     fitb: 0,
   });
   const [percentages, setPercentages] = useState({
-    studentsPercentage: 12.5,
+    studentsPercentage: 0,
     educatorsPercentage: 0,
-    activeUsersPercentage: 8.3,
-    flashcardsPercentage: 15.7,
-    mcqsPercentage: -2.1,
-    fitbPercentage: 10.5,
+    activeUsersPercentage: 0,
+    flashcardsPercentage: 0,
+    mcqsPercentage: 0,
+    fitbPercentage: 0,
+  });
+  const [proportionChanges, setProportionChanges] = useState({
+    studentsChange: 0,
+    educatorsChange: 0,
+    activeUsersChange: 0,
+    flashcardsChange: 0,
+    mcqsChange: 0,
+    fitbChange: 0,
   });
   const [weeklyData, setWeeklyData] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
@@ -38,20 +49,16 @@ export default function DashboardPage() {
       if (res.ok) {
         const data = await res.json();
         setStats(data.stats);
-        
-        // If your API returns percentages, use them
-        if (data.percentages) {
-          setPercentages(data.percentages);
-        }
-        
+
+        if (data.percentages) setPercentages(data.percentages);
+        if (data.proportionChanges) setProportionChanges(data.proportionChanges);
+
         setWeeklyData(data.weeklyQuizData || []);
 
         const today = new Date().toDateString();
-        const todaysActivities = (data.recentActivities || []).filter(activity => {
-          const activityDate = new Date(activity.createdAt).toDateString();
-          return activityDate === today;
-        });
-
+        const todaysActivities = (data.recentActivities || []).filter(
+          (activity) => new Date(activity.createdAt).toDateString() === today
+        );
         setRecentActivities(todaysActivities);
       }
     } catch (error) {
@@ -61,71 +68,107 @@ export default function DashboardPage() {
     }
   };
 
-  if (loading) {
-    return <LoadingScreen />;
-  }
+  if (loading) return <LoadingScreen />;
+
+  const formatShift = (value) => {
+    if (value === 0) return null;
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value}%`;
+  };
 
   return (
     <div className="space-y-8 sm:space-y-10">
       {/* QUICK STATS */}
       <section className="space-y-3 sm:space-y-4">
-        <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">Quick Stats</h2>
-
+        <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">
+          Quick Stats
+        </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-          <StatCard 
-            label="Total Students" 
+          <StatCard
+            label="Total Students"
             value={stats.totalStudents}
             percentage={percentages.studentsPercentage}
+            percentageContext={`of ${stats.totalUsers} total users`}
+            change={proportionChanges.studentsChange}
           />
-          <StatCard 
-            label="Total Educators" 
+          <StatCard
+            label="Total Educators"
             value={stats.totalEducators}
             percentage={percentages.educatorsPercentage}
+            percentageContext={`of ${stats.totalUsers} total users`}
+            change={proportionChanges.educatorsChange}
           />
-          <StatCard 
-            label="Active Users" 
+          <StatCard
+            label="Active Users"
             value={stats.activeUsers}
             percentage={percentages.activeUsersPercentage}
+            percentageContext={`of ${stats.activeUsers + stats.inactiveUsers} total`}
+            change={proportionChanges.activeUsersChange}
           />
         </div>
       </section>
 
-      {/* PROGRESS SECTION - COMBINED */}
+      {/* LEARNING PROGRESS */}
       <section className="space-y-3 sm:space-y-4">
-        <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">Learning Progress</h2>
-        <ProgressCard 
-          flashcards={stats.flashcards} 
-          mcqs={stats.mcqs} 
+        <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">
+          Learning Progress
+        </h2>
+        <ProgressCard
+          flashcards={stats.flashcards}
+          mcqs={stats.mcqs}
           fitb={stats.fitb}
         />
-        
-        {/* Optional: Small percentage indicators if needed */}
-        <div className="flex gap-4 text-sm text-gray-600">
-          <span>Flashcards <span className={percentages.flashcardsPercentage > 0 ? 'text-green-500' : 'text-red-500'}>
-            {percentages.flashcardsPercentage > 0 ? '+' : ''}{percentages.flashcardsPercentage}%
-          </span></span>
-          <span>MCQs <span className={percentages.mcqsPercentage > 0 ? 'text-green-500' : 'text-red-500'}>
-            {percentages.mcqsPercentage > 0 ? '+' : ''}{percentages.mcqsPercentage}%
-          </span></span>
-          <span>FITB <span className={percentages.fitbPercentage > 0 ? 'text-green-500' : 'text-red-500'}>
-            {percentages.fitbPercentage > 0 ? '+' : ''}{percentages.fitbPercentage}%
-          </span></span>
+
+        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm px-1">
+          {[
+            {
+              label: "Flashcards",
+              pct: percentages.flashcardsPercentage,
+              shift: proportionChanges.flashcardsChange,
+            },
+            {
+              label: "MCQs",
+              pct: percentages.mcqsPercentage,
+              shift: proportionChanges.mcqsChange,
+            },
+            {
+              label: "FITB",
+              pct: percentages.fitbPercentage,
+              shift: proportionChanges.fitbChange,
+            },
+          ].map(({ label, pct, shift }) => (
+            <div key={label} className="flex items-center">
+              <span className="font-medium text-[#4c4172]">{label}</span>
+              {shift !== 0 && (
+                <span
+                  className={`inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                    shift > 0
+                      ? "text-green-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  {shift > 0 ? "↑" : "↓"} {formatShift(shift)}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 
       {/* ANALYTICS */}
       <section>
         <div className="grid grid-cols-1 xl:grid-cols-[2fr_2fr] gap-6">
-          {/* RECENT ACTIVITY */}
           <div className="space-y-2 sm:space-y-3">
-            <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">Recent Activity</h2>
+            <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">
+              Recent Activity
+            </h2>
             <RecentActivityCard activities={recentActivities} />
           </div>
-
-          {/* CLASS ANALYTICS */}
           <div className="space-y-2 sm:space-y-3">
-            <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">Class Analytics</h2>
-            <ClassAnalyticsCard weeklyData={weeklyData} />
+            <h2 className="text-xl sm:text-2xl font-semibold text-[#9d8adb]">
+              Class Analytics
+            </h2>
+            <ClassAnalyticsCard weeklyData={weeklyData} curveType="linear" />
           </div>
         </div>
       </section>

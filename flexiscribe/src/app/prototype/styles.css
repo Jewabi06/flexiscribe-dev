@@ -1273,8 +1273,8 @@
   margin-top: 1rem;
   width: 100%;
   border-radius: 16px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(135deg, #7c6bc4 0%, #4c4172 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   overflow: hidden;
   backdrop-filter: blur(10px);
 }
@@ -1284,8 +1284,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1.25rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .live-transcript-header h3 {
@@ -1341,7 +1341,7 @@
 }
 
 .chunk-text {
-  color: rgba(255, 255, 255, 0.85);
+  color: #ffffff;
   font-size: 0.85rem;
   line-height: 1.5;
 }

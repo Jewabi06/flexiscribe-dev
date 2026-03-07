@@ -193,7 +193,7 @@ export default function ClassAnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f3fb] px-4 sm:px-6 py-6 sm:py-8 space-y-14">
+    <div className="min-h-screen bg-[#f4f3fb] px-4 py-2 sm:py-1 space-y-10">
       {/* ================= TRANSCRIPTS ================= */}
       <section className="space-y-4">
         <SectionTitle>Transcripts</SectionTitle>
