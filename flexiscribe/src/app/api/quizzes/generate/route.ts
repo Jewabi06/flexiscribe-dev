@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
     // fall back to plain text for backwards compatibility.
     let quizContent: string;
     let keyConcepts: { term: string; definition: string; example?: string }[] = [];
+    let notes: { term: string; definition: string; example?: string }[] | undefined;
     try {
       const reviewerJson = JSON.parse(lesson.content);
       // Convert structured reviewer JSON into dense, quiz-optimized lesson content
@@ -98,8 +99,14 @@ export async function POST(request: NextRequest) {
       if (reviewerJson.summary) {
         if (Array.isArray(reviewerJson.summary)) {
           parts.push(reviewerJson.summary.join('\n'));
-        } else {
-          parts.push(reviewerJson.summary);
+        } else if (typeof reviewerJson.summary === 'string') {
+          // Guard: skip if the summary string is itself a JSON blob
+          const s = reviewerJson.summary.trim();
+          const looksLikeJson = (s.startsWith('{') || s.startsWith('[')) &&
+            (s.match(/"[a-z_]{1,30}"\s*:/gi) || []).length >= 3;
+          if (!looksLikeJson) {
+            parts.push(s);
+          }
         }
       }
 
@@ -127,38 +134,51 @@ export async function POST(request: NextRequest) {
         // Preserve structured keyConcepts for the generation pipeline
         keyConcepts = rawConcepts
           .filter((c: any) => c.term && c.definition)
-          .map((c: any) => ({ term: String(c.term), definition: String(c.definition), ...(c.example ? { example: String(c.example) } : {}) }));
-        // Add "Term: Definition" lines for direct reference
-        parts.push(
-          keyConcepts
-            .map(c => `${c.term}: ${c.definition}`)
-            .join('\n')
-        );
-        // Add example sentences so the LLM and deterministic FIB can use them
-        const exampleSentences = keyConcepts
-          .filter(c => c.example && c.example.length > 10)
-          .map(c => `Example of ${c.term}: ${c.example}`)
-          .join('\n');
-        if (exampleSentences) {
-          parts.push(exampleSentences);
+          .map((c: any) => ({ term: String(c.term).trim(), definition: String(c.definition).trim(), ...(c.example ? { example: String(c.example).trim() } : {}) }));
+        // Preserve the full notes array (with examples) for deterministic FIB and validation.
+        // Include ALL notes that have a term — even those without definitions — so
+        // note-example bypass in validateFillInBlankItem works for every note.
+        notes = rawConcepts
+          .filter((c: any) => c.term)
+          .map((c: any) => ({ term: String(c.term).trim(), definition: String(c.definition || '').trim(), ...(c.example ? { example: String(c.example).trim() } : {}) }));
+
+        // Build prose-format sentences from notes so both the deterministic FIB
+        // and the LLM see natural language — NOT "Term: Definition" or JSON-like
+        // format that causes the model to blank field names instead of concepts.
+        const proseParts: string[] = [];
+        for (const c of keyConcepts) {
+          // Template 1: "Term refers to definition"
+          if (c.definition.length > 15) {
+            proseParts.push(`${c.term} refers to ${c.definition.charAt(0).toLowerCase()}${c.definition.slice(1)}`);
+          }
+          // Template 2: "An example of Term is example" (always includes the term)
+          if (c.example && c.example.length > 10) {
+            proseParts.push(`An example of ${c.term} is ${c.example.charAt(0).toLowerCase()}${c.example.slice(1)}`);
+          }
+          // Template 3: "Term is defined as definition"
+          if (c.definition.length > 15) {
+            proseParts.push(`${c.term} is defined as ${c.definition.charAt(0).toLowerCase()}${c.definition.slice(1)}`);
+          }
         }
-        // Also add prose-format sentences so the deterministic FIB can find
-        // key terms embedded in natural sentence context for blanking.
-        // e.g. "Facility Layout refers to the arrangement of equipment..."
-        const proseSentences = keyConcepts
-          .filter(c => c.definition.length > 20)
-          .map(c => `${c.term} refers to ${c.definition.charAt(0).toLowerCase()}${c.definition.slice(1)}`)
-          .join('\n');
-        if (proseSentences) {
-          parts.push(proseSentences);
+        if (proseParts.length > 0) {
+          parts.push(proseParts.join('\n'));
         }
       }
 
       if (Array.isArray(reviewerJson.importantFacts)) {
         parts.push(reviewerJson.importantFacts.join('\n'));
       }
-      if (reviewerJson.detailedContent) {
-        parts.push(reviewerJson.detailedContent);
+      // Guard: only include detailedContent if it is NOT a JSON blob.
+      // Some lesson formats store the entire structured data here as a
+      // stringified JSON object which would leak "term": / "definition":
+      // syntax into the quiz content.
+      if (reviewerJson.detailedContent && typeof reviewerJson.detailedContent === 'string') {
+        const dc = reviewerJson.detailedContent.trim();
+        const looksLikeJson = (dc.startsWith('{') || dc.startsWith('[')) &&
+          (dc.match(/"[a-z_]{1,30}"\s*:/gi) || []).length >= 3;
+        if (!looksLikeJson) {
+          parts.push(dc);
+        }
       }
       quizContent = parts.join('\n\n');
     } catch {
@@ -199,7 +219,8 @@ export async function POST(request: NextRequest) {
       count,
       resolvedModel,
       keyConcepts,
-      originalKeyConcepts
+      originalKeyConcepts,
+      notes
     );
 
     // Guard: if the generator returned zero items, return a clear error
