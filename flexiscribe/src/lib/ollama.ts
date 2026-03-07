@@ -508,7 +508,7 @@ function mapKeyTermsToSentences(
   for (const concept of keyConcepts) {
     const term = concept.term.trim();
     if (!term || term.length < 2) continue;
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegex(term);
     // Use word-boundary for single words; for multi-word, require the full
     // phrase to appear (word boundaries at the edges only).
     const regex = new RegExp(`\\b${escaped}\\b`, 'i');
@@ -623,9 +623,6 @@ function generateDeterministicFIB(
       if (termMap.has(term) && (termMap.get(term)!.length > 0)) continue; // already has candidates
       if (!concept.definition || concept.definition.trim().length < 15) continue;
 
-      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const termRegex = new RegExp(`\\b${escaped}\\b`, 'i');
-
       // "Term refers to definition..."
       const defSentence = `${term} refers to ${concept.definition.trim().charAt(0).toLowerCase()}${concept.definition.trim().slice(1)}`;
       termMap.set(term, [defSentence]);
@@ -646,11 +643,32 @@ function generateDeterministicFIB(
   }
 
   // Build flat list of candidates: { term, sentence }
-  const candidates: { term: string; sentence: string }[] = [];
+  let candidates: { term: string; sentence: string }[] = [];
   for (const [term, sentenceList] of termMap.entries()) {
     for (const sentence of sentenceList) {
       candidates.push({ term, sentence });
     }
+  }
+
+  // ── Per-concept cap to limit repetition ──
+  // When generating many items (especially for HARD where detCount = 1.5×count),
+  // the same concept can appear 4+ times if the concept pool is smaller than the
+  // requested count. Cap each concept's sentences to improve diversity.
+  const MAX_PER_CONCEPT = difficulty === 'HARD' ? 2 : 3;
+  {
+    const candidatesByTerm = new Map<string, typeof candidates>();
+    for (const c of candidates) {
+      const list = candidatesByTerm.get(c.term) || [];
+      list.push(c);
+      candidatesByTerm.set(c.term, list);
+    }
+    const cappedCandidates: typeof candidates = [];
+    for (const [, termCandidates] of candidatesByTerm) {
+      const shuffledTerm = shuffleArray(termCandidates);
+      cappedCandidates.push(...shuffledTerm.slice(0, MAX_PER_CONCEPT));
+    }
+    candidates = shuffleArray(cappedCandidates);
+    console.log(`Deterministic FIB: capped candidates from ${candidates.length + (cappedCandidates.length - cappedCandidates.length)} to ${cappedCandidates.length} (max ${MAX_PER_CONCEPT}/concept).`);
   }
 
   // Shuffle for variety, then sort by a composite score:
@@ -843,29 +861,6 @@ function getShortDefinition(concept: { term: string; definition: string }): stri
   return def.substring(0, 100).trim() + (def.length > 100 ? '…' : '');
 }
 
-/**
- * Deterministic Easy MCQ generator.
- *
- * For each key concept, creates a recall question in one of two styles:
- *
- *   Forward  (term → definition):
- *     "What is [term]?"  –  choices = concise (one-sentence) definitions.
- *
- *   Reverse  (definition → term):
- *     The concise definition is used as the question text.
- *     Choices = term names (correct term + 3 distractor terms).
- *
- * A 50/50 random coin flip decides which style each item uses, so the
- * resulting quiz contains a healthy mix of both. Both styles test recall
- * at Bloom's Level 1.
- *
- * Why this works:
- * - No LLM involved → 100% yield, instant, zero JSON parse errors.
- * - Distractors are real definitions / terms from the same domain → plausible.
- * - Scales with content: N key concepts with definitions → up to N items.
- *
- * Falls back to null if fewer than 4 key concepts have definitions.
- */
 /**
  * Deterministic MCQ generator — ALL difficulties.
  *
@@ -1385,7 +1380,7 @@ function buildFIBItem(
   originalLessonContent?: string,
   fuzzyThreshold: number = 0.75
 ): { sentence: string; answer: string; distractors: string[] } | null {
-  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegex(term);
   const regex = new RegExp(`\\b${escaped}\\b`, 'i');
   const matchResult = regex.exec(sentence);
 
@@ -2476,6 +2471,28 @@ function validateFillInBlankItem(
     };
   }
 
+  // ── Grammar check for "refers to" patterns ──
+  // If the sentence has "refers" immediately before [blank], the answer must
+  // start with "to" so the reconstructed sentence reads "refers to <definition>".
+  // Without this, items like 'Accessibility refers [blank]' with answer
+  // 'Designing spaces...' produce ungrammatical output.
+  const beforeBlank = fixedSentence.split('[blank]')[0].trim().toLowerCase();
+  if (beforeBlank.endsWith('refers')) {
+    const answerLowerTrim = item.answer.trim().toLowerCase();
+    if (!answerLowerTrim.startsWith('to ')) {
+      return {
+        valid: false,
+        item,
+        rejectionReason: `Answer must start with "to" when blank follows "refers" (grammar: "refers [blank]" → "refers to ...")`
+      };
+    }
+  }
+
+  // ── Grammar check for "defined as" patterns ──
+  // Same idea: "is defined as [blank]" requires the answer to be a noun phrase,
+  // not starting with another verb. "defined as" before [blank] is fine as-is
+  // since the model writes "X is defined as [definition]".
+
   // ── JSON field name check ──
   // Reject answers where the sentence looks like raw JSON (blanked a field name)
   if (/^\s*"[a-z_]+"\s*:\s*\[?\s*$/.test(item.sentence.replace('[blank]', '').trim()) ||
@@ -3270,6 +3287,8 @@ RULES:
 3. Answer must be EXACTLY "${item.answer}" — do NOT change or abbreviate it
 4. Use these exact distractors: ${JSON.stringify(item.distractors)}
 5. Do NOT copy the original sentence — create a NEW one with different wording
+6. Ensure the sentence is grammatically complete. If you use "refers", it MUST be followed by "to" (e.g., "X refers to [blank]").
+7. The answer must appear as a noun phrase — it must fit naturally in the sentence when inserted into [blank].
 
 {"sentence":"...scenario sentence with [blank]...","answer":"${item.answer}","distractors":${JSON.stringify(item.distractors)}}`;
 
@@ -3300,7 +3319,7 @@ RULES:
     // Ensure [blank] is present
     if (!parsed.sentence.includes('[blank]')) {
       // Try to insert [blank] by finding the answer in the sentence
-      const esc = item.answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const esc = escapeRegex(item.answer);
       const reg = new RegExp(`\\b${esc}\\b`, 'i');
       if (reg.test(parsed.sentence)) {
         parsed.sentence = parsed.sentence.replace(reg, '[blank]');
@@ -3311,6 +3330,23 @@ RULES:
 
     // Enforce distractors
     parsed.distractors = item.distractors;
+
+    // ── Post-parse grammar guard ──
+    // Verify that the answer actually appears in the sentence when [blank] is
+    // replaced. This catches cases where the model blanked a different word.
+    const reconstructed = parsed.sentence.replace('[blank]', item.answer);
+    const ansEsc = escapeRegex(item.answer);
+    if (!new RegExp(`\\b${ansEsc}\\b`, 'i').test(reconstructed)) {
+      console.warn(`  Transform FIB: answer "${item.answer}" missing in reconstructed sentence — rejecting`);
+      return null;
+    }
+
+    // Verify "refers to" grammar: if sentence has "refers [blank]", answer must start with "to"
+    const pre = parsed.sentence.split('[blank]')[0].trim().toLowerCase();
+    if (pre.endsWith('refers') && !item.answer.trim().toLowerCase().startsWith('to ')) {
+      console.warn(`  Transform FIB: grammar error — "refers [blank]" but answer doesn't start with "to" — rejecting`);
+      return null;
+    }
 
     return {
       sentence: parsed.sentence,
@@ -3495,7 +3531,7 @@ export async function generateQuizWithGemma(
       const resolvedModelForTransform = preResolvedModel || await getBestAvailableModel();
       const hardTemp = 0.40;
       const itemsToTransform = deterministicItems.slice(0, Math.ceil(count * 1.3));
-      const { transformed, failed, apiCalls } = await transformItemsToHardScenarios(
+      const { transformed, failed: _failedFIB, apiCalls } = await transformItemsToHardScenarios(
         itemsToTransform, 'FILL_IN_BLANK', lessonContent, fibConcepts, resolvedModelForTransform, hardTemp
       );
 
@@ -3595,7 +3631,7 @@ export async function generateQuizWithGemma(
       const resolvedModelForTransform = preResolvedModel || await getBestAvailableModel();
       const hardTemp = 0.45;
       const itemsToTransform = deterministicItems.slice(0, Math.ceil(count * 1.3));
-      const { transformed, failed, apiCalls } = await transformItemsToHardScenarios(
+      const { transformed, failed: _failedMCQ, apiCalls } = await transformItemsToHardScenarios(
         itemsToTransform, 'MCQ', lessonContent, mcqConcepts, resolvedModelForTransform, hardTemp
       );
 
@@ -3694,7 +3730,7 @@ export async function generateQuizWithGemma(
       const resolvedModelForTransform = preResolvedModel || await getBestAvailableModel();
       const hardTemp = 0.55;
       const itemsToTransform = deterministicItems.slice(0, Math.ceil(count * 1.3));
-      const { transformed, failed, apiCalls } = await transformItemsToHardScenarios(
+      const { transformed, failed: _failedFlash, apiCalls } = await transformItemsToHardScenarios(
         itemsToTransform, 'FLASHCARD', lessonContent, flashcardConcepts, resolvedModelForTransform, hardTemp
       );
 
@@ -5121,7 +5157,7 @@ function buildFillInBlankPrompt(difficulty: string, count: number, lessonContent
     : '';
 
   // Inject already-used sentences so the model doesn't regenerate them.
-  // Cap at 15 to avoid exceeding context window on very large runs.
+  // Cap at 30 to balance dedup signal vs context window usage.
   const usedBlock = usedSentences.length > 0
     ? `\n\nIMPORTANT: The following sentences have ALREADY been used. You MUST NOT output any of these again or any sentence covering the same concept. Any repeated sentence will be REJECTED.\n${usedSentences.slice(-30).map(s => `- ${s}`).join('\n')}\n`
     : '';
