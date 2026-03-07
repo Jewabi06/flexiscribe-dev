@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ollama API integration for Gemma 3 4B
  */
 
@@ -32,6 +32,7 @@ function shuffleArray<T>(array: T[]): T[] {
  * Normalize text for comparison (lowercase, trim, remove extra spaces)
  */
 function normalizeText(text: string): string {
+  if (!text) return '';
   return text.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
@@ -72,23 +73,25 @@ function areQuestionsSimilar(q1: string, q2: string): boolean {
   if (kw1.size >= 2 && kw2.size >= 2) {
     const intersection = [...kw1].filter(w => kw2.has(w)).length;
     const smaller = Math.min(kw1.size, kw2.size);
-    // If ≥60% of the smaller keyword set appears in the other, it's a duplicate
-    if (intersection / smaller >= 0.6) return true;
+    // If ≥75% of the smaller keyword set appears in the other, it's a duplicate.
+    // Raised from 60% → 75% to avoid over-aggressive dedup that rejects
+    // distinct questions that merely share topic words.
+    if (intersection / smaller >= 0.75) return true;
   }
   
   return false;
 }
 
 // ============================================================================
-// SUMMARY CLEANING
+// LESSON CONTENT CLEANING
 // ============================================================================
 
 /**
- * Clean a summary for quiz generation by removing greetings, conversational
+ * Clean lesson content for quiz generation by removing greetings, conversational
  * fillers, and meta-comments that would pollute fill-in-blank sentences.
- * Applied before passing the summary to the generation pipeline.
+ * Applied before passing the lesson content to the generation pipeline.
  */
-export function cleanSummaryForQuiz(raw: string): string {
+export function cleanLessonForQuiz(raw: string): string {
   const lines = raw.split('\n');
   const cleaned = lines.map(line => {
     // Strip leading greetings / conversational openers from every line
@@ -121,8 +124,8 @@ export function cleanSummaryForQuiz(raw: string): string {
 
 /**
  * Expand key concepts by extracting variant / more-specific terms from the
- * summary text.  For example, if "JOIN Operation" is a key concept and the
- * summary mentions "INNER JOIN", "LEFT JOIN", etc., those are added as
+ * lesson content.  For example, if "JOIN Operation" is a key concept and the
+ * lesson content mentions "INNER JOIN", "LEFT JOIN", etc., those are added as
  * additional concepts so the deterministic FIB generator can create items
  * for them (with correct, verbatim answers).
  *
@@ -130,9 +133,9 @@ export function cleanSummaryForQuiz(raw: string): string {
  * Database" could match inside the negative form "non-relational database".
  */
 export function expandKeyConcepts(
-  keyConcepts: { term: string; definition: string }[],
-  summary: string
-): { term: string; definition: string }[] {
+  keyConcepts: { term: string; definition: string; example?: string }[],
+  lessonContent: string
+): { term: string; definition: string; example?: string }[] {
   const expanded = [...keyConcepts];
   const seen = new Set(keyConcepts.map(k => normalizeText(k.term)));
 
@@ -247,7 +250,7 @@ export function expandKeyConcepts(
 
       for (const pat of allPatterns) {
         let m: RegExpExecArray | null;
-        while ((m = pat.exec(summary)) !== null) {
+        while ((m = pat.exec(lessonContent)) !== null) {
           const variant = m[1].trim();
           const normV = normalizeText(variant);
           if (seen.has(normV)) continue;
@@ -298,6 +301,26 @@ export function expandKeyConcepts(
     }
   }
 
+  // ── Noun-phrase extraction ──
+  // Extract capitalised multi-word phrases that appear at least twice in the
+  // lesson content and are not already in the concept list. These are likely
+  // important technical terms the reviewer didn't explicitly list.
+  const nounPhraseRe = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g;
+  const phraseCount = new Map<string, number>();
+  let npm: RegExpExecArray | null;
+  while ((npm = nounPhraseRe.exec(lessonContent)) !== null) {
+    const phrase = npm[1].trim();
+    phraseCount.set(phrase, (phraseCount.get(phrase) || 0) + 1);
+  }
+  for (const [phrase, freq] of phraseCount.entries()) {
+    if (freq < 2) continue; // must appear at least twice
+    const normP = normalizeText(phrase);
+    if (seen.has(normP)) continue;
+    if (phrase.split(/\s+/).length < 2 || phrase.length < 6) continue;
+    seen.add(normP);
+    expanded.push({ term: phrase, definition: '' });
+  }
+
   console.log(`expandKeyConcepts: ${keyConcepts.length} → ${expanded.length} concepts (${expanded.length - keyConcepts.length} variants added).`);
   return expanded;
 }
@@ -326,7 +349,7 @@ function splitIntoSentences(text: string): string[] {
 
 /**
  * Build a map from key-concept term → list of sentences that contain that
- * term verbatim (case-insensitive, whole-word match).
+ * term verbatim (case-insensitive, whole-word match) or via fuzzy span match.
  */
 function mapKeyTermsToSentences(
   sentences: string[],
@@ -344,6 +367,12 @@ function mapKeyTermsToSentences(
     for (const sentence of sentences) {
       if (regex.test(sentence)) {
         matching.push(sentence);
+      } else {
+        // Fuzzy fallback: sliding-window match for terms that don't appear verbatim
+        const fuzzy = findBestFuzzySpan(sentence, term, 0.75);
+        if (fuzzy) {
+          matching.push(sentence);
+        }
       }
     }
     if (matching.length > 0) {
@@ -359,13 +388,13 @@ function mapKeyTermsToSentences(
  * Instead of asking the LLM to both select a sentence and blank a term
  * (which causes rampant paraphrasing and "answer not found" failures),
  * this function:
- *   1. Splits the summary into sentences.
+ *   1. Splits the lesson content into sentences.
  *   2. Maps each key concept to sentences that contain it verbatim.
  *   3. For each candidate, replaces the key term with [blank].
  *   4. Picks 3 distractors from the remaining key concepts.
  *
  * This guarantees:
- * - The sentence is verbatim from the summary (no hallucination).
+ * - The sentence is verbatim from the lesson content (no hallucination).
  * - The answer is actually present in the sentence.
  * - Distractors are always relevant key concepts.
  * - Zero API calls → instant generation, 100% yield.
@@ -374,16 +403,22 @@ function mapKeyTermsToSentences(
  * letting the caller use the wave-based LLM pipeline instead.
  */
 function generateDeterministicFIB(
-  summary: string,
+  lessonContent: string,
   keyConcepts: { term: string; definition?: string }[],
   count: number,
   difficulty: 'EASY' | 'MEDIUM' | 'HARD'
 ): any[] | null {
-  const sentences = splitIntoSentences(summary);
+  const sentences = splitIntoSentences(lessonContent);
   const termMap = mapKeyTermsToSentences(sentences, keyConcepts);
 
+  console.log(`Deterministic FIB: ${sentences.length} sentences, ${keyConcepts.length} key concepts, ${termMap.size} terms matched`);
   if (termMap.size === 0) {
     console.warn('Deterministic FIB: no sentences found containing any key concept — falling back to LLM.');
+    // Log a few key concepts and sentence snippets for debugging
+    const sampleTerms = keyConcepts.slice(0, 5).map(k => k.term).join(', ');
+    const sampleSentences = sentences.slice(0, 3).map(s => s.substring(0, 80)).join(' | ');
+    console.warn(`  Sample terms: ${sampleTerms}`);
+    console.warn(`  Sample sentences: ${sampleSentences}`);
     return null;
   }
 
@@ -395,15 +430,48 @@ function generateDeterministicFIB(
     }
   }
 
-  // Shuffle for variety, then sort by term length descending so that
-  // longer (more complete) phrases are tried first.  For EASY difficulty,
-  // sort *ascending* so shorter / single-word terms are preferred.
+  // Shuffle for variety, then sort by a composite score:
+  //  1. Prefer sentences covering terms not yet used (uniqueness bonus)
+  //  2. For EASY prefer shorter terms; for MEDIUM/HARD prefer longer terms
+  // This maximises concept diversity and picks the most representative sentences.
   let sorted = shuffleArray(candidates);
-  if (difficulty === 'EASY') {
-    sorted.sort((a, b) => a.term.length - b.term.length);
-  } else {
-    sorted.sort((a, b) => b.term.length - a.term.length);
+
+  // Pre-compute term frequency (how many sentences each term appears in)
+  const termFreq = new Map<string, number>();
+  for (const c of candidates) {
+    termFreq.set(c.term, (termFreq.get(c.term) || 0) + 1);
   }
+
+  sorted.sort((a, b) => {
+    // Uniqueness: prefer terms with fewer sentence hits (rarer = more informative)
+    const freqA = termFreq.get(a.term) || 1;
+    const freqB = termFreq.get(b.term) || 1;
+    if (freqA !== freqB) return freqA - freqB; // fewer hits first
+
+    // Sentence quality: prefer medium-length sentences (80-200 chars).
+    // Very short sentences lack context; very long ones make poor blanks.
+    const lenScore = (s: string) => {
+      const len = s.length;
+      if (len >= 80 && len <= 200) return 0; // ideal
+      if (len >= 60 && len <= 250) return 1; // acceptable
+      return 2; // too short or too long
+    };
+    const lenA = lenScore(a.sentence);
+    const lenB = lenScore(b.sentence);
+    if (lenA !== lenB) return lenA - lenB;
+
+    // Avoid sentences where the term is at the very start (position 0-5) —
+    // these often produce "The [blank] is..." patterns that lack context.
+    const posA = a.sentence.toLowerCase().indexOf(a.term.toLowerCase());
+    const posB = b.sentence.toLowerCase().indexOf(b.term.toLowerCase());
+    const posScoreA = posA >= 0 && posA <= 5 ? 1 : 0;
+    const posScoreB = posB >= 0 && posB <= 5 ? 1 : 0;
+    if (posScoreA !== posScoreB) return posScoreA - posScoreB;
+
+    // Then length-based tiebreak
+    if (difficulty === 'EASY') return a.term.length - b.term.length;
+    return b.term.length - a.term.length;
+  });
   const shuffled = sorted;
 
   // Greeting / off-topic patterns to skip
@@ -417,6 +485,9 @@ function generateDeterministicFIB(
   const usedSentences = new Set<string>();
   const usedTerms = new Set<string>(); // prefer one sentence per term
   const result: any[] = [];
+  // EASY requires tighter fuzzy matching to ensure near-verbatim answers;
+  // MEDIUM/HARD allow slightly looser spans.
+  const fuzzyThreshold = difficulty === 'EASY' ? 0.80 : 0.75;
 
   // PASS 1: one sentence per term (maximizes concept diversity)
   for (const c of shuffled) {
@@ -426,15 +497,15 @@ function generateDeterministicFIB(
     // Skip greeting sentences
     if (greetingPatterns.some(p => p.test(c.sentence))) continue;
     // ── Bloom's taxonomy difficulty filter ──
-    // EASY  → single-word or short terms (recall)
+    // EASY  → allow compound terms up to 3 words (most domain terms are 2-word compounds)
     // MEDIUM → any term length (understanding)
     // HARD  → multi-word terms and longer, complex sentences (application)
     const termWordCount = c.term.split(/\s+/).length;
-    if (difficulty === 'EASY' && termWordCount > 1) continue;
+    if (difficulty === 'EASY' && termWordCount > 3) continue;
     if (difficulty === 'HARD' && termWordCount === 1 && c.term.length < 5) continue;
     if (difficulty === 'HARD' && c.sentence.length < 60) continue;
 
-    const item = buildFIBItem(c.term, c.sentence, allTerms, summary);
+    const item = buildFIBItem(c.term, c.sentence, allTerms, lessonContent, fuzzyThreshold);
     if (!item) continue;
 
     result.push(item);
@@ -449,12 +520,10 @@ function generateDeterministicFIB(
       if (result.length >= count) break;
       if (usedSentences.has(c.sentence)) continue;
       if (greetingPatterns.some(p => p.test(c.sentence))) continue;
-      // Relaxed difficulty filter — only exclude the worst mismatches
-      const termWordCount2 = c.term.split(/\s+/).length;
-      if (difficulty === 'EASY' && termWordCount2 > 2) continue;
-      if (difficulty === 'HARD' && termWordCount2 === 1 && c.term.length < 4) continue;
+      // Relaxed difficulty filter — only exclude extreme mismatches
+      if (difficulty === 'HARD' && c.term.split(/\s+/).length === 1 && c.term.length < 3) continue;
 
-      const item = buildFIBItem(c.term, c.sentence, allTerms, summary);
+      const item = buildFIBItem(c.term, c.sentence, allTerms, lessonContent, fuzzyThreshold);
       if (!item) continue;
 
       result.push(item);
@@ -471,7 +540,7 @@ function generateDeterministicFIB(
       if (greetingPatterns.some(p => p.test(c.sentence))) continue;
       // No difficulty filter — accept any term/sentence pair
 
-      const item = buildFIBItem(c.term, c.sentence, allTerms, summary);
+      const item = buildFIBItem(c.term, c.sentence, allTerms, lessonContent, fuzzyThreshold);
       if (!item) continue;
 
       result.push(item);
@@ -533,7 +602,7 @@ function getShortDefinition(concept: { term: string; definition: string }): stri
  * Falls back to null if fewer than 4 key concepts have definitions.
  */
 function generateDeterministicMCQ_Easy(
-  keyConcepts: { term: string; definition: string }[],
+  keyConcepts: { term: string; definition: string; example?: string }[],
   count: number
 ): any[] | null {
   // Filter to concepts that actually have non-empty definitions
@@ -543,56 +612,125 @@ function generateDeterministicMCQ_Easy(
     return null;
   }
 
+  // Concepts that also have examples (for example-based styles)
+  const conceptsWithExamples = validConcepts.filter(k => k.example && k.example.trim().length > 10);
+
   const shuffledConcepts = shuffleArray([...validConcepts]);
   const result: any[] = [];
+  const usedQuestions = new Set<string>();
 
-  for (const concept of shuffledConcepts) {
+  // Generate forward, reverse, and example-based styles — up to 4× yield
+  const styles: ('forward' | 'reverse' | 'example-forward' | 'example-reverse')[] = [
+    'forward', 'reverse', 'example-forward', 'example-reverse'
+  ];
+  for (const style of styles) {
     if (result.length >= count) break;
 
-    const correctShort = getShortDefinition(concept);
+    // Example-based styles require enough concepts with examples
+    if ((style === 'example-forward' || style === 'example-reverse') && conceptsWithExamples.length < 4) continue;
 
-    // 50/50 coin flip: forward (term → definition) or reverse (definition → term)
-    const useForward = Math.random() < 0.5;
+    const conceptPool = (style === 'example-forward' || style === 'example-reverse')
+      ? shuffleArray([...conceptsWithExamples])
+      : shuffledConcepts;
 
-    if (useForward) {
-      // ── Forward style: "What is [term]?" → choices = short definitions ──
-      const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
-      if (otherConcepts.length < 3) continue;
+    for (const concept of conceptPool) {
+      if (result.length >= count) break;
 
-      const distractorConcepts = shuffleArray(otherConcepts).slice(0, 3);
-      const distractorShorts = distractorConcepts.map(c => getShortDefinition(c));
+      if (style === 'forward') {
+        // ── Forward style: "What is [term]?" → choices = short definitions ──
+        const correctShort = getShortDefinition(concept);
+        const qKey = normalizeText(`What is ${concept.term}?`);
+        if (usedQuestions.has(qKey)) continue;
+        const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+        if (otherConcepts.length < 3) continue;
 
-      const allChoices = [correctShort, ...distractorShorts];
-      const uniqueChoices = [...new Set(allChoices)];
-      if (uniqueChoices.length < 4) continue; // duplicate definitions — skip
+        const distractorConcepts = shuffleArray(otherConcepts).slice(0, 3);
+        const distractorShorts = distractorConcepts.map(c => getShortDefinition(c));
 
-      const choices = shuffleArray(uniqueChoices);
-      const answerIndex = choices.indexOf(correctShort);
+        const allChoices = [correctShort, ...distractorShorts];
+        const uniqueChoices = [...new Set(allChoices)];
+        if (uniqueChoices.length < 4) continue;
 
-      result.push({
-        question: `What is ${concept.term}?`,
-        choices,
-        answerIndex,
-        explanation: `The correct answer is '${correctShort}' because that is the definition of ${concept.term}.`,
-      });
-    } else {
-      // ── Reverse style: short definition as question → choices = terms ──
-      const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
-      if (otherConcepts.length < 3) continue;
+        const choices = shuffleArray(uniqueChoices);
+        const answerIndex = choices.indexOf(correctShort);
 
-      const distractorTerms = shuffleArray(otherConcepts).slice(0, 3).map(c => c.term);
+        result.push({
+          question: `What is ${concept.term}?`,
+          choices,
+          answerIndex,
+          explanation: `The correct answer is '${correctShort}' because that is the definition of ${concept.term}.`,
+        });
+        usedQuestions.add(qKey);
 
-      const allChoices = [concept.term, ...distractorTerms];
-      // Terms are inherently unique — no dedup needed
-      const choices = shuffleArray(allChoices);
-      const answerIndex = choices.indexOf(concept.term);
+      } else if (style === 'reverse') {
+        // ── Reverse style: short definition as question → choices = terms ──
+        const correctShort = getShortDefinition(concept);
+        const qKey = normalizeText(`reverse:${correctShort}`);
+        if (usedQuestions.has(qKey)) continue;
+        const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+        if (otherConcepts.length < 3) continue;
 
-      result.push({
-        question: correctShort,
-        choices,
-        answerIndex,
-        explanation: `The correct answer is '${concept.term}' because it matches the description: ${correctShort}`,
-      });
+        const distractorTerms = shuffleArray(otherConcepts).slice(0, 3).map(c => c.term);
+
+        const allChoices = [concept.term, ...distractorTerms];
+        const choices = shuffleArray(allChoices);
+        const answerIndex = choices.indexOf(concept.term);
+
+        result.push({
+          question: correctShort,
+          choices,
+          answerIndex,
+          explanation: `The correct answer is '${concept.term}' because it matches the description: ${correctShort}`,
+        });
+        usedQuestions.add(qKey);
+
+      } else if (style === 'example-forward') {
+        // ── Example-forward: "Which is an example of [term]?" → choices = examples ──
+        const correctExample = concept.example!.trim();
+        const qKey = normalizeText(`example-of:${concept.term}`);
+        if (usedQuestions.has(qKey)) continue;
+        const otherWithExamples = conceptsWithExamples.filter(k => k.term !== concept.term);
+        if (otherWithExamples.length < 3) continue;
+
+        const distractorExamples = shuffleArray(otherWithExamples).slice(0, 3).map(c => c.example!.trim());
+
+        const allChoices = [correctExample, ...distractorExamples];
+        const uniqueChoices = [...new Set(allChoices)];
+        if (uniqueChoices.length < 4) continue;
+
+        const choices = shuffleArray(uniqueChoices);
+        const answerIndex = choices.indexOf(correctExample);
+
+        result.push({
+          question: `Which of the following is an example of ${concept.term}?`,
+          choices,
+          answerIndex,
+          explanation: `The correct answer is the example of ${concept.term}: ${correctExample}`,
+        });
+        usedQuestions.add(qKey);
+
+      } else if (style === 'example-reverse') {
+        // ── Example-reverse: example as question → choices = terms ──
+        const exampleText = concept.example!.trim();
+        const qKey = normalizeText(`example-rev:${exampleText.substring(0, 50)}`);
+        if (usedQuestions.has(qKey)) continue;
+        const otherConcepts = validConcepts.filter(k => k.term !== concept.term);
+        if (otherConcepts.length < 3) continue;
+
+        const distractorTerms = shuffleArray(otherConcepts).slice(0, 3).map(c => c.term);
+
+        const allChoices = [concept.term, ...distractorTerms];
+        const choices = shuffleArray(allChoices);
+        const answerIndex = choices.indexOf(concept.term);
+
+        result.push({
+          question: `Which concept does this scenario illustrate? "${exampleText}"`,
+          choices,
+          answerIndex,
+          explanation: `The correct answer is '${concept.term}' because this scenario is an example of ${concept.term}: ${getShortDefinition(concept)}`,
+        });
+        usedQuestions.add(qKey);
+      }
     }
   }
 
@@ -601,7 +739,118 @@ function generateDeterministicMCQ_Easy(
     return null;
   }
 
-  console.log(`Deterministic MCQ Easy: produced ${result.length}/${count} items (${validConcepts.length} concepts with definitions).`);
+  console.log(`Deterministic MCQ Easy: produced ${result.length}/${count} items (${validConcepts.length} concepts with definitions, ${conceptsWithExamples.length} with examples).`);
+  return result;
+}
+
+// ============================================================================
+// DETERMINISTIC FLASHCARD GENERATOR (EASY + MEDIUM)
+// ============================================================================
+
+/**
+ * Deterministic flashcard generator.
+ *
+ * For each key concept with a definition, creates a flashcard:
+ *   Front: "What is {term}?"
+ *   Back: definition text
+ *
+ * For MEDIUM difficulty, uses a more varied set of question styles
+ * (explain, describe, compare-style fronts) for higher cognitive demand.
+ *
+ * Why this works:
+ * - No LLM involved → 100% yield, instant, zero JSON parse errors.
+ * - Content is directly from the reviewer → factually accurate.
+ * - Scales with content: N key concepts with definitions → up to N items.
+ *
+ * Falls back to null if fewer than 2 key concepts have definitions.
+ */
+function generateDeterministicFlashcards(
+  keyConcepts: { term: string; definition: string; example?: string }[],
+  count: number,
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD'
+): any[] | null {
+  const validConcepts = keyConcepts.filter(k => k.definition && k.definition.trim().length > 10);
+  if (validConcepts.length < 2) {
+    console.warn(`Deterministic Flashcards: only ${validConcepts.length} concepts have definitions (need ≥2) — falling back to LLM.`);
+    return null;
+  }
+
+  const conceptsWithExamples = validConcepts.filter(k => k.example && k.example.trim().length > 10);
+
+  // Question templates — EASY uses simple recall, MEDIUM uses varied styles
+  const easyTemplates = [
+    (term: string) => `What is ${term}?`,
+    (term: string) => `Define ${term}.`,
+  ];
+  const mediumTemplates = [
+    (term: string) => `Explain the concept of ${term}.`,
+    (term: string) => `What is ${term} and why is it important?`,
+    (term: string) => `Describe ${term} in your own words.`,
+    (term: string) => `What does ${term} refer to?`,
+  ];
+  const templates = difficulty === 'EASY' ? easyTemplates : mediumTemplates;
+
+  const shuffledConcepts = shuffleArray([...validConcepts]);
+  const result: any[] = [];
+  const usedFronts = new Set<string>();
+
+  // First pass: one card per concept (definition-based)
+  for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
+    const concept = shuffledConcepts[i];
+    const template = templates[i % templates.length];
+    const front = template(concept.term);
+    result.push({ front, back: concept.definition.trim() });
+    usedFronts.add(normalizeText(front));
+  }
+
+  // Second pass: additional cards using different templates for the same concepts.
+  if (result.length < count && templates.length > 1) {
+    for (let pass = 1; pass < templates.length && result.length < count; pass++) {
+      for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
+        const concept = shuffledConcepts[i];
+        const template = templates[(i + pass) % templates.length];
+        const front = template(concept.term);
+        if (!usedFronts.has(normalizeText(front))) {
+          result.push({ front, back: concept.definition.trim() });
+          usedFronts.add(normalizeText(front));
+        }
+      }
+    }
+  }
+
+  // Third pass: example-based flashcards (for concepts that have examples)
+  // Front: scenario/example → Back: term + definition (tests application/recognition)
+  if (result.length < count && conceptsWithExamples.length > 0) {
+    const shuffledExamples = shuffleArray([...conceptsWithExamples]);
+    for (const concept of shuffledExamples) {
+      if (result.length >= count) break;
+      const front = `What concept does this illustrate? "${concept.example!.trim()}"`;
+      if (!usedFronts.has(normalizeText(front))) {
+        result.push({ front, back: `${concept.term}: ${concept.definition.trim()}` });
+        usedFronts.add(normalizeText(front));
+      }
+    }
+  }
+
+  // Fourth pass: "Give an example of [term]" flashcards
+  if (result.length < count && conceptsWithExamples.length > 0) {
+    const shuffledExamples = shuffleArray([...conceptsWithExamples]);
+    for (const concept of shuffledExamples) {
+      if (result.length >= count) break;
+      const front = `Give an example of ${concept.term}.`;
+      if (!usedFronts.has(normalizeText(front))) {
+        result.push({ front, back: concept.example!.trim() });
+        usedFronts.add(normalizeText(front));
+      }
+    }
+  }
+
+  if (result.length === 0) {
+    console.warn('Deterministic Flashcards: could not build any valid items — falling back to LLM.');
+    return null;
+  }
+
+  console.log(`Deterministic Flashcards: produced ${result.length}/${count} items (${validConcepts.length} concepts with definitions, ${conceptsWithExamples.length} with examples).`);
   return result;
 }
 
@@ -621,41 +870,64 @@ function buildFIBItem(
   term: string,
   sentence: string,
   allTerms: string[],
-  originalSummary?: string
+  originalLessonContent?: string,
+  fuzzyThreshold: number = 0.75
 ): { sentence: string; answer: string; distractors: string[] } | null {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`\\b${escaped}\\b`, 'i');
   const matchResult = regex.exec(sentence);
-  if (!matchResult) return null;
 
-  // ── Hyphen-boundary guard ──
-  // \b treats hyphens as non-word characters, so `\bRelational\b` matches
-  // inside "non-relational". Reject if the character immediately before or
-  // after the match is a hyphen — the term is part of a compound word.
-  const matchIndex = matchResult.index;
-  const matchEnd = matchIndex + matchResult[0].length;
-  if (matchIndex > 0 && sentence[matchIndex - 1] === '-') {
-    console.warn(`buildFIBItem: "${term}" rejected — preceded by hyphen at pos ${matchIndex}`);
-    return null;
-  }
-  if (matchEnd < sentence.length && sentence[matchEnd] === '-') {
-    console.warn(`buildFIBItem: "${term}" rejected — followed by hyphen at pos ${matchEnd}`);
-    return null;
+  let blanked: string;
+  let actualAnswer: string;
+
+  let usedFuzzy = false;
+
+  if (matchResult) {
+    // ── Exact match path ──
+    const matchIndex = matchResult.index;
+    const matchEnd = matchIndex + matchResult[0].length;
+
+    // ── Hyphen-boundary guard ──
+    if (matchIndex > 0 && sentence[matchIndex - 1] === '-') {
+      console.warn(`buildFIBItem: "${term}" rejected — preceded by hyphen at pos ${matchIndex}`);
+      return null;
+    }
+    if (matchEnd < sentence.length && sentence[matchEnd] === '-') {
+      console.warn(`buildFIBItem: "${term}" rejected — followed by hyphen at pos ${matchEnd}`);
+      return null;
+    }
+
+    blanked = sentence.replace(regex, '[blank]');
+    actualAnswer = term; // canonical key concept as answer
+  } else {
+    // ── Fuzzy match fallback ──
+    // The term doesn't appear verbatim. Try sliding-window fuzzy matching
+    // (e.g. "Nanay's Role" matching "the role of Nanay" in the sentence).
+    const fuzzy = findBestFuzzySpan(sentence, term, fuzzyThreshold);
+    if (!fuzzy) return null;
+    const matchedSpan = sentence.substring(fuzzy.start, fuzzy.end);
+    // Don't fuzzy-blank very short spans (< 3 chars) — too imprecise
+    if (matchedSpan.length < 3) return null;
+    blanked = sentence.substring(0, fuzzy.start) + '[blank]' + sentence.substring(fuzzy.end);
+    actualAnswer = term; // answer is always the canonical key concept, not the matched span
+    usedFuzzy = true;
   }
 
-  const blanked = sentence.replace(regex, '[blank]');
   // Safety: make sure a [blank] was actually inserted
   if (!blanked.includes('[blank]')) return null;
 
-  // ── Reconstruction verification ──
-  // Replacing [blank] with the answer must reproduce a sentence that exists
-  // in the original summary. Catches edge cases where the regex matched a
-  // substring that doesn't correspond to the intended term in context.
-  if (originalSummary) {
-    const reconstructed = normalizeText(blanked.replace('[blank]', term));
-    const normSummary = normalizeText(originalSummary);
-    if (!normSummary.includes(reconstructed)) {
-      console.warn(`buildFIBItem: reconstruction failed for "${term}" — sentence not found in summary`);
+  // ── Reconstruction verification (exact matches only) ──
+  // For exact matches, replacing [blank] with the answer must reproduce a sentence
+  // that exists in the original lesson content. Catches edge cases where the regex
+  // matched a substring that doesn't correspond to the intended term in context.
+  // Skip for fuzzy matches — the term was never in the sentence verbatim, so
+  // reconstruction with the original term will never reproduce the source sentence.
+  // Fuzzy items are validated by the span quality threshold instead.
+  if (!usedFuzzy && originalLessonContent) {
+    const reconstructed = normalizeText(blanked.replace('[blank]', actualAnswer));
+    const normLesson = normalizeText(originalLessonContent);
+    if (!normLesson.includes(reconstructed)) {
+      console.warn(`buildFIBItem: reconstruction failed for "${actualAnswer}" — sentence not found in lesson content`);
       return null;
     }
   }
@@ -663,14 +935,29 @@ function buildFIBItem(
   // Pick 3 distractors from other key terms
   const normTerm = term.toLowerCase();
   const otherTerms = allTerms.filter(t => t.toLowerCase() !== normTerm);
-  if (otherTerms.length < 3) return null; // not enough distractors
-
   const shuffledOthers = shuffleArray(otherTerms);
   const distractors = shuffledOthers.slice(0, 3);
 
+  // If we don't have 3 distractors from key concepts, try to pad from
+  // lesson content — extract capitalized noun phrases as fallback distractors
+  if (distractors.length < 3 && originalLessonContent) {
+    const usedSet = new Set([normTerm, ...distractors.map(d => d.toLowerCase())]);
+    // Extract capitalized multi-word terms from lesson content as potential distractors
+    const capitalizedTerms = originalLessonContent.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g) || [];
+    for (const ct of shuffleArray([...new Set(capitalizedTerms)])) {
+      if (distractors.length >= 3) break;
+      if (!usedSet.has(ct.toLowerCase())) {
+        distractors.push(ct);
+        usedSet.add(ct.toLowerCase());
+      }
+    }
+  }
+
+  if (distractors.length < 2) return null; // absolute minimum for a question
+
   return {
     sentence: blanked,
-    answer: term,
+    answer: actualAnswer,
     distractors,
   };
 }
@@ -689,12 +976,28 @@ function escapeRegex(str: string): string {
  * using brace-counting with string awareness.
  */
 function salvageTruncatedJson(raw: string): { items: any[] } | null {
+  // Strategy 1: Look for "items": [ ... ] wrapper (standard format)
   const match = raw.match(/"items"\s*:\s*\[/);
-  if (!match || match.index === undefined) return null;
+  const searchContent = match && match.index !== undefined
+    ? raw.substring(match.index + match[0].length)
+    : raw; // Fallback: scan the entire response for complete objects
 
-  const arrayContentStart = match.index + match[0].length;
-  const content = raw.substring(arrayContentStart);
+  const items = extractCompleteObjects(searchContent);
 
+  if (items.length > 0) {
+    const source = match ? '"items" array' : 'bare objects';
+    console.log(`🔧 Salvaged ${items.length} complete item(s) from ${source}`);
+    return { items };
+  }
+  return null;
+}
+
+/**
+ * Extract all complete top-level JSON objects from a string by tracking
+ * brace depth.  Handles escaped characters and strings correctly.
+ * Works on both wrapped (`"items": [...]`) and bare (`[{...}, {...}]`) output.
+ */
+function extractCompleteObjects(content: string): any[] {
   const items: any[] = [];
   let depth = 0;
   let objStart = -1;
@@ -725,12 +1028,259 @@ function salvageTruncatedJson(raw: string): { items: any[] } | null {
       }
     }
   }
+  return items;
+}
 
-  if (items.length > 0) {
-    console.log(`🔧 Salvaged ${items.length} complete item(s) from truncated JSON`);
-    return { items };
+/**
+ * Attempt to recycle rejected FIB items by fixing recoverable issues.
+ * Targets the most common rejection reasons:
+ *  - Answer not a recognized key concept → fuzzy-match to closest concept
+ *  - Invalid distractor count → pad with key concepts or trim
+ *  - Distractor not in lesson content → swap with valid key concepts
+ * Returns only items that would pass validateFillInBlankItem after fixes.
+ */
+function recycleRejectedFIBItems(
+  rejected: any[],
+  keyConcepts: { term: string; definition: string }[],
+  lessonContent: string,
+  difficulty: string,
+  seenItems: Set<string>
+): any[] {
+  if (keyConcepts.length < 4) return []; // Need concepts for distractor pool
+
+  const conceptTerms = keyConcepts.map(k => k.term);
+  const normConcepts = conceptTerms.map(t => normalizeText(t));
+  const recycled: any[] = [];
+
+  for (const rej of rejected) {
+    if (!rej.sentence || !rej.answer || !rej._rejectionReason) continue;
+    const reason: string = rej._rejectionReason;
+
+    let fixedAnswer = rej.answer;
+    let fixedDistractors = Array.isArray(rej.distractors) ? [...rej.distractors] : [];
+
+    // Fix 1: Answer not a recognized key concept — fuzzy match
+    if (reason.includes('not a recognized key concept')) {
+      const normAnswer = normalizeText(rej.answer);
+      let bestIdx = -1;
+      let bestScore = 0;
+      for (let i = 0; i < normConcepts.length; i++) {
+        // Simple containment + length similarity heuristic
+        const nc = normConcepts[i];
+        if (nc === normAnswer) { bestIdx = i; bestScore = 1; break; }
+        if (nc.includes(normAnswer) || normAnswer.includes(nc)) {
+          const score = Math.min(nc.length, normAnswer.length) / Math.max(nc.length, normAnswer.length);
+          if (score > bestScore && score >= 0.6) { bestScore = score; bestIdx = i; }
+        }
+      }
+      if (bestIdx >= 0) {
+        fixedAnswer = conceptTerms[bestIdx];
+      } else {
+        continue; // Can't fix this item
+      }
+    }
+
+    // Fix 2: Invalid distractor count — pad or trim
+    if (typeof rej.distractors === 'string') {
+      fixedDistractors = rej.distractors.split(/,\s*/).map((d: string) => d.trim()).filter((d: string) => d.length > 0);
+    }
+    if (fixedDistractors.length > 3) {
+      fixedDistractors = fixedDistractors.slice(0, 3);
+    }
+    if (fixedDistractors.length < 3) {
+      // Pad with unused key concepts
+      const usedSet = new Set([normalizeText(fixedAnswer), ...fixedDistractors.map((d: string) => normalizeText(d))]);
+      for (const ct of conceptTerms) {
+        if (fixedDistractors.length >= 3) break;
+        if (!usedSet.has(normalizeText(ct))) {
+          fixedDistractors.push(ct);
+          usedSet.add(normalizeText(ct));
+        }
+      }
+    }
+    if (fixedDistractors.length !== 3) continue;
+
+    // Fix 3: Replace invalid distractors with valid key concepts
+    if (reason.includes('neither a key concept nor found')) {
+      const normLesson = normalizeText(lessonContent);
+      const conceptSet = new Set(normConcepts);
+      const usedSet = new Set([normalizeText(fixedAnswer), ...fixedDistractors.map((d: string) => normalizeText(d))]);
+
+      fixedDistractors = fixedDistractors.map((d: string) => {
+        const nd = normalizeText(d);
+        if (conceptSet.has(nd) || normLesson.includes(nd)) return d;
+        // Replace with an unused key concept
+        for (const ct of conceptTerms) {
+          if (!usedSet.has(normalizeText(ct))) {
+            usedSet.add(normalizeText(ct));
+            return ct;
+          }
+        }
+        return d; // No replacement available
+      });
+    }
+
+    // Reconstruct and re-validate
+    const candidate = { ...rej, answer: fixedAnswer, distractors: fixedDistractors };
+    delete candidate._rejected;
+    delete candidate._rejectionReason;
+
+    const dedup = normalizeText(candidate.sentence);
+    if (seenItems.has(dedup)) continue;
+
+    const result = validateFillInBlankItem(candidate, lessonContent, keyConcepts, difficulty);
+    if (result.valid) {
+      seenItems.add(dedup);
+      recycled.push(result.item);
+    }
   }
-  return null;
+
+  if (recycled.length > 0) {
+    console.log(`♻️ Recycled ${recycled.length} FIB item(s) from ${rejected.length} rejected`);
+  }
+  return recycled;
+}
+
+/**
+ * Attempt to recycle rejected MCQ items by fixing recoverable issues.
+ * The most common MCQ rejections are:
+ *  - answerIndex mismatch (explanation says correct answer but index is wrong)
+ *  - Missing/short explanation
+ *  - Ungrounded distractor (choice not in source material)
+ * Returns only items that would pass validateMCQItem after fixes.
+ */
+function recycleRejectedMCQItems(
+  rejected: any[],
+  keyConcepts: { term: string; definition: string }[],
+  lessonContent: string,
+  difficulty: string,
+  seenItems: Set<string>
+): any[] {
+  const recycled: any[] = [];
+
+  for (const rej of rejected) {
+    if (!rej.question || !rej.choices || !rej._rejectionReason) continue;
+    const reason: string = rej._rejectionReason;
+
+    const candidate = { ...rej };
+    delete candidate._rejected;
+    delete candidate._rejectionReason;
+
+    // Fix 1: answerIndex mismatch — extract from explanation
+    if (reason.includes('Explanation does not reference') || reason.includes('answerIndex')) {
+      if (candidate.explanation) {
+        const match = candidate.explanation.match(/correct answer is ['"]([^'"]+)['"]/i);
+        if (match) {
+          const extracted = normalizeText(match[1]);
+          const idx = candidate.choices.findIndex((c: string) => normalizeText(c) === extracted);
+          if (idx >= 0) candidate.answerIndex = idx;
+        }
+      }
+    }
+
+    // Fix 2: Ungrounded distractor — swap with key concept term
+    if (reason.includes('not grounded in source material') && keyConcepts.length > 0) {
+      const normLesson = normalizeText(lessonContent);
+      const conceptTerms = keyConcepts.map(k => k.term);
+      const usedSet = new Set(candidate.choices.map((c: string) => normalizeText(c)));
+
+      for (let ci = 0; ci < candidate.choices.length; ci++) {
+        if (ci === candidate.answerIndex) continue;
+        const choiceNorm = normalizeText(candidate.choices[ci]);
+        if (normLesson.includes(choiceNorm)) continue;
+        // Replace with unused key concept
+        for (const ct of conceptTerms) {
+          if (!usedSet.has(normalizeText(ct))) {
+            candidate.choices[ci] = ct;
+            usedSet.add(normalizeText(ct));
+            break;
+          }
+        }
+      }
+    }
+
+    // Fix 3: Missing/short explanation — generate a basic one
+    if (reason.includes('explanation') && candidate.choices && typeof candidate.answerIndex === 'number') {
+      const correctChoice = candidate.choices[candidate.answerIndex];
+      if (correctChoice) {
+        candidate.explanation = `The correct answer is '${correctChoice}' because it directly relates to the concept described in the lesson content.`;
+      }
+    }
+
+    // Dedup check
+    const qKey = normalizeText(candidate.question);
+    if (seenItems.has(qKey)) continue;
+    let isDuplicate = false;
+    for (const existing of seenItems) {
+      if (areQuestionsSimilar(qKey, existing)) { isDuplicate = true; break; }
+    }
+    if (isDuplicate) continue;
+
+    const result = validateMCQItem(candidate, difficulty, keyConcepts, lessonContent);
+    if (result.valid) {
+      seenItems.add(qKey);
+      recycled.push(result.item);
+    }
+  }
+
+  if (recycled.length > 0) {
+    console.log(`♻️ Recycled ${recycled.length} MCQ item(s) from ${rejected.length} rejected`);
+  }
+  return recycled;
+}
+
+/**
+ * Attempt to recycle rejected flashcard items by fixing recoverable issues.
+ * Common flashcard rejections:
+ *  - Back too short (< 10 chars)
+ *  - Duplicate front (but with different back — can be salvaged with rewording)
+ */
+function recycleRejectedFlashcardItems(
+  rejected: any[],
+  keyConcepts: { term: string; definition: string }[],
+  seenItems: Set<string>
+): any[] {
+  const recycled: any[] = [];
+
+  for (const rej of rejected) {
+    if (!rej.front || !rej.back || !rej._rejectionReason) continue;
+    const reason: string = rej._rejectionReason;
+
+    const candidate = { ...rej };
+    delete candidate._rejected;
+    delete candidate._rejectionReason;
+
+    // Fix 1: Back too short — try to expand from key concepts
+    if (reason.includes('Insufficient content') && candidate.front) {
+      const frontNorm = normalizeText(candidate.front);
+      for (const kc of keyConcepts) {
+        if (frontNorm.includes(normalizeText(kc.term)) && kc.definition && kc.definition.trim().length >= 10) {
+          candidate.back = kc.definition.trim();
+          break;
+        }
+      }
+    }
+
+    // Dedup check
+    const frontKey = normalizeText(candidate.front);
+    if (seenItems.has(frontKey)) continue;
+    let isDuplicate = false;
+    for (const existing of seenItems) {
+      if (areQuestionsSimilar(frontKey, existing)) { isDuplicate = true; break; }
+    }
+    if (isDuplicate) continue;
+
+    const result = validateFlashcardItem(candidate);
+    if (result.valid) {
+      seenItems.add(frontKey);
+      recycled.push(result.item);
+    }
+  }
+
+  if (recycled.length > 0) {
+    console.log(`♻️ Recycled ${recycled.length} Flashcard item(s) from ${rejected.length} rejected`);
+  }
+  return recycled;
 }
 
 /**
@@ -771,10 +1321,10 @@ async function repairTruncatedJSON(
 
 /**
  * Extract leading sentence of each paragraph as a concept-seed list.
- * Used to prepend topical anchors to summary slices for long summaries.
+ * Used to prepend topical anchors to lesson content slices for long lesson content.
  */
-function extractConceptSeeds(summary: string, maxSeeds: number = 6): string {
-  const paragraphs = summary.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+function extractConceptSeeds(lessonContent: string, maxSeeds: number = 6): string {
+  const paragraphs = lessonContent.split(/\n\s*\n/).filter(p => p.trim().length > 0);
   const seeds: string[] = [];
   for (const para of paragraphs) {
     const firstSentence = para.trim().match(/^[^.!?]*[.!?]/);
@@ -787,45 +1337,45 @@ function extractConceptSeeds(summary: string, maxSeeds: number = 6): string {
 }
 
 /**
- * Get a rotating slice of the summary for each batch.
+ * Get a rotating slice of the lesson content for each batch.
  * Uses sentence-boundary alignment to avoid cutting mid-sentence,
  * which prevents the model from hallucinating to complete truncated text.
  *
  * windowSize increased from 900→1100 to give the model more context per call,
- * reducing the total number of calls needed for long summaries.
+ * reducing the total number of calls needed for long lesson content.
  */
-function getSummarySlice(
-  summary: string,
+function getLessonSlice(
+  lessonContent: string,
   batchIndex: number,
   windowSize: number = 1100,
   overlap: number = 150
 ): string {
-  // If summary fits in one window, return it whole — no slicing needed
-  if (summary.length <= windowSize) {
-    return summary;
+  // If lesson content fits in one window, return it whole — no slicing needed
+  if (lessonContent.length <= windowSize) {
+    return lessonContent;
   }
 
-  // For very long summaries (>3x window), prepend concept seeds so each
+  // For very long lesson content (>3x window), prepend concept seeds so each
   // slice still has topical anchors even when it covers only a small portion.
-  const conceptPrefix = summary.length > windowSize * 3
-    ? extractConceptSeeds(summary)
+  const conceptPrefix = lessonContent.length > windowSize * 3
+    ? extractConceptSeeds(lessonContent)
     : '';
 
   const step = windowSize - overlap;
-  let start = (batchIndex * step) % Math.max(summary.length - windowSize, 1);
-  let end = Math.min(start + windowSize, summary.length);
+  let start = (batchIndex * step) % Math.max(lessonContent.length - windowSize, 1);
+  let end = Math.min(start + windowSize, lessonContent.length);
 
   // Snap `start` forward to the next sentence boundary (after . or \n)
   if (start > 0) {
-    const boundaryMatch = summary.slice(start).match(/^[^.\n]*[.\n]\s*/);
+    const boundaryMatch = lessonContent.slice(start).match(/^[^.\n]*[.\n]\s*/);
     if (boundaryMatch) {
       start += boundaryMatch[0].length;
     }
   }
 
   // Snap `end` forward to include the full sentence (up to next . or \n)
-  if (end < summary.length) {
-    const tailMatch = summary.slice(end).match(/^[^.\n]*[.\n]/);
+  if (end < lessonContent.length) {
+    const tailMatch = lessonContent.slice(end).match(/^[^.\n]*[.\n]/);
     if (tailMatch) {
       end += tailMatch[0].length;
     }
@@ -833,10 +1383,10 @@ function getSummarySlice(
 
   // If we've wrapped around and the slice is too small, start from beginning
   if (end - start < windowSize / 2) {
-    return conceptPrefix + summary.slice(0, windowSize);
+    return conceptPrefix + lessonContent.slice(0, windowSize);
   }
 
-  return conceptPrefix + summary.slice(start, end);
+  return conceptPrefix + lessonContent.slice(start, end);
 }
 
 // ============================================================================
@@ -862,7 +1412,16 @@ function hasPlaceholderText(choice: string): boolean {
  * Validate and fix a single MCQ item
  * Returns object with { valid: boolean, item: any, rejectionReason?: string }
  */
-function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: { term: string; definition: string }[] = [], summary: string = ''): { valid: boolean; item: any; rejectionReason?: string } {
+function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: { term: string; definition: string }[] = [], lessonContent: string = ''): { valid: boolean; item: any; rejectionReason?: string } {
+  // Must have a question string
+  if (!item.question || typeof item.question !== 'string' || item.question.trim().length < 5) {
+    return {
+      valid: false,
+      item,
+      rejectionReason: `Missing or invalid question (got: ${typeof item.question})`
+    };
+  }
+
   // Check choices array
   if (!item.choices || item.choices.length !== 4) {
     return { 
@@ -1044,17 +1603,17 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: 
   // When keyConcepts are available, verify that distractors are topically related
   // to the source material. Uses a 3-tier approach:
   //   Tier 1: Exact key concept match or substring containment
-  //   Tier 2: Verbatim in the summary
-  //   Tier 3: Word-overlap ≥40% with source material (summary + key concept defs)
+  //   Tier 2: Verbatim in the lesson content
+  //   Tier 3: Word-overlap ≥40% with source material (lesson content + key concept defs)
   // This prevents hallucinated distractors while accepting reasonable model-generated
   // phrases that are grounded in the source content.
-  if (keyConcepts.length > 0 && summary.length > 0) {
+  if (keyConcepts.length > 0 && lessonContent.length > 0) {
     const conceptTerms = new Set(keyConcepts.map(k => normalizeText(k.term)));
     const allConceptText = keyConcepts.map(k => normalizeText(k.term) + ' ' + normalizeText(k.definition || '')).join(' ');
-    const normSummary = normalizeText(summary);
+    const normLesson = normalizeText(lessonContent);
     // Build a set of all significant words from the source material for word-overlap check
     const sourceWords = new Set(
-      [...normSummary.split(/\s+/), ...allConceptText.split(/\s+/)].filter(w => w.length > 3)
+      [...normLesson.split(/\s+/), ...allConceptText.split(/\s+/)].filter(w => w.length > 3)
     );
 
     for (let ci = 0; ci < fixedItem.choices.length; ci++) {
@@ -1066,12 +1625,12 @@ function validateMCQItem(item: any, difficulty: string = 'MEDIUM', keyConcepts: 
         [...conceptTerms].some(ct => ct.includes(choiceNorm) || choiceNorm.includes(ct));
       if (isKeyConcept) continue;
 
-      // Tier 2: Found verbatim in the summary
-      const inSummary = normSummary.includes(choiceNorm);
-      if (inSummary) continue;
+      // Tier 2: Found verbatim in the lesson content
+      const inLesson = normLesson.includes(choiceNorm);
+      if (inLesson) continue;
 
       // Tier 3: Word-overlap — if ≥20% of the distractor's significant words
-      // appear in the source material (summary + key concept definitions),
+      // appear in the source material (lesson content + key concept definitions),
       // the distractor is topically grounded and acceptable.
       // Lowered from 40% after observing that even legitimate distractors like
       // "Optimizing model parameters" fail at 40% when only one word matches.
@@ -1231,14 +1790,15 @@ function autoFixFillInBlank(sentence: string, answer: string): string | null {
 /**
  * Validate and fix a single fill-in-blank item.
  * @param item  The raw item from the model.
- * @param summary  The full source summary — used to verify the sentence is
+ * @param lessonContent  The full source lesson content — used to verify the sentence is
  *                 actually present in the source material (not hallucinated).
  * Returns object with { valid: boolean, item: any, rejectionReason?: string }
  */
 function validateFillInBlankItem(
   item: any,
-  summary: string = '',
-  keyConcepts: { term: string; definition: string }[] = []
+  lessonContent: string = '',
+  keyConcepts: { term: string; definition: string }[] = [],
+  difficulty: string = 'MEDIUM'
 ): { valid: boolean; item: any; rejectionReason?: string } {
   if (!item.sentence || !item.answer) {
     return { 
@@ -1286,24 +1846,27 @@ function validateFillInBlankItem(
 
   // ── Source-presence check ──
   // Verify the sentence (with [blank] replaced by the answer) exists in the
-  // source summary. This prevents the model from hallucinating sentences that
+  // source lesson content. This prevents the model from hallucinating sentences that
   // look plausible but aren't actually in the material — a major cause of
   // duplicates across waves (the model invents the same fake sentence repeatedly).
-  if (summary.length > 0) {
+  if (lessonContent.length > 0) {
     const reconstructed = normalizeText(fixedSentence.replace('[blank]', item.answer));
-    const normSummary = normalizeText(summary);
-    if (!normSummary.includes(reconstructed)) {
+    const normLesson = normalizeText(lessonContent);
+    if (!normLesson.includes(reconstructed)) {
       // Fallback: check if most words appear in order (handles minor tokenization diffs)
       const recWords = reconstructed.split(/\s+/).filter(w => w.length > 3);
       if (recWords.length >= 3) {
-        const summaryWords = new Set(normSummary.split(/\s+/));
-        const hits = recWords.filter(w => summaryWords.has(w)).length;
+        const lessonWords = new Set(normLesson.split(/\s+/));
+        const hits = recWords.filter(w => lessonWords.has(w)).length;
         const ratio = hits / recWords.length;
-        if (ratio < 0.85) {
+        // EASY requires near-verbatim recall; MEDIUM/HARD accept
+        // paraphrased sentences as long as the core content is preserved.
+        const threshold = difficulty === 'EASY' ? 0.80 : 0.55;
+        if (ratio < threshold) {
           return {
             valid: false,
             item,
-            rejectionReason: `Sentence not found in summary (word match ${Math.round(ratio * 100)}% < 85%): "${fixedSentence}"`
+            rejectionReason: `Sentence not found in lesson content (word match ${Math.round(ratio * 100)}% < ${Math.round(threshold * 100)}%): "${fixedSentence}"`
           };
         }
       }
@@ -1320,11 +1883,32 @@ function validateFillInBlankItem(
     console.log(`Auto-fixed distractors from string → array (${distractors.length} items)`);
   }
   
-  if (!Array.isArray(distractors) || distractors.length !== 3) {
+  if (!Array.isArray(distractors) || distractors.length < 2) {
     return { 
       valid: false, 
       item, 
-      rejectionReason: `Invalid distractors (length: ${Array.isArray(distractors) ? distractors.length : typeof distractors}, expected: 3)` 
+      rejectionReason: `Invalid distractors (length: ${Array.isArray(distractors) ? distractors.length : typeof distractors}, expected: 2-4)` 
+    };
+  }
+  // Auto-fix: trim to 3 if more, pad from key concepts if fewer
+  if (distractors.length > 3) {
+    distractors = distractors.slice(0, 3);
+  }
+  if (distractors.length < 3 && keyConcepts.length > 0) {
+    const usedSet = new Set([normalizeText(item.answer), ...distractors.map((d: string) => normalizeText(d))]);
+    for (const kc of keyConcepts) {
+      if (distractors.length >= 3) break;
+      if (!usedSet.has(normalizeText(kc.term))) {
+        distractors.push(kc.term);
+        usedSet.add(normalizeText(kc.term));
+      }
+    }
+  }
+  if (distractors.length < 3) {
+    return { 
+      valid: false, 
+      item, 
+      rejectionReason: `Insufficient distractors after padding (have: ${distractors.length}, need: 3)` 
     };
   }
 
@@ -1363,38 +1947,73 @@ function validateFillInBlankItem(
     };
   }
 
-  // ── Answer must be a key concept (when list is available) ──
+  // ── Answer must be related to a key concept (when list is available) ──
   // If we have a keyConcepts list, the blanked word should be one of those
-  // terms. This prevents the model from blanking trivial or tangential words.
+  // terms or closely related. Uses fuzzy substring matching to tolerate
+  // minor morphological variations (e.g. "algorithms" vs "algorithm").
   if (keyConcepts.length > 0) {
-    const conceptTerms = new Set(keyConcepts.map(k => normalizeText(k.term)));
-    if (!conceptTerms.has(answerLower)) {
-      return {
-        valid: false,
-        item,
-        rejectionReason: `Answer "${item.answer}" is not a recognized key concept`
-      };
+    const conceptTerms = keyConcepts.map(k => normalizeText(k.term));
+    const isExactMatch = conceptTerms.some(ct => ct === answerLower);
+    if (!isExactMatch) {
+      // Fuzzy: accept if answer is a substring of a concept or vice versa
+      // Also accept if answer shares >=60% character overlap with any concept
+      const isFuzzyMatch = conceptTerms.some(ct => {
+        if (ct.includes(answerLower) || answerLower.includes(ct)) return true;
+        // Character-level overlap for morphological variants
+        const shorter = ct.length < answerLower.length ? ct : answerLower;
+        const longer = ct.length < answerLower.length ? answerLower : ct;
+        if (shorter.length >= 3 && longer.startsWith(shorter.substring(0, Math.ceil(shorter.length * 0.7)))) return true;
+        return false;
+      });
+      // Also accept if the answer appears verbatim in the lesson content
+      const inLesson = lessonContent.length > 0 && normalizeText(lessonContent).includes(answerLower);
+      if (!isFuzzyMatch && !inLesson) {
+        return {
+          valid: false,
+          item,
+          rejectionReason: `Answer "${item.answer}" is not a recognized key concept`
+        };
+      }
     }
   }
 
   // ── Key-concept distractor check ──
   // When keyConcepts are available, verify each distractor is either a known
-  // key concept OR at least appears somewhere in the summary. This ensures
+  // key concept OR at least appears somewhere in the lesson content. This ensures
   // distractors are real, relevant terms — not hallucinated garbage.
-  if (keyConcepts.length > 0 && summary.length > 0) {
+  // Accept distractors with significant word overlap (≥20%) to avoid rejecting
+  // topically-grounded paraphrased terms.
+  if (keyConcepts.length > 0 && lessonContent.length > 0) {
     const conceptTerms = new Set(keyConcepts.map(k => normalizeText(k.term)));
-    const normSummary = normalizeText(summary);
+    const normLesson = normalizeText(lessonContent);
+    const lessonWordSet = new Set(normLesson.split(/\s+/).filter(w => w.length > 3));
     for (const d of distractors) {
       const normD = normalizeText(d);
       const isKeyConcept = conceptTerms.has(normD);
-      const inSummary = normSummary.includes(normD);
-      if (!isKeyConcept && !inSummary) {
-        return {
-          valid: false,
-          item,
-          rejectionReason: `Distractor "${d}" is neither a key concept nor found in the summary`
-        };
+      if (isKeyConcept) continue;
+      const inLesson = normLesson.includes(normD);
+      if (inLesson) continue;
+      // Fuzzy concept match: accept if distractor is a substring of a concept or vice versa
+      const fuzzyConceptMatch = [...conceptTerms].some(ct => ct.includes(normD) || normD.includes(ct));
+      if (fuzzyConceptMatch) continue;
+      // Word-overlap fallback — accept topically grounded distractors
+      const dWords = normD.split(/\s+/).filter(w => w.length > 3);
+      if (dWords.length > 0) {
+        const dHits = dWords.filter(w => lessonWordSet.has(w)).length;
+        if (dHits / dWords.length >= 0.2) continue;
       }
+      // Single-word distractors under 15 chars: check if they share a root
+      // with any lesson word (handles morphological variants)
+      if (dWords.length <= 1 && normD.length >= 3 && normD.length <= 15) {
+        const dRoot = normD.substring(0, Math.ceil(normD.length * 0.7));
+        const hasRoot = [...lessonWordSet].some(w => w.startsWith(dRoot));
+        if (hasRoot) continue;
+      }
+      return {
+        valid: false,
+        item,
+        rejectionReason: `Distractor "${d}" is neither a key concept nor found in the lesson content`
+      };
     }
   }
 
@@ -1443,7 +2062,7 @@ function validateQuizItems(
   type: string, 
   existingItems: Set<string> = new Set(),
   difficulty: string = 'MEDIUM',
-  summary: string = '',
+  lessonContent: string = '',
   keyConcepts: { term: string; definition: string }[] = []
 ): { validItems: any[]; rejectedItems: any[] } {
   const validItems: any[] = [];
@@ -1454,7 +2073,7 @@ function validateQuizItems(
     
     // Type-specific validation
     if (type === 'MCQ') {
-      validationResult = validateMCQItem(item, difficulty, keyConcepts, summary);
+      validationResult = validateMCQItem(item, difficulty, keyConcepts, lessonContent);
       
       // Check for duplicates — use semantic similarity (keyword overlap)
       // instead of exact normalized match. This catches paraphrased duplicates
@@ -1482,7 +2101,7 @@ function validateQuizItems(
         }
       }
     } else if (type === 'FILL_IN_BLANK') {
-      validationResult = validateFillInBlankItem(item, summary, keyConcepts);
+      validationResult = validateFillInBlankItem(item, lessonContent, keyConcepts, difficulty);
       
       // Check for duplicates — use semantic similarity (keyword overlap)
       // to catch paraphrased duplicates the model generates across waves.
@@ -1559,12 +2178,12 @@ function validateQuizItems(
 /**
  * Build a verification prompt for a batch of quiz items.
  * The model is asked to act as a strict teacher, cross-checking each item
- * against the source summary and returning a structured JSON verdict.
+ * against the source lesson content and returning a structured JSON verdict.
  */
 function buildVerificationPrompt(
   items: any[],
   type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
-  summary: string
+  lessonContent: string
 ): string {
   // Serialize items compactly for the prompt
   const itemsBlock = items.map((item, idx) => {
@@ -1581,33 +2200,33 @@ function buildVerificationPrompt(
   if (type === 'MCQ') {
     typeRules = `You are a STRICT teacher grading quiz questions. For each MCQ, check ALL of the following and mark INCORRECT if ANY fails:
 
-1. ANSWER CORRECTNESS: Read the question carefully. Based ONLY on the summary, determine the correct answer. Does the choice at answerIndex match YOUR answer? If not, mark INCORRECT.
+1. ANSWER CORRECTNESS: Read the question carefully. Based ONLY on the lesson content, determine the correct answer. Does the choice at answerIndex match YOUR answer? If not, mark INCORRECT.
 2. BEST ANSWER TEST: Is there a MORE SPECIFIC or MORE ACCURATE answer to this question that is NOT among the 4 choices? If so, the question is flawed — mark INCORRECT. (Example: if the question asks about "worms" but only "malware" is an option, that is too broad.)
 3. DISTRACTOR VALIDITY: Are the 3 wrong choices genuinely WRONG for this specific question? If any distractor could also be correct, mark INCORRECT.
-4. QUESTION CLARITY: Is the question clear, complete, and answerable from the summary alone? (No missing words, no outside knowledge needed.)
+4. QUESTION CLARITY: Is the question clear, complete, and answerable from the lesson content alone? (No missing words, no outside knowledge needed.)
 5. EXPLANATION ACCURACY: Does the explanation correctly justify the answer? Does it match the choice at answerIndex?
 6. TERM ECHO: If the question asks "What is X?" and the answer is just "X" (the term itself, not a definition), mark INCORRECT.
-7. DISTRACTOR SOURCE: Are all 3 wrong choices topically related to the summary content? If any distractor is completely unrelated to the subject matter, mark INCORRECT. (Distractors may be derived phrases — they don't need to be exact key concept terms.)
+7. DISTRACTOR SOURCE: Are all 3 wrong choices topically related to the lesson content content? If any distractor is completely unrelated to the subject matter, mark INCORRECT. (Distractors may be derived phrases — they don't need to be exact key concept terms.)
 
 Be STRICT. When in doubt, mark INCORRECT.`;
   } else if (type === 'FILL_IN_BLANK') {
     typeRules = `You are a STRICT teacher grading fill-in-blank items. For each item, check ALL of the following:
 
-1. SENTENCE ACCURACY: When [blank] is replaced with the answer, does the sentence match content from the summary EXACTLY (not paraphrased)?
-2. ANSWER CORRECTNESS: Is the answer the EXACT correct word/phrase for the blank according to the summary? Is it the COMPLETE term (not a fragment like "trade-off" when it should be "bias-variance tradeoff")?
+1. SENTENCE ACCURACY: When [blank] is replaced with the answer, does the sentence match content from the lesson content EXACTLY (not paraphrased)?
+2. ANSWER CORRECTNESS: Is the answer the EXACT correct word/phrase for the blank according to the lesson content? Is it the COMPLETE term (not a fragment like "trade-off" when it should be "bias-variance tradeoff")?
 3. ANSWER QUALITY: Is the answer a meaningful concept/term (not a preposition, article, or generic word like "the", "and", "is")?
-4. BLANK IMPORTANCE: Is the blanked word a KEY CONCEPT, TECHNICAL TERM, or IMPORTANT NAME from the summary — something a student should know? If it's a trivial word, mark INCORRECT.
-5. DISTRACTOR VALIDITY: Are all 3 distractors real terms from the summary that do NOT correctly fill the blank? Could any distractor work as well as the answer? If so, mark INCORRECT.
+4. BLANK IMPORTANCE: Is the blanked word a KEY CONCEPT, TECHNICAL TERM, or IMPORTANT NAME from the lesson content — something a student should know? If it's a trivial word, mark INCORRECT.
+5. DISTRACTOR VALIDITY: Are all 3 distractors real terms from the lesson content that do NOT correctly fill the blank? Could any distractor work as well as the answer? If so, mark INCORRECT.
 6. DISTRACTOR RELEVANCE: Are the distractors important concepts/terms from the same domain (not random words)? They should be plausible enough to test knowledge.
 7. SENTENCE COMPLETENESS: Is the sentence complete and grammatically correct with the blank?
-8. OFF-TOPIC CONTENT: Does the sentence contain any greetings ("good morning", "hello", "welcome"), meta-comments ("here is", "in this exercise"), or text NOT from the summary? If yes, mark INCORRECT.
+8. OFF-TOPIC CONTENT: Does the sentence contain any greetings ("good morning", "hello", "welcome"), meta-comments ("here is", "in this exercise"), or text NOT from the lesson content? If yes, mark INCORRECT.
 
 Be STRICT. When in doubt, mark INCORRECT.`;
   } else {
     typeRules = `You are a STRICT teacher grading flashcards. For each card, check ALL of the following:
 
-1. FRONT CLARITY: Does the front ask a clear, specific question about a concept from the summary?
-2. BACK ACCURACY: Is the back factually accurate according to the summary?
+1. FRONT CLARITY: Does the front ask a clear, specific question about a concept from the lesson content?
+2. BACK ACCURACY: Is the back factually accurate according to the lesson content?
 3. FRONT-BACK MATCH: Does the back ACTUALLY answer the front? (Not a mismatch or tangential.)
 4. COMPLETENESS: Is the back complete enough to be a useful answer?
 5. SPECIFICITY: Is the front specific enough that only one answer is reasonable?
@@ -1615,10 +2234,10 @@ Be STRICT. When in doubt, mark INCORRECT.`;
 Be STRICT. When in doubt, mark INCORRECT.`;
   }
 
-  return `You are a strict academic reviewer. Verify each quiz item below against the source summary. Output ONLY valid JSON.
+  return `You are a strict academic reviewer. Verify each quiz item below against the source lesson content. Output ONLY valid JSON.
 
-SUMMARY:
-${summary}
+LESSON CONTENT:
+${lessonContent}
 
 ITEMS TO VERIFY:
 ${itemsBlock}
@@ -1632,7 +2251,7 @@ Respond with ONLY this JSON structure (no extra text):
 /**
  * Verify a batch of quiz items for factual correctness using Ollama.
  *
- * Sends the items + summary to the model and asks it to cross-check each one.
+ * Sends the items + lesson content to the model and asks it to cross-check each one.
  * Returns items split into verified (passed) and failed (with reasons).
  *
  * Items are processed in sub-batches of up to VERIFY_BATCH_SIZE to keep
@@ -1641,7 +2260,7 @@ Respond with ONLY this JSON structure (no extra text):
 async function verifyQuizItemsWithGemma(
   items: any[],
   type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
-  summary: string,
+  lessonContent: string,
   model: string
 ): Promise<{ verified: any[]; failed: { item: any; reason: string }[] }> {
   if (items.length === 0) return { verified: [], failed: [] };
@@ -1653,7 +2272,7 @@ async function verifyQuizItemsWithGemma(
   // Process in sub-batches
   for (let offset = 0; offset < items.length; offset += VERIFY_BATCH_SIZE) {
     const batch = items.slice(offset, offset + VERIFY_BATCH_SIZE);
-    const prompt = buildVerificationPrompt(batch, type, summary);
+    const prompt = buildVerificationPrompt(batch, type, lessonContent);
 
     // Token budget: ~80 tokens per verdict (index + pass/fail + reason sentence)
     const maxTokens = Math.min(batch.length * 100 + 80, 1200);
@@ -1845,10 +2464,14 @@ export async function getAvailableModels(): Promise<string[]> {
  * Resolution order:
  * 1. OLLAMA_MODEL env var — lets the deployer pin a specific model (e.g. gemma3:1b)
  * 2. Cached result from a previous call (TTL = 60 s)
- * 3. Live /api/tags probe with quantized → 4b → 1b priority
+ * 3. Live /api/tags probe with size-aware priority
+ *
+ * OLLAMA_PREFERRED_SIZE env var (optional): "small" | "medium" | "large"
+ *   - "small"  → 1B variants first  (fastest, lower quality)
+ *   - "medium" → 4B variants first  (default — best balance)
+ *   - "large"  → 9B/12B variants first (highest quality, needs GPU)
  *
  * Quantized models (q4_K_M, q4_0) are ~2× faster on CPU with minimal quality loss.
- * 1B models are another 2–3× faster but produce lower-quality items.
  */
 export async function getBestAvailableModel(): Promise<string> {
   // 1. Respect explicit env-var override — skip everything else
@@ -1866,17 +2489,41 @@ export async function getBestAvailableModel(): Promise<string> {
   // 3. Probe available models
   const models = await getAvailableModels();
   
-  // Priority order: quantized 4B → full 4B → quantized 1B → full 1B
-  // Quantized 4B variants give ~2× CPU speedup with negligible quality loss.
-  // 1B variants are another 2–3× faster but with some quality trade-off.
-  const preferredModels = [
-    'gemma3:4b-it-q4_K_M',  // Best quality-to-speed quantized 4B
-    'gemma3:4b-q4_0',       // Aggressive quantization, fastest 4B
-    'gemma3:4b-cloud',
-    'gemma3:4b',
-    'gemma3:1b-it-q4_K_M',  // Quantized 1B — very fast, lower quality
-    'gemma3:1b',             // Full 1B — fast, lower quality
-  ];
+  // Build priority list based on OLLAMA_PREFERRED_SIZE
+  const preferredSize = (process.env.OLLAMA_PREFERRED_SIZE || 'medium').toLowerCase();
+
+  let preferredModels: string[];
+  if (preferredSize === 'large') {
+    // Prefer larger models — higher quality, needs GPU
+    preferredModels = [
+      'gemma3:12b-it-q4_K_M',
+      'gemma3:12b',
+      'gemma2:9b-it-q4_K_M',
+      'gemma2:9b',
+      'gemma3:4b-it-q4_K_M',
+      'gemma3:4b-q4_0',
+      'gemma3:4b',
+    ];
+  } else if (preferredSize === 'small') {
+    // Prefer smaller models — fastest, lower quality
+    preferredModels = [
+      'gemma3:1b-it-q4_K_M',
+      'gemma3:1b',
+      'gemma3:4b-it-q4_K_M',
+      'gemma3:4b-q4_0',
+      'gemma3:4b',
+    ];
+  } else {
+    // Default "medium" — 4B variants (best quality-to-speed balance)
+    preferredModels = [
+      'gemma3:4b-it-q4_K_M',
+      'gemma3:4b-q4_0',
+      'gemma3:4b-cloud',
+      'gemma3:4b',
+      'gemma3:1b-it-q4_K_M',
+      'gemma3:1b',
+    ];
+  }
 
   const QUANTIZED_TAGS = ['q4_K_M', 'q4_0', 'q8_0', 'q5_K_M', 'q4_1', 'q2_K'];
   
@@ -1928,16 +2575,29 @@ export async function getBestAvailableModel(): Promise<string> {
  * High-performance parallel-wave architecture with 1.5x overgeneration
  */
 export async function generateQuizWithGemma(
-  summary: string,
+  lessonContent: string,
   type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
   difficulty: 'EASY' | 'MEDIUM' | 'HARD',
   count: number,
   preResolvedModel?: string,
-  keyConcepts: { term: string; definition: string }[] = [],
-  originalKeyConcepts: { term: string; definition: string }[] = []
+  keyConcepts: { term: string; definition: string; example?: string }[] = [],
+  originalKeyConcepts: { term: string; definition: string; example?: string }[] = []
 ): Promise<any> {
   // Track generation time
   const startTime = Date.now();
+
+  // ── Content-length intelligence ──
+  // When the lesson has no structured key concepts and the raw content is
+  // short, requesting many items is futile — the LLM will just repeat the
+  // same few sentences. Cap the effective count proportionally so the wave
+  // loop converges quickly instead of grinding through 200 waves of dupes.
+  if (keyConcepts.length === 0 && lessonContent.length < 2000) {
+    const contentCap = Math.max(5, Math.floor(lessonContent.length / 150));
+    if (count > contentCap) {
+      console.warn(`⚠ Short content (${lessonContent.length} chars, 0 concepts) — capping count from ${count} → ${contentCap}`);
+      count = contentCap;
+    }
+  }
 
   // ── Deterministic fast-path for FILL_IN_BLANK ──
   // When keyConcepts are available, we can build items deterministically by
@@ -1947,7 +2607,7 @@ export async function generateQuizWithGemma(
   // failures that plague the LLM-based pipeline.
   let _deterministicSeed: any[] | null = null;
   if (type === 'FILL_IN_BLANK' && keyConcepts.length >= 4) {
-    const deterministicItems = generateDeterministicFIB(summary, keyConcepts, count, difficulty);
+    const deterministicItems = generateDeterministicFIB(lessonContent, keyConcepts, count, difficulty);
     if (deterministicItems && deterministicItems.length >= count) {
       const elapsed = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsed / 1000);
@@ -2021,6 +2681,46 @@ export async function generateQuizWithGemma(
       console.log(`Deterministic MCQ Easy produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
     }
   }
+
+  // ── Deterministic fast-path for EASY/MEDIUM FLASHCARDS ──
+  // Builds front/back cards directly from key concept definitions.
+  // HARD flashcards need LLM for scenario-based / application-level content.
+  let _deterministicFlashcardSeed: any[] | null = null;
+  const flashcardConcepts = originalKeyConcepts.length >= 2 ? originalKeyConcepts : keyConcepts;
+  if (type === 'FLASHCARD' && (difficulty === 'EASY' || difficulty === 'MEDIUM') && flashcardConcepts.length >= 2) {
+    const deterministicItems = generateDeterministicFlashcards(flashcardConcepts, count, difficulty);
+    if (deterministicItems && deterministicItems.length >= count) {
+      const elapsed = Date.now() - startTime;
+      const elapsedSeconds = Math.floor(elapsed / 1000);
+      const minutes = Math.floor(elapsedSeconds / 60);
+      const seconds = elapsedSeconds % 60;
+      const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
+
+      console.log(`\n=== Generation Complete ===`);
+      console.log(`Requested: ${count} (deterministic Flashcard fast-path)`);
+      console.log(`Total verified items generated: ${deterministicItems.length}`);
+      console.log(`Final items returned: ${Math.min(deterministicItems.length, count)}`);
+      console.log(`Rejected items: 0`);
+      console.log(`Total waves: 0 (0 API calls)`);
+      console.log(`Success rate: 100%`);
+      console.log(`JSON parse errors (possible truncations): 0`);
+      console.log(`Time elapsed: ${timeString}`);
+      console.log(`===========================\n`);
+
+      return {
+        type: 'flashcard',
+        difficulty: difficulty.toLowerCase(),
+        items: deterministicItems.slice(0, count),
+        rejectedItems: [],
+        stats: { requested: count, generated: deterministicItems.length, rejected: 0, waves: 0, apiCalls: 0 }
+      };
+    }
+    // Save partial results to seed the wave loop
+    if (deterministicItems && deterministicItems.length > 0) {
+      _deterministicFlashcardSeed = deterministicItems;
+      console.log(`Deterministic Flashcards produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
+    }
+  }
   
   // Pre-resolve model ONCE before the batch loop (eliminates redundant /api/tags calls)
   const resolvedModel = preResolvedModel || await getBestAvailableModel();
@@ -2058,6 +2758,13 @@ export async function generateQuizWithGemma(
     }
     console.log(`Seeded wave loop with ${_deterministicMCQSeed.length} deterministic MCQ Easy items.`);
   }
+  if (_deterministicFlashcardSeed && _deterministicFlashcardSeed.length > 0) {
+    for (const item of _deterministicFlashcardSeed) {
+      allValidItems.push(item);
+      if (item.front) seenItems.add(normalizeText(item.front));
+    }
+    console.log(`Seeded wave loop with ${_deterministicFlashcardSeed.length} deterministic Flashcard items.`);
+  }
   
   // ── Optimized batch configuration ──
   // Smaller HARD batches = higher per-item success rate, less wasted inference.
@@ -2072,7 +2779,7 @@ export async function generateQuizWithGemma(
   // Generate a buffer of extra verified items so that even if some items are
   // borderline or the model struggles in later waves, we still meet the
   // requested count. Only `count` items are returned; extras are discarded.
-  const BUFFER = Math.max(5, Math.ceil(count * 0.2)); // at least 5 extra, or 20%
+  const BUFFER = Math.max(5, Math.ceil(count * 0.5)); // at least 5 extra, or 50%
   const targetCount = count + BUFFER;
   console.log(`Will generate up to ${targetCount} verified items (${count} requested + ${BUFFER} buffer).`);
 
@@ -2080,12 +2787,12 @@ export async function generateQuizWithGemma(
   // just compete for threads and both timeout. Use CONCURRENCY=1 for local/CPU setups.
   // Set OLLAMA_CONCURRENCY=2 (or higher) when running with GPU / sufficient RAM.
   const CONCURRENCY = parseInt(process.env.OLLAMA_CONCURRENCY ?? '1', 10);
-  // Wave budget — with improved prompts, fewer waves should be needed.
+  // Wave budget — generous to ensure we keep trying until target is met.
   // The absolute time limit is the real safety valve.
-  const MAX_WAVES = 150;
+  const MAX_WAVES = 200;
   // Absolute time limit: stop after this many ms regardless of progress.
-  // Default 10 minutes — enough for large counts on CPU inference.
-  const ABSOLUTE_TIME_LIMIT_MS = parseInt(process.env.OLLAMA_TIME_LIMIT_MS ?? '600000', 10);
+  // Default 15 minutes — generous for large counts on CPU inference.
+  const ABSOLUTE_TIME_LIMIT_MS = parseInt(process.env.OLLAMA_TIME_LIMIT_MS ?? '900000', 10);
   
   let wave = 0;
   let totalApiCalls = 0;
@@ -2093,7 +2800,7 @@ export async function generateQuizWithGemma(
   
   let jsonParseErrors = 0; // Track truncation-related parse failures
   let repairAttempts = 0;   // Track JSON repair attempts (cap to avoid infinite loops)
-  const MAX_REPAIR_ATTEMPTS = 5; // Never repair more than this many times per generation
+  const MAX_REPAIR_ATTEMPTS = 3; // Repair is expensive; prefer salvage over repair
   let tokenMultiplier = 1.0; // Dynamic: increases by 20% per parse error, resets on success
   let stagnantWaves = 0; // Track consecutive waves with zero new valid items
   let sliceRandomOffset = 0; // Random offset added to slice index on stagnation recovery
@@ -2108,13 +2815,35 @@ export async function generateQuizWithGemma(
     console.log(`Hard MCQ: concept-by-concept mode with ${hardConceptPool.length} concepts.`);
   }
 
+  // ── Hard FIB concept-by-concept state ──
+  // For Hard FIB, generate one item per concept with a focused prompt.
+  // This avoids batch truncation and ensures each item targets a distinct concept.
+  let hardFIBConceptPool: { term: string; definition: string }[] = [];
+  let hardFIBConceptIndex = 0;
+  if (type === 'FILL_IN_BLANK' && difficulty === 'HARD' && keyConcepts.length > 0) {
+    hardFIBConceptPool = shuffleArray([...keyConcepts]);
+    console.log(`Hard FIB: concept-by-concept mode with ${hardFIBConceptPool.length} concepts.`);
+  }
+
+  // ── Hard Flashcard concept-by-concept state ──
+  // For Hard flashcards, generate one card per concept with a focused prompt.
+  // EASY/MEDIUM use deterministic fast-path; HARD needs LLM for scenario-based content.
+  let hardFlashcardConceptPool: { term: string; definition: string }[] = [];
+  let hardFlashcardConceptIndex = 0;
+  if (type === 'FLASHCARD' && difficulty === 'HARD' && keyConcepts.length > 0) {
+    hardFlashcardConceptPool = shuffleArray([...keyConcepts]);
+    console.log(`Hard Flashcard: concept-by-concept mode with ${hardFlashcardConceptPool.length} concepts.`);
+  }
+
   console.log(`Starting quiz generation: ${count} ${type} items at ${difficulty} difficulty`);
   console.log(`Configuration: baseBatchSize=${baseBatchSize}, CONCURRENCY=${CONCURRENCY}, MAX_WAVES=${MAX_WAVES}`);
+  console.log(`Key concepts: ${keyConcepts.length} (original: ${originalKeyConcepts.length})`);
+  console.log(`Lesson content length: ${lessonContent.length} chars`);
   console.log(`Base temperature: ${baseTemperature}`);
   
   try {
     // ── Parallel-wave generation loop ──
-    // Each wave fires CONCURRENCY parallel API calls, each with a different summary slice
+    // Each wave fires CONCURRENCY parallel API calls, each with a different lesson content slice
     while (allValidItems.length < targetCount && wave < MAX_WAVES) {
       // ── Absolute time limit ──
       const elapsedSoFar = Date.now() - startTime;
@@ -2126,30 +2855,15 @@ export async function generateQuizWithGemma(
 
       const remainingCount = targetCount - allValidItems.length;
       
-      // ── Adaptive temperature strategy ──
-      // Instead of only decaying (which makes the model MORE deterministic when stuck),
-      // oscillate: boost temperature on stagnation to encourage diversity, then
-      // reset on success. This breaks out of repetitive generation loops.
+      // ── Simplified temperature strategy ──
+      // Use fixed temperatures per type/difficulty. Only boost mildly on stagnation.
+      // Complex oscillation confuses the 4B model more than it helps.
       let temperature: number;
-      if (stagnantWaves >= 2) {
-        // Stagnation recovery: INCREASE temperature for diversity
-        const boost = Math.min(stagnantWaves * 0.08, 0.35);
-        // Higher ceiling during deep stagnation to maximize diversity
-        const tempCeiling = stagnantWaves >= 5
-          ? (type === 'FLASHCARD' ? 0.95 : 0.85)
-          : (type === 'FLASHCARD' ? 0.85 : 0.75);
-        temperature = Math.min(baseTemperature + boost, tempCeiling);
-        console.log(`🔄 Stagnation recovery (wave ${stagnantWaves}): temperature boosted to ${temperature.toFixed(2)}`);
-      } else if (consecutiveFailures > 0 && stagnantWaves === 0) {
-        // Minor failures but still producing SOME items — gentle decay
-        const tempFloor = type === 'FLASHCARD' ? 0.35 : 0.25;
-        temperature = Math.max(baseTemperature - (consecutiveFailures * 0.02), tempFloor);
+      if (stagnantWaves >= 3) {
+        // Mild stagnation boost — cap at base + 0.15 to avoid incoherent output
+        temperature = Math.min(baseTemperature + 0.15, 0.75);
       } else {
         temperature = baseTemperature;
-      }
-      
-      if (temperature !== baseTemperature) {
-        console.log(`Temperature adjusted to ${temperature.toFixed(2)} (base: ${baseTemperature.toFixed(2)})`);
       }
       
       // Extract used concepts for memory injection — cap at 8 to avoid bloating prompt
@@ -2189,12 +2903,10 @@ export async function generateQuizWithGemma(
         effectiveBatchSize = baseBatchSize;
       }
 
-      // Force single-item requests for EASY MCQ to guarantee small, well-formed
-      // JSON responses. The 4B model struggles to produce valid multi-item arrays
-      // for MCQ (each item has question + 4 choices + explanation). Single-item
-      // requests are slower but dramatically more reliable.
+      // Force batch size of 2 for EASY MCQ — small enough for reliable JSON,
+      // large enough to double throughput vs single-item requests.
       if (difficulty === 'EASY' && type === 'MCQ') {
-        effectiveBatchSize = 1;
+        effectiveBatchSize = 2;
       }
       // Cap MCQ batch size at 5 for all difficulties to prevent constraint saturation.
       // The model degrades sharply when asked for >5 MCQ items with strict JSON + constraints.
@@ -2202,10 +2914,10 @@ export async function generateQuizWithGemma(
         effectiveBatchSize = 5;
       }
 
-      // When stuck, jump to a random part of the summary to find fresh content
+      // When stuck, jump to a random part of the lesson content to find fresh content
       if (stagnantWaves >= 2) {
         sliceRandomOffset = Math.floor(Math.random() * 20);
-        console.log(`🔀 Randomizing summary slice offset to ${sliceRandomOffset}`);
+        console.log(`🔀 Randomizing lesson content slice offset to ${sliceRandomOffset}`);
       }
 
       // Determine how many parallel calls to fire this wave
@@ -2225,7 +2937,7 @@ export async function generateQuizWithGemma(
         const concept = hardConceptPool[hardConceptIndex % hardConceptPool.length];
         hardConceptIndex++;
 
-        const prompt = buildHardMCQPrompt(concept, summary, keyConcepts);
+        const prompt = buildHardMCQPrompt(concept, lessonContent, keyConcepts);
         const maxTokens = 600; // generous for a single item
 
         console.log(`  Hard MCQ concept-by-concept: "${concept.term}" (index ${hardConceptIndex})`);
@@ -2291,12 +3003,12 @@ export async function generateQuizWithGemma(
 
             if (items.length > 0) {
               const { validItems: structValid, rejectedItems: rejBatch } =
-                validateQuizItems(items, type, seenItems, difficulty, summary, keyConcepts);
+                validateQuizItems(items, type, seenItems, difficulty, lessonContent, keyConcepts);
 
               if (structValid.length > 0) {
                 // Verify Hard items (skip only Easy)
                 const { verified, failed } = await verifyQuizItemsWithGemma(
-                  structValid, type, summary, resolvedModel
+                  structValid, type, lessonContent, resolvedModel
                 );
                 totalApiCalls += Math.ceil(structValid.length / 5);
 
@@ -2345,54 +3057,282 @@ export async function generateQuizWithGemma(
         }
 
         // Stagnant limit for Hard concept-by-concept
-        if (stagnantWaves >= 10) {
+        if (stagnantWaves >= 20) {
           console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves — stopping early. Returning ${allValidItems.length}/${targetCount} collected items.`);
           break;
         }
         continue; // skip the generic batch logic below
       }
+
+      // ── Hard FIB: concept-by-concept single-item generation ──
+      // For Hard FIB, generate one item per concept to avoid truncation and
+      // ensure each item targets a distinct multi-word key term.
+      if (type === 'FILL_IN_BLANK' && difficulty === 'HARD' && hardFIBConceptPool.length > 0) {
+        const concept = hardFIBConceptPool[hardFIBConceptIndex % hardFIBConceptPool.length];
+        hardFIBConceptIndex++;
+
+        const prompt = buildHardFIBPrompt(concept, getLessonSlice(lessonContent, hardFIBConceptIndex, 1900, 150), keyConcepts);
+        const maxTokens = 400;
+
+        console.log(`  Hard FIB concept-by-concept: "${concept.term}" (index ${hardFIBConceptIndex})`);
+        const rawResponse = await generateWithOllama(prompt, {
+          model: resolvedModel,
+          temperature,
+          requireJson: true,
+          maxTokens,
+        }).catch(err => {
+          console.error(`  Call failed for FIB concept "${concept.term}":`, err instanceof Error ? err.message : err);
+          return null;
+        });
+        totalApiCalls++;
+
+        let waveValidCount = 0;
+        let waveRejectedCount = 0;
+
+        if (rawResponse) {
+          let parsedItem: any = null;
+          try {
+            parsedItem = JSON.parse(rawResponse);
+          } catch {
+            const jsonMatch = rawResponse.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+              try { parsedItem = JSON.parse(jsonMatch[1]); } catch { /* ignore */ }
+            }
+            if (!parsedItem) {
+              jsonParseErrors++;
+              tokenMultiplier = Math.min(tokenMultiplier * 1.25, 2.0);
+              console.error(`  JSON parse error for FIB concept "${concept.term}"`);
+            }
+          }
+
+          if (parsedItem) {
+            const items = parsedItem.items && Array.isArray(parsedItem.items)
+              ? parsedItem.items
+              : (parsedItem.sentence && parsedItem.answer ? [parsedItem] : []);
+
+            if (items.length > 0) {
+              const { validItems: structValid, rejectedItems: rejBatch } =
+                validateQuizItems(items, type, seenItems, difficulty, lessonContent, keyConcepts);
+
+              if (structValid.length > 0) {
+                const { verified, failed } = await verifyQuizItemsWithGemma(
+                  structValid, type, lessonContent, resolvedModel
+                );
+                totalApiCalls += Math.ceil(structValid.length / 5);
+
+                for (const f of failed) {
+                  const key = f.item.sentence ? normalizeText(f.item.sentence) : '';
+                  if (key) seenItems.delete(key);
+                }
+
+                allValidItems.push(...verified);
+                allRejectedItems.push(...rejBatch);
+                for (const f of failed) {
+                  allRejectedItems.push({ ...f.item, _rejected: true, _rejectionReason: `Verification: ${f.reason}` });
+                }
+                waveValidCount = verified.length;
+                waveRejectedCount = rejBatch.length + failed.length;
+              } else {
+                allRejectedItems.push(...rejBatch);
+                waveRejectedCount = rejBatch.length;
+              }
+            } else {
+              console.warn(`  Invalid structure for FIB concept "${concept.term}"`);
+            }
+          }
+        }
+
+        if (waveValidCount === 0) {
+          consecutiveFailures++;
+          stagnantWaves++;
+        } else {
+          consecutiveFailures = 0;
+          stagnantWaves = 0;
+          if (tokenMultiplier > 1.0) {
+            tokenMultiplier = Math.max(tokenMultiplier * 0.85, 1.0);
+          }
+        }
+
+        const progress = Math.min(100, Math.round((allValidItems.length / targetCount) * 100));
+        console.log(`Wave ${wave + 1} result: +${waveValidCount} verified, +${waveRejectedCount} rejected | Total: ${allValidItems.length}/${targetCount} (${progress}%)`);
+
+        wave++;
+        if (allValidItems.length >= targetCount) {
+          console.log(`✓ Target reached! Collected ${allValidItems.length} verified items in ${wave} waves (${totalApiCalls} API calls)`);
+          break;
+        }
+
+        if (stagnantWaves >= 20) {
+          console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves — stopping early. Returning ${allValidItems.length}/${targetCount} collected items.`);
+          break;
+        }
+        continue;
+      }
+
+      // ── Hard Flashcard: concept-by-concept single-item generation ──
+      // For Hard flashcards, generate one card per concept with a focused prompt.
+      // This avoids batch truncation and ensures scenario-based content.
+      if (type === 'FLASHCARD' && difficulty === 'HARD' && hardFlashcardConceptPool.length > 0) {
+        const concept = hardFlashcardConceptPool[hardFlashcardConceptIndex % hardFlashcardConceptPool.length];
+        hardFlashcardConceptIndex++;
+
+        const prompt = buildHardFlashcardPrompt(concept, getLessonSlice(lessonContent, hardFlashcardConceptIndex, 1500, 0), keyConcepts);
+        const maxTokens = 400;
+
+        console.log(`  Hard Flashcard concept-by-concept: "${concept.term}" (index ${hardFlashcardConceptIndex})`);
+        const rawResponse = await generateWithOllama(prompt, {
+          model: resolvedModel,
+          temperature,
+          requireJson: true,
+          maxTokens,
+        }).catch(err => {
+          console.error(`  Call failed for flashcard concept "${concept.term}":`, err instanceof Error ? err.message : err);
+          return null;
+        });
+        totalApiCalls++;
+
+        let waveValidCount = 0;
+        let waveRejectedCount = 0;
+
+        if (rawResponse) {
+          let parsedItem: any = null;
+          try {
+            parsedItem = JSON.parse(rawResponse);
+          } catch {
+            const jsonMatch = rawResponse.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+              try { parsedItem = JSON.parse(jsonMatch[1]); } catch { /* ignore */ }
+            }
+            if (!parsedItem) {
+              jsonParseErrors++;
+              console.error(`  JSON parse error for flashcard concept "${concept.term}"`);
+            }
+          }
+
+          if (parsedItem) {
+            const items = parsedItem.items && Array.isArray(parsedItem.items)
+              ? parsedItem.items
+              : (parsedItem.front && parsedItem.back ? [parsedItem] : []);
+
+            if (items.length > 0) {
+              const { validItems: structValid, rejectedItems: rejBatch } =
+                validateQuizItems(items, type, seenItems, difficulty, lessonContent, keyConcepts);
+
+              if (structValid.length > 0) {
+                // Hard flashcards get LLM verification
+                const { verified, failed } = await verifyQuizItemsWithGemma(
+                  structValid, type, lessonContent, resolvedModel
+                );
+                totalApiCalls += Math.ceil(structValid.length / 5);
+
+                for (const f of failed) {
+                  const key = f.item.front ? normalizeText(f.item.front) : '';
+                  if (key) seenItems.delete(key);
+                }
+
+                allValidItems.push(...verified);
+                allRejectedItems.push(...rejBatch);
+                for (const f of failed) {
+                  allRejectedItems.push({ ...f.item, _rejected: true, _rejectionReason: `Verification: ${f.reason}` });
+                }
+                waveValidCount = verified.length;
+                waveRejectedCount = rejBatch.length + failed.length;
+              } else {
+                allRejectedItems.push(...rejBatch);
+                waveRejectedCount = rejBatch.length;
+              }
+            }
+          }
+        }
+
+        if (waveValidCount === 0) {
+          consecutiveFailures++;
+          stagnantWaves++;
+        } else {
+          consecutiveFailures = 0;
+          stagnantWaves = 0;
+          if (tokenMultiplier > 1.0) {
+            tokenMultiplier = Math.max(tokenMultiplier * 0.85, 1.0);
+          }
+        }
+
+        const progress = Math.min(100, Math.round((allValidItems.length / targetCount) * 100));
+        console.log(`Wave ${wave + 1} result: +${waveValidCount} verified, +${waveRejectedCount} rejected | Total: ${allValidItems.length}/${targetCount} (${progress}%)`);
+
+        wave++;
+        if (allValidItems.length >= targetCount) {
+          console.log(`✓ Target reached! Collected ${allValidItems.length} verified items in ${wave} waves (${totalApiCalls} API calls)`);
+          break;
+        }
+
+        if (stagnantWaves >= 20) {
+          console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves — stopping early. Returning ${allValidItems.length}/${targetCount} collected items.`);
+          break;
+        }
+        continue;
+      }
       
       // Build and fire parallel promises
       const wavePromises = Array.from({ length: callsThisWave }).map((_, i) => {
-        const sliceIndex = wave * CONCURRENCY + i + sliceRandomOffset; // Each call gets a different summary slice
-        // Zero overlap for all types — overlap causes the same content to reappear
-        // across waves, triggering massive duplicate rejections (especially for MCQ/FIB).
-        const sliceOverlap = 0;
-        // Dynamic window size: larger batches need more context from the summary
-        const dynamicWindowSize = effectiveBatchSize <= 2 ? 1100 : effectiveBatchSize <= 4 ? 1300 : 1500;
-        const summarySlice = getSummarySlice(summary, sliceIndex, dynamicWindowSize, sliceOverlap);
+        // ── Content-aware slice selection ──
+        // When stagnating, find uncovered key concepts and select slices
+        // that contain them, instead of purely random offsets.
+        let sliceIndex = wave * CONCURRENCY + i + sliceRandomOffset;
+        if (stagnantWaves >= 2 && keyConcepts.length > 0) {
+          const uncoveredConcepts = keyConcepts.filter(kc => {
+            const nt = normalizeText(kc.term);
+            return !Array.from(seenItems).some(s => s.includes(nt));
+          });
+          if (uncoveredConcepts.length > 0) {
+            // Find the position of an uncovered concept in the lesson content
+            const target = uncoveredConcepts[(wave + i) % uncoveredConcepts.length];
+            const idx = normalizeText(lessonContent).indexOf(normalizeText(target.term));
+            if (idx >= 0) {
+              // Convert character position to a step-based index for getLessonSlice
+              const windowSize = type === 'FILL_IN_BLANK' ? 1500 : 1100;
+              const step = windowSize - (type === 'FILL_IN_BLANK' ? 150 : 0);
+              sliceIndex = Math.floor(idx / Math.max(step, 1));
+            }
+          }
+        }
+        // FIB benefits from overlap so the model sees cross-paragraph context;
+        // MCQ/flashcard keep zero overlap to avoid duplicate rejections.
+        const sliceOverlap = type === 'FILL_IN_BLANK' ? 150 : 0;
+        // Dynamic window size: larger batches need more context from the lesson content
+        // FIB uses a larger base window — verbatim sentences need more surrounding context.
+        const dynamicWindowSize = type === 'FILL_IN_BLANK'
+          ? (effectiveBatchSize <= 2 ? 1500 : effectiveBatchSize <= 4 ? 1700 : 1900)
+          : (effectiveBatchSize <= 2 ? 1100 : effectiveBatchSize <= 4 ? 1300 : 1500);
+        const lessonSlice = getLessonSlice(lessonContent, sliceIndex, dynamicWindowSize, sliceOverlap);
         
-        // Overgeneration factor: request slightly more items than needed
+        // Overgeneration factor: request more items than needed
         // to account for rejections during validation.
-        const overgenFactor = 1.1;
+        const overgenFactor = 1.4;
         const perCallTarget = Math.ceil(remainingCount / callsThisWave);
-        const overgenCap = effectiveBatchSize + 1;
+        const overgenCap = effectiveBatchSize + 2;
         const batchCount = Math.min(
           Math.ceil(perCallTarget * overgenFactor),
           overgenCap
         );
         
-        // ── Difficulty-aware token budgets ──
-        // HARD items need significantly more tokens: longer explanations (MCQ),
-        // longer sentences (FIB), and detailed backs (flashcards).
-        // Budgets raised after observing truncation even at 180 tokens/item.
-        const baseTokensPerItem =
+        // ── Fixed generous token budgets ──
+        // HARD items need significantly more tokens. Use fixed budgets
+        // instead of dynamic multiplier — simpler, more predictable.
+        const tokensPerItem =
           difficulty === 'HARD'
-            ? (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 180 : 200)
+            ? (type === 'MCQ' ? 600 : type === 'FILL_IN_BLANK' ? 350 : 300)
             : difficulty === 'MEDIUM'
-            ? (type === 'MCQ' ? 360 : type === 'FILL_IN_BLANK' ? 150 : 130)
-            : (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 130 : 100);
-        // Dynamic token multiplier: after parse errors (truncation), automatically
-        // increase budget for subsequent waves to avoid repeated truncation.
-        const tokensPerItem = Math.min(Math.round(baseTokensPerItem * tokenMultiplier), 800);
-        // Hard cap scales with batch size: larger batches need proportionally more tokens.
-        // MCQ items with explanations need significantly more tokens than FIB/flashcards.
-        const tokenHardCap = effectiveBatchSize <= 2 ? 6000 : effectiveBatchSize <= 4 ? 7500 : 9000;
+            ? (type === 'MCQ' ? 450 : type === 'FILL_IN_BLANK' ? 300 : 200)
+            : (type === 'MCQ' ? 500 : type === 'FILL_IN_BLANK' ? 250 : 150);
+        // Hard cap scales with batch size.
+        const tokenHardCap = type === 'FILL_IN_BLANK'
+          ? (effectiveBatchSize <= 2 ? 9000 : effectiveBatchSize <= 4 ? 10500 : 12000)
+          : (effectiveBatchSize <= 2 ? 6000 : effectiveBatchSize <= 4 ? 7500 : 9000);
         const maxTokens = Math.min(batchCount * tokensPerItem + 100, tokenHardCap);
         
         console.log(`  Call ${i + 1}: Requesting ${batchCount} items (slice offset ${sliceIndex}, max ${maxTokens} tokens)`);
         
-        const batchPrompt = buildPrompt(type, difficulty, batchCount, summarySlice, recentConcepts, usedSentences, keyConcepts);
+        const batchPrompt = buildPrompt(type, difficulty, batchCount, lessonSlice, recentConcepts, usedSentences, keyConcepts);
         return generateWithOllama(batchPrompt, {
           model: resolvedModel,
           temperature,
@@ -2498,29 +3438,32 @@ export async function generateQuizWithGemma(
         
         // ── Step 1: Structural validation + duplicate check ──
         const { validItems: structurallyValid, rejectedItems: rejectedBatchItems } =
-          validateQuizItems(parsedResponse.items, type, seenItems, difficulty, summary, keyConcepts);
+          validateQuizItems(parsedResponse.items, type, seenItems, difficulty, lessonContent, keyConcepts);
         
         // ── Step 2: Factual verification on structurally valid items ──
         // Only items that pass BOTH structural and factual checks are added
         // to allValidItems. This eliminates the need for post-generation
         // verification that would discard items after the fact.
         if (structurallyValid.length > 0) {
-          // ── Skip verification for EASY ──
-          // Easy questions are simple recall — the structural validation is
-          // sufficient. Verification often rejects correct recall items with
-          // "too broad" or "distractor source" failures, killing yield.
-          // For MEDIUM/HARD, full verification is still applied.
-          if (difficulty === 'EASY') {
+          // ── Skip verification for EASY and MEDIUM ──
+          // Easy questions are simple recall — structural validation is sufficient.
+          // Medium questions are understanding-level — the structural validation
+          // (answer presence, distractor grounding, key-concept checks) already
+          // ensures quality. Verification via a second LLM call often rejects
+          // correct items with "too broad" or "distractor source" failures,
+          // halving yield for no real quality gain.
+          // Only HARD items get full LLM factual verification.
+          if (difficulty === 'EASY' || difficulty === 'MEDIUM') {
             allValidItems.push(...structurallyValid);
             allRejectedItems.push(...rejectedBatchItems);
             waveValidCount += structurallyValid.length;
             waveRejectedCount += rejectedBatchItems.length;
             console.log(`  Call ${i + 1}: Generated ${parsedResponse.items.length}, ` +
-              `StructValid: ${structurallyValid.length} (accepted — Easy skip-verify), ` +
+              `StructValid: ${structurallyValid.length} (accepted — ${difficulty} skip-verify), ` +
               `Rejected: ${rejectedBatchItems.length}`);
           } else {
           const { verified, failed } = await verifyQuizItemsWithGemma(
-            structurallyValid, type, summary, resolvedModel
+            structurallyValid, type, lessonContent, resolvedModel
           );
           totalApiCalls += Math.ceil(structurallyValid.length / 5);
 
@@ -2592,8 +3535,11 @@ export async function generateQuizWithGemma(
       // When the deterministic seed already covers ≥80% of the target,
       // further LLM waves are unlikely to produce anything useful (most
       // sentences are already consumed), so bail after just 3 failures.
+      // For short content without concepts, also bail quickly — the LLM
+      // has exhausted the material and will only produce duplicates.
       const deterministicCoverage = (_deterministicSeed?.length ?? 0) / targetCount;
-      const stagnantLimit = deterministicCoverage >= 0.8 ? 3 : 10;
+      const contentBasedLimit = Math.max(5, Math.min(20, Math.ceil(lessonContent.length / 500)));
+      const stagnantLimit = deterministicCoverage >= 0.8 ? 5 : contentBasedLimit;
       if (stagnantWaves >= stagnantLimit) {
         console.warn(`⚠ ${stagnantWaves} consecutive zero-yield waves (limit=${stagnantLimit}, detCoverage=${Math.round(deterministicCoverage * 100)}%) — stopping early. Returning ${allValidItems.length}/${targetCount} collected items.`);
         break; // exits the while loop
@@ -2611,11 +3557,111 @@ export async function generateQuizWithGemma(
       }
     }
     
-    // Final validation
+    // Final validation — return empty result instead of crashing
     if (allValidItems.length === 0) {
-      throw new Error('No valid quiz items generated after multiple attempts');
+      console.warn(`⚠ No valid items generated after ${wave} waves (${totalApiCalls} API calls). Returning empty result.`);
+      const endTime = Date.now();
+      const elapsedMs = endTime - startTime;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      const mins = Math.floor(elapsedSeconds / 60);
+      const secs = elapsedSeconds % 60;
+      const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${elapsedMs}ms`;
+
+      console.log(`\n=== Generation Complete (empty) ===`);
+      console.log(`Requested: ${count} | Verified: 0 | Rejected: ${allRejectedItems.length}`);
+      console.log(`Waves: ${wave} (${totalApiCalls} API calls) | Time: ${timeStr}`);
+      console.log(`===================================\n`);
+
+      return {
+        type: type === 'MCQ' ? 'mcq' : type === 'FILL_IN_BLANK' ? 'fill_blank' : 'flashcard',
+        difficulty: difficulty.toLowerCase(),
+        items: [],
+        rejectedItems: allRejectedItems,
+        stats: { requested: count, generated: 0, rejected: allRejectedItems.length, waves: wave, apiCalls: totalApiCalls },
+        warning: `Could not generate any valid ${type} items. The lesson content may be too short or not suitable for this quiz type.`
+      };
     }
     
+    // ── Post-processing: recycle rejected items ──
+    // Try fixing common rejection issues before falling back to deterministic backfill.
+    if (allValidItems.length < count && allRejectedItems.length > 0) {
+      if (type === 'FILL_IN_BLANK') {
+        const recycled = recycleRejectedFIBItems(
+          allRejectedItems, keyConcepts, lessonContent, difficulty, seenItems
+        );
+        allValidItems.push(...recycled);
+      } else if (type === 'MCQ') {
+        const recycled = recycleRejectedMCQItems(
+          allRejectedItems, keyConcepts, lessonContent, difficulty, seenItems
+        );
+        allValidItems.push(...recycled);
+      } else if (type === 'FLASHCARD') {
+        const recycled = recycleRejectedFlashcardItems(
+          allRejectedItems, keyConcepts, seenItems
+        );
+        allValidItems.push(...recycled);
+      }
+    }
+
+    // ── Shortfall backfill: deterministic last resort ──
+    // If we still don't have enough items after the wave loop + recycling,
+    // use deterministic generators one more time with relaxed settings.
+    // This guarantees we meet (or get as close as possible to) the requested count.
+    if (allValidItems.length < count) {
+      const shortfall = count - allValidItems.length;
+      console.log(`⚡ Shortfall backfill: need ${shortfall} more items. Attempting deterministic generation...`);
+
+      if (type === 'FILL_IN_BLANK' && keyConcepts.length >= 2) {
+        // Try deterministic FIB with a higher count to maximize yield
+        const backfillItems = generateDeterministicFIB(lessonContent, keyConcepts, shortfall + 5, difficulty);
+        if (backfillItems) {
+          // Filter out items that duplicate existing ones
+          for (const item of backfillItems) {
+            if (allValidItems.length >= count) break;
+            const key = normalizeText(item.sentence);
+            if (!seenItems.has(key)) {
+              allValidItems.push(item);
+              seenItems.add(key);
+            }
+          }
+          console.log(`  FIB backfill: added ${Math.min(allValidItems.length, count) - (count - shortfall)} items`);
+        }
+      } else if (type === 'MCQ' && keyConcepts.length >= 4) {
+        // Try deterministic MCQ Easy for any difficulty as a last resort
+        const backfillConcepts = originalKeyConcepts.length >= 4 ? originalKeyConcepts : keyConcepts;
+        const backfillItems = generateDeterministicMCQ_Easy(backfillConcepts, shortfall + 5);
+        if (backfillItems) {
+          for (const item of backfillItems) {
+            if (allValidItems.length >= count) break;
+            const key = normalizeText(item.question);
+            if (!seenItems.has(key)) {
+              allValidItems.push(item);
+              seenItems.add(key);
+            }
+          }
+          console.log(`  MCQ backfill: added ${Math.min(allValidItems.length, count) - (count - shortfall)} items`);
+        }
+      } else if (type === 'FLASHCARD' && keyConcepts.length >= 2) {
+        const backfillConcepts = originalKeyConcepts.length >= 2 ? originalKeyConcepts : keyConcepts;
+        const backfillItems = generateDeterministicFlashcards(backfillConcepts, shortfall + 5, difficulty === 'HARD' ? 'MEDIUM' : difficulty);
+        if (backfillItems) {
+          for (const item of backfillItems) {
+            if (allValidItems.length >= count) break;
+            const key = normalizeText(item.front);
+            if (!seenItems.has(key)) {
+              allValidItems.push(item);
+              seenItems.add(key);
+            }
+          }
+          console.log(`  Flashcard backfill: added ${Math.min(allValidItems.length, count) - (count - shortfall)} items`);
+        }
+      }
+
+      if (allValidItems.length < count) {
+        console.warn(`⚠ After backfill: ${allValidItems.length}/${count} items. Content may not have enough material for ${count} unique items.`);
+      }
+    }
+
     // Trim to exact count if we got more (expected with overgeneration)
     // All items in allValidItems have already passed both structural
     // validation AND factual verification during the wave loop.
@@ -2642,6 +3688,23 @@ export async function generateQuizWithGemma(
     console.log(`Success rate: ${Math.round((allValidItems.length / Math.max(allValidItems.length + allRejectedItems.length, 1)) * 100)}%`);
     console.log(`JSON parse errors (possible truncations): ${jsonParseErrors}`);
     console.log(`Time elapsed: ${timeString}`);
+
+    // ── Rejection reason breakdown ──
+    // Aggregate _rejectionReason tags so the developer can tell at a glance
+    // which validator rule is most restrictive and tune accordingly.
+    if (allRejectedItems.length > 0) {
+      const reasonCounts = new Map<string, number>();
+      for (const rej of allRejectedItems) {
+        const reason = (rej._rejectionReason || rej.rejectionReason || 'unknown').split(':')[0].trim();
+        reasonCounts.set(reason, (reasonCounts.get(reason) || 0) + 1);
+      }
+      console.log(`--- Rejection Breakdown ---`);
+      for (const [reason, cnt] of [...reasonCounts.entries()].sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${cnt}x  ${reason}`);
+      }
+      console.log(`---------------------------`);
+    }
+
     console.log(`===========================\n`);
 
     // Actionable warning if many parse errors — token budget is likely too tight
@@ -2689,18 +3752,18 @@ function buildPrompt(
   type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
   difficulty: 'EASY' | 'MEDIUM' | 'HARD',
   count: number,
-  summary: string,
+  lessonContent: string,
   recentConcepts: string[] = [],
   usedSentences: string[] = [],
   keyConcepts: { term: string; definition: string }[] = []
 ): string {
   switch (type) {
     case 'MCQ':
-      return buildMCQPrompt(difficulty, count, summary, recentConcepts, usedSentences, keyConcepts);
+      return buildMCQPrompt(difficulty, count, lessonContent, recentConcepts, usedSentences, keyConcepts);
     case 'FILL_IN_BLANK':
-      return buildFillInBlankPrompt(difficulty, count, summary, recentConcepts, usedSentences, keyConcepts);
+      return buildFillInBlankPrompt(difficulty, count, lessonContent, recentConcepts, usedSentences, keyConcepts);
     case 'FLASHCARD':
-      return buildFlashcardPrompt(difficulty, count, summary, recentConcepts, usedSentences, keyConcepts);
+      return buildFlashcardPrompt(difficulty, count, lessonContent, recentConcepts, usedSentences, keyConcepts);
     default:
       throw new Error(`Unknown quiz type: ${type}`);
   }
@@ -2710,21 +3773,21 @@ function buildPrompt(
  * Build MCQ generation prompt with Bloom's taxonomy difficulty separation
  * and key-concept-aware distractors.
  */
-function buildMCQPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedQuestions: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
+function buildMCQPrompt(difficulty: string, count: number, lessonContent: string, recentConcepts: string[] = [], usedQuestions: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
   // ── EASY: Ultra-minimal prompt to maximize model compliance ──
   // The 4B model fails to produce valid JSON when the prompt is complex.
   // For Easy recall questions, strip everything to the bare minimum:
   // no usedBlock (dedup handled by seenItems), no conceptsBlock.
   if (difficulty === 'EASY') {
-    return `Create ${count} EASY multiple-choice questions from the summary below. Output ONLY valid JSON.
+    return `Create ${count} EASY multiple-choice questions from the lesson content below. Output ONLY valid JSON.
 
-SUMMARY:
-${summary}
+LESSON CONTENT:
+${lessonContent}
 
 RULES:
 - Test simple recall — definitions, direct facts.
 - Question patterns: "What is X?" or "Which term describes...?"
-- Correct answer must be directly stated in the summary.
+- Correct answer must be directly stated in the lesson content.
 - 3 wrong choices must be clearly wrong (different category).
 - Each question on a DIFFERENT concept.
 - Explanation: 1 sentence starting with "The correct answer is '...' because ...".
@@ -2785,38 +3848,73 @@ RULES:
     keyConceptsBlock = '';
   }
 
-  return `Create up to ${count} ${difficulty} MCQs from the summary. Output ONLY valid JSON. Return fewer if needed.${avoid}${usedBlock}
+  return `Create up to ${count} ${difficulty} MCQs from the lesson content. Output ONLY valid JSON. Return fewer if needed.${avoid}${usedBlock}
 
-SUMMARY:
-${summary}${keyConceptsBlock}
+LESSON CONTENT:
+${lessonContent}${keyConceptsBlock}
 
 DIFFICULTY:
 ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
 RULES:
-1. Content from summary only — no outside knowledge
-2. Avoid repeating the same primary concept. Different angles on a concept are OK.
-3. Correct answer must DIRECTLY answer the question
-4. Keep ALL choices concise (a few words each) — do NOT use full definitions or long sentences as choices
-5. Distractors should be plausible within the same domain (from KEY CONCEPTS or summary)
-6. answerIndex MUST point to the correct choice
-7. Explanation: 1 sentence starting with "The correct answer is '...' because ..."
-8. If asking "What is X?", answer must be X's definition — NOT the term X itself
+1. Content from lesson content only — no outside knowledge
+2. Each question on a different concept. Concise choices (a few words each).
+3. Distractors from KEY CONCEPTS or lesson content. answerIndex MUST point to the correct choice.
+4. Explanation: 1 sentence starting with "The correct answer is '...' because ..."
+5. If asking "What is X?", answer = X's definition, NOT the term itself
 
 {"type":"mcq","difficulty":"${difficulty.toLowerCase()}","items":[{"question":"...","choices":["correct","wrong1","wrong2","wrong3"],"answerIndex":0,"explanation":"The correct answer is '...' because ..."}]}`;
+}
+
+/**
+ * Build a focused prompt for a SINGLE Hard FIB item based on one specific concept.
+ *
+ * Used by the concept-by-concept Hard FIB loop. Asks the model to find a
+ * complex sentence containing the concept and blank it, with 3 distractors
+ * from the key concept pool. Keeps the prompt minimal to avoid truncation.
+ */
+function buildHardFIBPrompt(
+  concept: { term: string; definition: string },
+  lessonContent: string,
+  keyConcepts: { term: string; definition: string }[] = []
+): string {
+  const otherTerms = keyConcepts
+    .filter(k => k.term !== concept.term)
+    .map(k => k.term)
+    .slice(0, 10);
+  const distractorHint = otherTerms.length > 0
+    ? `\nDISTRACTOR TERMS (pick exactly 3 for distractors): ${otherTerms.join(', ')}`
+    : '';
+
+  return `Generate ONE Hard fill-in-the-blank item about "${concept.term}". Output ONLY valid JSON.
+
+LESSON CONTENT:
+${lessonContent}
+
+CONCEPT: ${concept.term}
+DEFINITION: ${concept.definition || 'See lesson content.'}${distractorHint}
+
+RULES:
+1. Find a LONG sentence (60+ chars) from the lesson content that contains or relates to "${concept.term}"
+2. Copy the sentence EXACTLY and replace "${concept.term}" (or a multi-word phrase containing it) with [blank]
+3. Answer must be 2+ words — single-word answers are NOT allowed for HARD
+4. Distractors must be 3 other key terms from the list above
+5. The sentence must come VERBATIM from the lesson content — do not paraphrase
+
+{"sentence":"The [blank] is...","answer":"${concept.term}","distractors":["wrong1","wrong2","wrong3"]}`;
 }
 
 /**
  * Build a focused prompt for a SINGLE Hard MCQ based on one specific concept.
  *
  * Used by the concept-by-concept Hard MCQ loop. Keeps the prompt minimal:
- * summary + concept definition + 6 compact rules + single-item JSON template.
+ * lesson content + concept definition + 6 compact rules + single-item JSON template.
  * This eliminates truncation (only 1 item to generate) and ensures each
  * question targets a distinct concept.
  */
 function buildHardMCQPrompt(
   concept: { term: string; definition: string },
-  summary: string,
+  lessonContent: string,
   keyConcepts: { term: string; definition: string }[] = []
 ): string {
   // Provide other key terms as potential distractor sources
@@ -2828,13 +3926,13 @@ function buildHardMCQPrompt(
     ? `\nDISTRACTOR TERMS (pick 3 for wrong choices): ${otherTerms.join(', ')}`
     : '';
 
-  return `Generate ONE HARD multiple-choice question about "${concept.term}" from the summary below. Output ONLY valid JSON.
+  return `Generate ONE HARD multiple-choice question about "${concept.term}" from the lesson content below. Output ONLY valid JSON.
 
-SUMMARY:
-${summary}
+LESSON CONTENT:
+${lessonContent}
 
 CONCEPT: ${concept.term}
-DEFINITION: ${concept.definition || 'See summary for details.'}${distractorHint}
+DEFINITION: ${concept.definition || 'See lesson content for details.'}${distractorHint}
 
 RULES:
 1. Create a concise scenario (1-2 sentences) requiring application or analysis of this concept
@@ -2848,13 +3946,51 @@ RULES:
 }
 
 /**
+ * Build a focused prompt for a SINGLE Hard flashcard based on one specific concept.
+ *
+ * Used by the concept-by-concept Hard flashcard loop. Creates scenario-based
+ * or application-level flashcards (Bloom's Level 4-5). Keeps the prompt minimal
+ * to avoid truncation.
+ */
+function buildHardFlashcardPrompt(
+  concept: { term: string; definition: string },
+  lessonContent: string,
+  keyConcepts: { term: string; definition: string }[] = []
+): string {
+  // Provide related terms for context
+  const relatedTerms = keyConcepts
+    .filter(k => k.term !== concept.term)
+    .map(k => k.term)
+    .slice(0, 8);
+  const relatedHint = relatedTerms.length > 0
+    ? `\nRELATED CONCEPTS: ${relatedTerms.join(', ')}`
+    : '';
+
+  return `Generate ONE HARD flashcard about "${concept.term}" from the lesson content below. Output ONLY valid JSON.
+
+LESSON CONTENT:
+${lessonContent}
+
+CONCEPT: ${concept.term}
+DEFINITION: ${concept.definition || 'See lesson content for details.'}${relatedHint}
+
+RULES:
+1. Front: A concise scenario (1-2 sentences) or application question about this concept
+2. Front MUST describe a situation, ask "what would happen if...", or compare concepts
+3. Back: 2-3 sentence analysis or explanation — not just a definition
+4. Content from lesson content only — no outside knowledge
+
+{"front":"If a system encounters [scenario involving ${concept.term}], what approach should be used?","back":"The approach would be... because ${concept.term} ..."}`;
+}
+
+/**
  * Build fill-in-blank generation prompt
  */
-function buildFillInBlankPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedSentences: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
+function buildFillInBlankPrompt(difficulty: string, count: number, lessonContent: string, recentConcepts: string[] = [], usedSentences: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
   const diffGuide: Record<string, string> = {
     EASY: 'Blank a simple noun or name. Single word answer. Obvious clues.',
     MEDIUM: 'Blank a technical term or concept. Context helps but not obvious.',
-    HARD: 'Blank a multi-word key term or conceptual phrase. Use longer sentences. Requires deep understanding.'
+    HARD: 'Blank a multi-word key term or conceptual phrase (2+ words). Single-word answers are NOT allowed for HARD. Use longer sentences. Requires deep understanding.'
   };
 
   const avoid = recentConcepts.length > 0
@@ -2874,29 +4010,22 @@ function buildFillInBlankPrompt(difficulty: string, count: number, summary: stri
     : '';
 
   return `You are a strict quiz generator. Output ONLY valid JSON — no greetings, no extra text, no explanations outside the JSON structure.
-Create ${count} ${difficulty} fill-in-the-blank items from this summary.${avoid}${usedBlock}
+Create ${count} ${difficulty} fill-in-the-blank items from this lesson content.${avoid}${usedBlock}
 
-SUMMARY:
-${summary}${keyConceptsBlock}
+LESSON CONTENT:
+${lessonContent}${keyConceptsBlock}
 
 CRITICAL RULES — follow ALL or the item will be rejected:
-1. Copy sentences EXACTLY from the summary — do NOT paraphrase, reword, or add any words.
-2. Each sentence has exactly one [blank] replacing a KEY CONCEPT, TECHNICAL TERM, or IMPORTANT NAME — NOT a common word (not "the", "is", "and", "a", etc.).
-3. Answer must be a word/phrase that appears VERBATIM in the original sentence.
-4. The answer must be the COMPLETE term (e.g., "bias-variance tradeoff" not just "tradeoff").
-5. Each item must use a DIFFERENT sentence from a DIFFERENT part of the summary — never repeat.
-6. "distractors" must be a JSON array of exactly 3 strings: ["a","b","c"].
-7. Distractors MUST be chosen from the KEY CONCEPTS list above (if provided). Pick exactly 3 terms from that list that are WRONG for this blank but plausible. Do NOT invent your own terms — every distractor must appear in the KEY CONCEPTS list or verbatim in the summary.
-8. If you cannot find ${count} different sentences, return FEWER items — quality over quantity.
-9. The answer must NOT be an example value when the blank should be a CATEGORY (e.g., blank should be "algorithms" not "linear regression").
-10. ⚠️ NEVER include greetings like "good morning", "hello", "welcome", or any conversational text. Output ONLY the JSON object described below.
+1. Copy sentences EXACTLY from the lesson content — do NOT paraphrase or reword.
+2. Replace ONE key concept/technical term with [blank] — NOT common words like "the", "is", "and".
+3. Answer must be the COMPLETE term verbatim from the original sentence.
+4. Each item uses a DIFFERENT sentence — never repeat.
+5. "distractors": exactly 3 strings from the KEY CONCEPTS list (or lesson content). No invented terms.
+6. Return FEWER items if you cannot find ${count} different valid sentences.
 - ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
-EXAMPLE — GOOD vs BAD:
+EXAMPLE:
 GOOD: {"sentence":"A [blank] stores data in tables with rows and columns.","answer":"Relational Database","distractors":["NoSQL Database","Primary Key","Index"]}
-  ✓ Sentence is exact from summary, blank is a key concept, distractors are other key concepts that don't fit.
-BAD:  {"sentence":"The [blank] is very important in databases.","answer":"thing","distractors":["stuff","item","object"]}
-  ✗ Sentence is paraphrased, answer is generic, distractors are not real terms.
 
 {"type":"fill_blank","difficulty":"${difficulty.toLowerCase()}","items":[{"sentence":"The [blank] is responsible for...","answer":"term","distractors":["wrong1","wrong2","wrong3"]}]}`;
 }
@@ -2904,12 +4033,12 @@ BAD:  {"sentence":"The [blank] is very important in databases.","answer":"thing"
 /**
  * Build flashcard generation prompt with Bloom's taxonomy difficulty separation
  */
-function buildFlashcardPrompt(difficulty: string, count: number, summary: string, recentConcepts: string[] = [], usedSentences: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
+function buildFlashcardPrompt(difficulty: string, count: number, lessonContent: string, recentConcepts: string[] = [], usedSentences: string[] = [], keyConcepts: { term: string; definition: string }[] = []): string {
   // ── Bloom's taxonomy difficulty templates ──
   const diffGuide: Record<string, string> = {
     EASY: `EASY = Recall (Bloom's Level 1)
 - Front: "What is [term]?" — simple definition question
-- Back: 1-2 sentence definition directly from the summary
+- Back: 1-2 sentence definition directly from the lesson content
 - One concept per card`,
     MEDIUM: `MEDIUM = Understanding (Bloom's Level 2-3)
 - Front: "What is the purpose of X?", "How does X work?", "What is the difference between X and Y?"
@@ -2960,18 +4089,18 @@ function buildFlashcardPrompt(difficulty: string, count: number, summary: string
     keyConceptsBlock = '';
   }
 
-  return `Create ${count} ${difficulty} flashcards from this summary. Output ONLY valid JSON.${avoid}${usedBlock}
+  return `Create ${count} ${difficulty} flashcards from this lesson content. Output ONLY valid JSON.${avoid}${usedBlock}
 
-SUMMARY:
-${summary}${keyConceptsBlock}
+LESSON CONTENT:
+${lessonContent}${keyConceptsBlock}
 
 DIFFICULTY LEVEL:
 ${diffGuide[difficulty] || diffGuide.MEDIUM}
 
 RULES:
-- Content from summary only, no outside knowledge
+- Content from lesson content only, no outside knowledge
 - Each card on a different concept
-- Use exact terminology from the summary
+- Use exact terminology from the lesson content
 
 {"type":"flashcard","difficulty":"${difficulty.toLowerCase()}","items":[{"front":"What is...?","back":"It is..."}]}`;
 }

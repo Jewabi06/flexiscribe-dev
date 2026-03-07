@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Summary quality gate — short summaries produce hallucinated filler
+    // Lesson content quality gate — short content produces hallucinated filler
     if (content.trim().length < 200) {
       return NextResponse.json(
         { error: 'Content is too short to generate meaningful questions. Please provide at least 200 characters.' },

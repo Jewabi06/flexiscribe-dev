@@ -76,9 +76,9 @@ export async function POST(request: NextRequest) {
           summary,
           keyConcepts: Array.isArray(notes)
             ? notes.map(
-                (n: { term?: string; definition?: string } | string, i: number) => {
+                (n: { term?: string; definition?: string; example?: string } | string, i: number) => {
                   if (typeof n === "object" && n.term) {
-                    return { term: n.term, definition: n.definition || "" };
+                    return { term: n.term, definition: n.definition || "", ...(n.example ? { example: n.example } : {}) };
                   }
                   return {
                     term: keyConcepts[i] || `Concept ${i + 1}`,
@@ -88,16 +88,22 @@ export async function POST(request: NextRequest) {
               )
             : [],
           importantFacts: Array.isArray(notes)
-            ? notes.map((n: { term?: string; definition?: string } | string) =>
-                typeof n === "object" ? `${n.term}: ${n.definition}` : n
+            ? notes.map((n: { term?: string; definition?: string; example?: string } | string) =>
+                typeof n === "object"
+                  ? n.example
+                    ? `${n.term}: ${n.definition} (Example: ${n.example})`
+                    : `${n.term}: ${n.definition}`
+                  : n
               )
             : [],
           detailedContent: `${keyConcepts.join("\n")}\n\n${
             Array.isArray(notes)
               ? notes
-                  .map((n: { term?: string; definition?: string } | string) =>
+                  .map((n: { term?: string; definition?: string; example?: string } | string) =>
                     typeof n === "object"
-                      ? `${n.term}: ${n.definition}`
+                      ? n.example
+                        ? `${n.term}: ${n.definition}. Example: ${n.example}`
+                        : `${n.term}: ${n.definition}`
                       : n
                   )
                   .join("\n")
