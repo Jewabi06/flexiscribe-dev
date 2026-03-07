@@ -303,7 +303,7 @@ export default function QuizzesPage() {
       />
 
       {/* Main Content */}
-      <main className="main-content flex flex-col justify-between min-h-screen">
+      <main className="main-content flex flex-col min-h-screen">
         <StudentHeader darkMode={darkMode} setDarkMode={setDarkMode} studentProfile={studentProfile} />
         
         {/* Quizzes Content */}
