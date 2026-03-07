@@ -746,27 +746,36 @@ function generateDeterministicFIB(
   }
 
   // PASS 1: one sentence per term (maximizes concept diversity)
-  for (const c of shuffled) {
-    if (result.length >= count) break;
-    if (usedTerms.has(c.term)) continue;
-    if (usedSentences.has(c.sentence)) continue;
-    // Skip greeting sentences
-    if (greetingPatterns.some(p => p.test(c.sentence))) continue;
-    // ── Bloom's taxonomy difficulty filter ──
-    // EASY  → allow compound terms up to 3 words (most domain terms are 2-word compounds)
-    // MEDIUM → any term length (understanding)
-    // HARD  → multi-word terms and longer, complex sentences (application)
-    const termWordCount = c.term.split(/\s+/).length;
-    if (difficulty === 'EASY' && termWordCount > 3) continue;
-    if (difficulty === 'HARD' && termWordCount === 1 && c.term.length < 5) continue;
-    if (difficulty === 'HARD' && c.sentence.length < 60) continue;
+  // For MEDIUM: two-phase blend — 60% EASY-style + 40% HARD-style
+  const mediumEasyCountCap = difficulty === 'MEDIUM' ? Math.ceil(count * 0.6) : 0;
+  for (let phase = 0; phase < (difficulty === 'MEDIUM' ? 2 : 1); phase++) {
+    const phaseLimit = difficulty === 'MEDIUM' && phase === 0 ? mediumEasyCountCap : count;
+    for (const c of shuffled) {
+      if (result.length >= phaseLimit) break;
+      if (usedTerms.has(c.term)) continue;
+      if (usedSentences.has(c.sentence)) continue;
+      // Skip greeting sentences
+      if (greetingPatterns.some(p => p.test(c.sentence))) continue;
+      // ── Bloom's taxonomy difficulty filter ──
+      // EASY  → allow compound terms up to 3 words (most domain terms are 2-word compounds)
+      // MEDIUM Phase A → EASY-style: allow compound terms up to 3 words
+      // MEDIUM Phase B → HARD-style: multi-word terms, longer sentences
+      // HARD  → multi-word terms and longer, complex sentences (application)
+      const termWordCount = c.term.split(/\s+/).length;
+      if (difficulty === 'EASY' && termWordCount > 3) continue;
+      if (difficulty === 'MEDIUM' && phase === 0 && termWordCount > 3) continue;
+      if (difficulty === 'MEDIUM' && phase === 1 && termWordCount === 1 && c.term.length < 5) continue;
+      if (difficulty === 'MEDIUM' && phase === 1 && c.sentence.length < 60) continue;
+      if (difficulty === 'HARD' && termWordCount === 1 && c.term.length < 5) continue;
+      if (difficulty === 'HARD' && c.sentence.length < 60) continue;
 
-    const item = buildFIBItem(c.term, c.sentence, allTerms, extendedContent, fuzzyThreshold);
-    if (!item) continue;
+      const item = buildFIBItem(c.term, c.sentence, allTerms, extendedContent, fuzzyThreshold);
+      if (!item) continue;
 
-    result.push(item);
-    usedSentences.add(c.sentence);
-    usedTerms.add(c.term);
+      result.push(item);
+      usedSentences.add(c.sentence);
+      usedTerms.add(c.term);
+    }
   }
 
   // PASS 2: if still under count, allow reusing terms (different sentences)
@@ -975,69 +984,140 @@ function generateDeterministicMCQ(
     }
 
   } else if (difficulty === 'MEDIUM') {
-    // ── MEDIUM styles: purpose, application, definition-identify, example-identify ──
-    const styles: string[] = ['purpose', 'definition-identify', 'application', 'example-identify'];
-    for (const style of styles) {
-      if (result.length >= count) break;
-      if ((style === 'application' || style === 'example-identify') && conceptsWithExamples.length < 4) continue;
+    // ── MEDIUM = 60% EASY + 40% HARD blend ──
+    // Phase 1: EASY-style items (forward, reverse, example-forward, example-reverse)
+    const easyCountCap = Math.ceil(count * 0.6);
+    const easyStyles: string[] = ['forward', 'reverse', 'example-forward', 'example-reverse'];
+    for (const style of easyStyles) {
+      if (result.length >= easyCountCap) break;
+      if ((style === 'example-forward' || style === 'example-reverse') && conceptsWithExamples.length < 4) continue;
 
-      const pool = (style === 'application' || style === 'example-identify')
+      const pool = (style === 'example-forward' || style === 'example-reverse')
         ? shuffleArray([...conceptsWithExamples]) : shuffledConcepts;
 
       for (const concept of pool) {
-        if (result.length >= count) break;
+        if (result.length >= easyCountCap) break;
 
-        if (style === 'purpose') {
-          // "What is the main purpose of [term]?" → choices = short definitions
+        if (style === 'forward') {
           const correctShort = getShortDefinition(concept);
-          const qKey = normalizeText(`purpose:${concept.term}`);
+          const qKey = normalizeText(`What is ${concept.term}?`);
           const distractors = pickDistractors(validConcepts, new Set([concept.term]));
           if (distractors.length < 3) continue;
           const allChoices = [correctShort, ...distractors.map(c => getShortDefinition(c))];
           if (new Set(allChoices).size < 4) continue;
           const choices = shuffleArray(allChoices);
           addItem(qKey, {
-            question: `What is the main purpose of ${concept.term}?`, choices,
+            question: `What is ${concept.term}?`, choices,
             answerIndex: choices.indexOf(correctShort),
-            explanation: `${concept.term}: ${concept.definition}`,
+            explanation: `The correct answer is '${correctShort}' because that is the definition of ${concept.term}.`,
           });
-        } else if (style === 'definition-identify') {
-          // "[definition]. This best describes:" → choices = terms
+        } else if (style === 'reverse') {
           const correctShort = getShortDefinition(concept);
-          const qKey = normalizeText(`defid:${correctShort}`);
+          const qKey = normalizeText(`reverse:${correctShort}`);
           const distractors = pickDistractors(validConcepts, new Set([concept.term]));
           if (distractors.length < 3) continue;
           const choices = shuffleArray([concept.term, ...distractors.map(c => c.term)]);
           addItem(qKey, {
-            question: `"${correctShort}" — This best describes which concept?`, choices,
+            question: correctShort, choices,
             answerIndex: choices.indexOf(concept.term),
-            explanation: `The correct answer is '${concept.term}' because the statement describes its definition.`,
+            explanation: `The correct answer is '${concept.term}' because it matches the description: ${correctShort}`,
           });
-        } else if (style === 'application') {
-          // "In which scenario would you use [term]?" → choices = examples
+        } else if (style === 'example-forward') {
           const correctExample = concept.example!.trim();
-          const qKey = normalizeText(`apply:${concept.term}`);
+          const qKey = normalizeText(`example-of:${concept.term}`);
           const distractors = pickDistractors(conceptsWithExamples, new Set([concept.term]));
           if (distractors.length < 3) continue;
           const allChoices = [correctExample, ...distractors.map(c => c.example!.trim())];
           if (new Set(allChoices).size < 4) continue;
           const choices = shuffleArray(allChoices);
           addItem(qKey, {
-            question: `In which scenario would you apply ${concept.term}?`, choices,
+            question: `Which of the following is an example of ${concept.term}?`, choices,
             answerIndex: choices.indexOf(correctExample),
-            explanation: `${concept.term} is applied in: ${correctExample}`,
+            explanation: `The correct answer is the example of ${concept.term}: ${correctExample}`,
           });
-        } else if (style === 'example-identify') {
-          // Example scenario → "Which concept is being applied here?"
+        } else if (style === 'example-reverse') {
           const exampleText = concept.example!.trim();
-          const qKey = normalizeText(`exid:${exampleText.substring(0, 50)}`);
+          const qKey = normalizeText(`example-rev:${exampleText.substring(0, 50)}`);
           const distractors = pickDistractors(validConcepts, new Set([concept.term]));
           if (distractors.length < 3) continue;
           const choices = shuffleArray([concept.term, ...distractors.map(c => c.term)]);
           addItem(qKey, {
-            question: `"${exampleText}" — Which concept is being applied here?`, choices,
+            question: `Which concept does this scenario illustrate? "${exampleText}"`, choices,
             answerIndex: choices.indexOf(concept.term),
-            explanation: `This scenario demonstrates ${concept.term}: ${getShortDefinition(concept)}`,
+            explanation: `The correct answer is '${concept.term}' because this scenario is an example of ${concept.term}: ${getShortDefinition(concept)}`,
+          });
+        }
+      }
+    }
+
+    // Phase 2: HARD-style items (scenario-analysis, best-choice, distinguish, not-example)
+    const hardStyles: string[] = ['scenario-analysis', 'best-choice', 'distinguish', 'not-example'];
+    for (const style of hardStyles) {
+      if (result.length >= count) break;
+
+      if (style === 'scenario-analysis') {
+        if (conceptsWithExamples.length < 4) continue;
+        for (const concept of shuffleArray([...conceptsWithExamples])) {
+          if (result.length >= count) break;
+          const exampleText = concept.example!.trim();
+          const qKey = normalizeText(`scenario:${exampleText.substring(0, 60)}`);
+          const distractors = pickDistractors(validConcepts, new Set([concept.term]));
+          if (distractors.length < 3) continue;
+          const choices = shuffleArray([concept.term, ...distractors.map(c => c.term)]);
+          addItem(qKey, {
+            question: `Consider this scenario: "${exampleText}" — Which concept or strategy is being applied?`, choices,
+            answerIndex: choices.indexOf(concept.term),
+            explanation: `This scenario illustrates ${concept.term}: ${getShortDefinition(concept)}`,
+          });
+        }
+      } else if (style === 'best-choice') {
+        for (const concept of shuffledConcepts) {
+          if (result.length >= count) break;
+          const defSnippet = getShortDefinition(concept);
+          const qKey = normalizeText(`best:${concept.term}`);
+          const distractors = pickDistractors(validConcepts, new Set([concept.term]));
+          if (distractors.length < 3) continue;
+          const choices = shuffleArray([concept.term, ...distractors.map(c => c.term)]);
+          addItem(qKey, {
+            question: `An organization needs to achieve the following: "${defSnippet}" — Which approach or concept is BEST suited for this goal?`,
+            choices, answerIndex: choices.indexOf(concept.term),
+            explanation: `${concept.term} is specifically designed for this: ${concept.definition}`,
+          });
+        }
+      } else if (style === 'distinguish') {
+        for (const concept of shuffledConcepts) {
+          if (result.length >= count) break;
+          const words = concept.definition.split(/\s+/).filter(w => w.length > 3).slice(0, 10);
+          if (words.length < 4) continue;
+          const keyPhrase = words.join(' ');
+          const qKey = normalizeText(`distinguish:${concept.term}`);
+          const distractors = pickDistractors(validConcepts, new Set([concept.term]));
+          if (distractors.length < 3) continue;
+          const choices = shuffleArray([concept.term, ...distractors.map(c => c.term)]);
+          addItem(qKey, {
+            question: `Which concept specifically addresses "${keyPhrase}"?`,
+            choices, answerIndex: choices.indexOf(concept.term),
+            explanation: `${concept.term}: ${concept.definition}`,
+          });
+        }
+      } else if (style === 'not-example') {
+        if (conceptsWithExamples.length < 4) continue;
+        for (const concept of shuffleArray([...conceptsWithExamples])) {
+          if (result.length >= count) break;
+          const qKey = normalizeText(`not-ex:${concept.term}`);
+          const wrongConcepts = shuffleArray(conceptsWithExamples.filter(k => k.term !== concept.term));
+          if (wrongConcepts.length < 1) continue;
+          const wrongExample = wrongConcepts[0].example!.trim();
+          const correctExample = concept.example!.trim();
+          const secondWrong = wrongConcepts.length > 1 ? wrongConcepts[1] : null;
+          const thirdChoice = secondWrong ? secondWrong.example!.trim() : getShortDefinition(concept);
+          const allChoices = [correctExample, wrongExample, thirdChoice, getShortDefinition(concept)];
+          if (new Set(allChoices).size < 4) continue;
+          const choices = shuffleArray(allChoices);
+          addItem(qKey, {
+            question: `Which of the following does NOT describe or exemplify ${concept.term}?`,
+            choices, answerIndex: choices.indexOf(wrongExample),
+            explanation: `"${wrongExample}" is actually an example of ${wrongConcepts[0].term}, not ${concept.term}.`,
           });
         }
       }
@@ -1169,20 +1249,13 @@ function generateDeterministicFlashcards(
     (term: string) => `What is ${term}?`,
     (term: string) => `Define ${term}.`,
   ];
-  const mediumTemplates = [
-    (term: string) => `Explain the concept of ${term}.`,
-    (term: string) => `What is ${term} and why is it important?`,
-    (term: string) => `Describe ${term} in your own words.`,
-    (term: string) => `What does ${term} refer to?`,
-  ];
   const hardTemplates = [
     (term: string) => `How would you apply ${term} in a real-world scenario?`,
     (term: string) => `What are the key considerations when implementing ${term}?`,
     (term: string) => `Analyze the significance of ${term} in practice.`,
     (term: string) => `What problems does ${term} solve, and what are its limitations?`,
   ];
-  const templates = difficulty === 'EASY' ? easyTemplates
-    : difficulty === 'MEDIUM' ? mediumTemplates : hardTemplates;
+  const templates = difficulty === 'EASY' ? easyTemplates : hardTemplates;
 
   const shuffledConcepts = shuffleArray([...validConcepts]);
   const result: any[] = [];
@@ -1198,19 +1271,41 @@ function generateDeterministicFlashcards(
   }
 
   // Pass 1: one card per concept using difficulty-appropriate templates
-  for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
-    const concept = shuffledConcepts[i];
-    const template = templates[i % templates.length];
-    addCard(template(concept.term), concept.definition.trim());
+  // For MEDIUM: 60% EASY templates + 40% HARD templates
+  if (difficulty === 'MEDIUM') {
+    const easyCountCap = Math.ceil(count * 0.6);
+    // Phase A: EASY-style cards
+    for (let i = 0; i < shuffledConcepts.length && result.length < easyCountCap; i++) {
+      const concept = shuffledConcepts[i];
+      const template = easyTemplates[i % easyTemplates.length];
+      addCard(template(concept.term), concept.definition.trim());
+    }
+    // Phase B: HARD-style cards
+    for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
+      const concept = shuffledConcepts[i];
+      const template = hardTemplates[i % hardTemplates.length];
+      addCard(template(concept.term), concept.definition.trim());
+    }
+  } else {
+    for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
+      const concept = shuffledConcepts[i];
+      const template = templates[i % templates.length];
+      addCard(template(concept.term), concept.definition.trim());
+    }
   }
 
   // Pass 2: additional cards using different templates for same concepts
-  if (result.length < count && templates.length > 1) {
-    for (let pass = 1; pass < templates.length && result.length < count; pass++) {
-      for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
-        const concept = shuffledConcepts[i];
-        const template = templates[(i + pass) % templates.length];
-        addCard(template(concept.term), concept.definition.trim());
+  if (result.length < count) {
+    const pass2Templates = difficulty === 'MEDIUM'
+      ? [...easyTemplates, ...hardTemplates]
+      : templates;
+    if (pass2Templates.length > 1) {
+      for (let pass = 1; pass < pass2Templates.length && result.length < count; pass++) {
+        for (let i = 0; i < shuffledConcepts.length && result.length < count; i++) {
+          const concept = shuffledConcepts[i];
+          const template = pass2Templates[(i + pass) % pass2Templates.length];
+          addCard(template(concept.term), concept.definition.trim());
+        }
       }
     }
   }
@@ -1234,8 +1329,8 @@ function generateDeterministicFlashcards(
     }
   }
 
-  // Pass 5 (HARD-specific): comparison cards — "Compare [A] and [B]"
-  if (result.length < count && difficulty === 'HARD' && validConcepts.length >= 2) {
+  // Pass 5 (MEDIUM/HARD): comparison cards — "Compare [A] and [B]"
+  if (result.length < count && (difficulty === 'HARD' || difficulty === 'MEDIUM') && validConcepts.length >= 2) {
     const pairs: [typeof validConcepts[0], typeof validConcepts[0]][] = [];
     for (let i = 0; i < validConcepts.length; i++) {
       for (let j = i + 1; j < validConcepts.length; j++) {
@@ -1251,8 +1346,8 @@ function generateDeterministicFlashcards(
     }
   }
 
-  // Pass 6 (HARD-specific): scenario analysis — "Given this scenario, what concept applies?"
-  if (result.length < count && difficulty === 'HARD' && conceptsWithExamples.length > 0) {
+  // Pass 6 (MEDIUM/HARD): scenario analysis — "Given this scenario, what concept applies?"
+  if (result.length < count && (difficulty === 'HARD' || difficulty === 'MEDIUM') && conceptsWithExamples.length > 0) {
     for (const concept of shuffleArray([...conceptsWithExamples])) {
       if (result.length >= count) break;
       addCard(
@@ -3061,6 +3156,282 @@ export async function getBestAvailableModel(): Promise<string> {
   return selected;
 }
 
+// ============================================================================
+// HARD SCENARIO TRANSFORM — Ollama-powered upgrade of deterministic items
+// ============================================================================
+
+/**
+ * Transform a single deterministic MCQ into a HARD scenario-based question via Ollama.
+ *
+ * The LLM rewrites only the question text as a real-world scenario while keeping
+ * the same choices and correct answer index intact. This guarantees structural
+ * correctness (choices + answerIndex are preserved) while adding analytical depth.
+ */
+async function transformMCQToScenario(
+  item: { question: string; choices: string[]; answerIndex: number; explanation?: string },
+  lessonSlice: string,
+  model: string,
+  temperature: number
+): Promise<{ question: string; choices: string[]; answerIndex: number; explanation: string } | null> {
+  const correctAnswer = item.choices[item.answerIndex];
+  const prompt = `Transform this quiz question into a HARD scenario-based question. Output ONLY valid JSON.
+
+ORIGINAL QUESTION: ${item.question}
+CORRECT ANSWER: ${correctAnswer}
+
+LESSON CONTEXT:
+${lessonSlice}
+
+RULES:
+1. Rewrite the question as a 1-2 sentence real-world scenario that requires analysis
+2. Keep ALL 4 choices EXACTLY as provided — do NOT change, reorder, or rephrase them
+3. The correct answer must still be "${correctAnswer}" (answerIndex ${item.answerIndex})
+4. Explanation: 1-2 sentences starting with "The correct answer is '${correctAnswer}' because ..."
+
+{"question":"...scenario question...","choices":${JSON.stringify(item.choices)},"answerIndex":${item.answerIndex},"explanation":"The correct answer is '${correctAnswer}' because ..."}`;
+
+  try {
+    const raw = await generateWithOllama(prompt, {
+      model,
+      temperature,
+      requireJson: true,
+      maxTokens: 600,
+    });
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/(\{[\s\S]*\})/);
+      if (m) { try { parsed = JSON.parse(m[1]); } catch { return null; } }
+      if (!parsed) return null;
+    }
+
+    if (!parsed.question || !Array.isArray(parsed.choices) || parsed.choices.length !== 4) return null;
+
+    // Verify the LLM didn't change the choices — compare normalized sets
+    const origSet = new Set(item.choices.map(c => normalizeText(c)));
+    const newSet = new Set(parsed.choices.map((c: string) => normalizeText(c)));
+    if (origSet.size !== newSet.size || ![...origSet].every(c => newSet.has(c))) {
+      // Choices were modified — fall back to original choices with rewritten question
+      parsed.choices = item.choices;
+      parsed.answerIndex = item.answerIndex;
+    } else {
+      // Choices are same but possibly reordered — find correct answerIndex
+      const normCorrect = normalizeText(correctAnswer);
+      const newIdx = parsed.choices.findIndex((c: string) => normalizeText(c) === normCorrect);
+      if (newIdx < 0) return null;
+      parsed.answerIndex = newIdx;
+    }
+
+    // Ensure explanation exists
+    if (!parsed.explanation || parsed.explanation.length < 10) {
+      parsed.explanation = `The correct answer is '${correctAnswer}' because it directly relates to the concept described in the lesson content.`;
+    }
+
+    return {
+      question: parsed.question,
+      choices: parsed.choices,
+      answerIndex: parsed.answerIndex,
+      explanation: parsed.explanation,
+    };
+  } catch (err) {
+    console.error('transformMCQToScenario failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Transform a single deterministic FIB into a HARD scenario-based item via Ollama.
+ *
+ * The LLM creates a longer, more complex sentence containing the same answer term.
+ * Distractors are preserved from the deterministic generator.
+ */
+async function transformFIBToScenario(
+  item: { sentence: string; answer: string; distractors: string[] },
+  lessonSlice: string,
+  keyConcepts: { term: string; definition: string }[],
+  model: string,
+  temperature: number
+): Promise<{ sentence: string; answer: string; distractors: string[] } | null> {
+  const conceptDef = keyConcepts.find(k => normalizeText(k.term) === normalizeText(item.answer));
+  const defHint = conceptDef?.definition ? `\nDEFINITION: ${conceptDef.definition}` : '';
+
+  const prompt = `Create a HARD fill-in-the-blank sentence about "${item.answer}". Output ONLY valid JSON.
+
+ORIGINAL SENTENCE: ${item.sentence.replace('[blank]', item.answer)}${defHint}
+
+LESSON CONTEXT:
+${lessonSlice}
+
+RULES:
+1. Write a NEW sentence (80+ chars) using a scenario or application context from the lesson
+2. The sentence MUST contain the term "${item.answer}" replaced with [blank]
+3. Answer must be EXACTLY "${item.answer}" — do NOT change or abbreviate it
+4. Use these exact distractors: ${JSON.stringify(item.distractors)}
+5. Do NOT copy the original sentence — create a NEW one with different wording
+
+{"sentence":"...scenario sentence with [blank]...","answer":"${item.answer}","distractors":${JSON.stringify(item.distractors)}}`;
+
+  try {
+    const raw = await generateWithOllama(prompt, {
+      model,
+      temperature,
+      requireJson: true,
+      maxTokens: 400,
+    });
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/(\{[\s\S]*\})/);
+      if (m) { try { parsed = JSON.parse(m[1]); } catch { return null; } }
+      if (!parsed) return null;
+    }
+
+    if (!parsed.sentence || !parsed.answer) return null;
+
+    // Enforce answer hasn't been changed
+    if (normalizeText(parsed.answer) !== normalizeText(item.answer)) {
+      parsed.answer = item.answer;
+    }
+
+    // Ensure [blank] is present
+    if (!parsed.sentence.includes('[blank]')) {
+      // Try to insert [blank] by finding the answer in the sentence
+      const esc = item.answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const reg = new RegExp(`\\b${esc}\\b`, 'i');
+      if (reg.test(parsed.sentence)) {
+        parsed.sentence = parsed.sentence.replace(reg, '[blank]');
+      } else {
+        return null;
+      }
+    }
+
+    // Enforce distractors
+    parsed.distractors = item.distractors;
+
+    return {
+      sentence: parsed.sentence,
+      answer: item.answer,
+      distractors: item.distractors,
+    };
+  } catch (err) {
+    console.error('transformFIBToScenario failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Transform a single deterministic flashcard into a HARD scenario-based card via Ollama.
+ *
+ * The LLM rewrites the front as a scenario/application question and the back as
+ * an analytical explanation.
+ */
+async function transformFlashcardToScenario(
+  item: { front: string; back: string },
+  lessonSlice: string,
+  model: string,
+  temperature: number
+): Promise<{ front: string; back: string } | null> {
+  const prompt = `Transform this flashcard into a HARD scenario-based card. Output ONLY valid JSON.
+
+ORIGINAL FRONT: ${item.front}
+ORIGINAL BACK: ${item.back}
+
+LESSON CONTEXT:
+${lessonSlice}
+
+RULES:
+1. Front: A real-world scenario (1-2 sentences) or "What would happen if..." question
+2. Back: 2-3 sentence analysis or explanation — not just a definition
+3. Content from lesson only — no outside knowledge
+
+{"front":"...scenario question...","back":"...2-3 sentence analysis..."}`;
+
+  try {
+    const raw = await generateWithOllama(prompt, {
+      model,
+      temperature,
+      requireJson: true,
+      maxTokens: 400,
+    });
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/(\{[\s\S]*\})/);
+      if (m) { try { parsed = JSON.parse(m[1]); } catch { return null; } }
+      if (!parsed) return null;
+    }
+
+    if (!parsed.front || !parsed.back) return null;
+    if (parsed.front.length < 20 || parsed.back.length < 20) return null;
+
+    return { front: parsed.front, back: parsed.back };
+  } catch (err) {
+    console.error('transformFlashcardToScenario failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
+ * Orchestrate the transformation of deterministic items to HARD scenarios via Ollama.
+ *
+ * Processes items sequentially (respecting CONCURRENCY=1 for CPU inference).
+ * Each item gets an individual Ollama call. Failed transforms are tracked so the
+ * caller can fall back to concept-by-concept generation.
+ */
+async function transformItemsToHardScenarios(
+  items: any[],
+  type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
+  lessonContent: string,
+  keyConcepts: { term: string; definition: string }[],
+  model: string,
+  temperature: number
+): Promise<{ transformed: any[]; failed: number; apiCalls: number }> {
+  const transformed: any[] = [];
+  let failed = 0;
+  let apiCalls = 0;
+
+  console.log(`\n🔄 Transforming ${items.length} deterministic items to HARD scenarios via Ollama...`);
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    // Use a windowed slice of lesson content for context
+    const sliceSize = type === 'FILL_IN_BLANK' ? 1500 : 1200;
+    const lessonSlice = getLessonSlice(lessonContent, i, sliceSize, 0);
+
+    let result: any = null;
+
+    if (type === 'MCQ') {
+      result = await transformMCQToScenario(item, lessonSlice, model, temperature);
+    } else if (type === 'FILL_IN_BLANK') {
+      result = await transformFIBToScenario(item, lessonSlice, keyConcepts, model, temperature);
+    } else if (type === 'FLASHCARD') {
+      result = await transformFlashcardToScenario(item, lessonSlice, model, temperature);
+    }
+    apiCalls++;
+
+    if (result) {
+      transformed.push(result);
+      if ((i + 1) % 5 === 0 || i === items.length - 1) {
+        console.log(`  Transform progress: ${i + 1}/${items.length} processed, ${transformed.length} succeeded`);
+      }
+    } else {
+      failed++;
+      // On failure, keep the original deterministic item as-is (still better than nothing)
+      transformed.push(item);
+      console.warn(`  Transform ${i + 1}/${items.length}: failed — keeping original deterministic item`);
+    }
+  }
+
+  console.log(`✅ Transform complete: ${transformed.length - failed} transformed + ${failed} kept original = ${transformed.length} total (${apiCalls} API calls)`);
+  return { transformed, failed, apiCalls };
+}
+
 /**
  * Generate quiz using Ollama with structured prompts (auto-selects best available model)
  * High-performance parallel-wave architecture with 1.5x overgeneration
@@ -3108,11 +3479,70 @@ export async function generateQuizWithGemma(
   // sentence is verbatim, the answer is present, and distractors are real
   // key concepts — eliminating the "answer not found" and paraphrasing
   // failures that plague the LLM-based pipeline.
+  //
+  // For HARD: deterministic items are collected as seeds, then each is
+  // transformed into a scenario-based item via Ollama (never returned as-is).
   let _deterministicSeed: any[] | null = null;
   const fibConcepts = keyConcepts.length >= 4 ? keyConcepts : (autoConcepts.length >= 4 ? autoConcepts : []);
   if (type === 'FILL_IN_BLANK' && fibConcepts.length >= 4) {
-    const deterministicItems = generateDeterministicFIB(lessonContent, fibConcepts, count, difficulty, notes);
-    if (deterministicItems && deterministicItems.length >= count) {
+    // For HARD, generate more base items (using EASY rules for max yield) to feed the Ollama transform
+    const detDifficulty = difficulty === 'HARD' ? 'EASY' : difficulty;
+    const detCount = difficulty === 'HARD' ? Math.ceil(count * 1.5) : count;
+    const deterministicItems = generateDeterministicFIB(lessonContent, fibConcepts, detCount, detDifficulty, notes);
+
+    if (difficulty === 'HARD' && deterministicItems && deterministicItems.length > 0) {
+      // ── HARD: Always transform through Ollama ──
+      const resolvedModelForTransform = preResolvedModel || await getBestAvailableModel();
+      const hardTemp = 0.40;
+      const itemsToTransform = deterministicItems.slice(0, Math.ceil(count * 1.3));
+      const { transformed, failed, apiCalls } = await transformItemsToHardScenarios(
+        itemsToTransform, 'FILL_IN_BLANK', lessonContent, fibConcepts, resolvedModelForTransform, hardTemp
+      );
+
+      // Validate transformed items
+      const seenItemsLocal = new Set<string>();
+      const validTransformed: any[] = [];
+      for (const item of transformed) {
+        const res = validateFillInBlankItem(item, lessonContent, fibConcepts, 'HARD', notes);
+        if (res.valid) {
+          const key = normalizeText(res.item.sentence);
+          if (!seenItemsLocal.has(key)) {
+            validTransformed.push(res.item);
+            seenItemsLocal.add(key);
+          }
+        }
+      }
+
+      if (validTransformed.length >= count) {
+        const elapsed = Date.now() - startTime;
+        const elapsedSeconds = Math.floor(elapsed / 1000);
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
+
+        console.log(`\n=== Generation Complete ===`);
+        console.log(`Requested: ${count} (deterministic → Ollama HARD transform)`);
+        console.log(`Total verified items generated: ${validTransformed.length}`);
+        console.log(`Final items returned: ${Math.min(validTransformed.length, count)}`);
+        console.log(`Rejected items: ${transformed.length - validTransformed.length}`);
+        console.log(`Total waves: 0 (${apiCalls} API calls for transform)`);
+        console.log(`Success rate: ${Math.round((validTransformed.length / transformed.length) * 100)}%`);
+        console.log(`Time elapsed: ${timeString}`);
+        console.log(`===========================\n`);
+
+        return {
+          type: 'fill_blank',
+          difficulty: 'hard',
+          items: validTransformed.slice(0, count),
+          rejectedItems: [],
+          stats: { requested: count, generated: validTransformed.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
+        };
+      }
+      // Partial results — seed the wave loop with what we have
+      _deterministicSeed = validTransformed;
+      console.log(`HARD FIB transform: ${validTransformed.length}/${count} — wave loop will fill remaining.`);
+    } else if (difficulty !== 'HARD' && deterministicItems && deterministicItems.length >= count) {
+      // EASY/MEDIUM: return deterministic items directly (no LLM needed)
       const elapsed = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsed / 1000);
       const minutes = Math.floor(elapsedSeconds / 60);
@@ -3137,9 +3567,7 @@ export async function generateQuizWithGemma(
         rejectedItems: [],
         stats: { requested: count, generated: deterministicItems.length, rejected: 0, waves: 0, apiCalls: 0 }
       };
-    }
-    // Save partial results to seed the wave loop
-    if (deterministicItems && deterministicItems.length > 0) {
+    } else if (deterministicItems && deterministicItems.length > 0) {
       _deterministicSeed = deterministicItems;
       console.log(`Deterministic FIB produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
     }
@@ -3149,13 +3577,72 @@ export async function generateQuizWithGemma(
   // Uses ORIGINAL key concepts (pre-expansion) + definitions to build
   // quiz questions. Expanded variants produce fragment terms
   // like "learning discovers" that are not valid concepts for MCQ.
+  //
+  // For HARD: deterministic items are collected as seeds, then each is
+  // transformed into a scenario-based item via Ollama (never returned as-is).
   let _deterministicMCQSeed: any[] | null = null;
   const mcqConcepts = originalKeyConcepts.length >= 4 ? originalKeyConcepts
     : keyConcepts.length >= 4 ? keyConcepts
     : autoConcepts.length >= 4 ? autoConcepts : [];
   if (type === 'MCQ' && mcqConcepts.length >= 4) {
-    const deterministicItems = generateDeterministicMCQ(mcqConcepts, count, difficulty);
-    if (deterministicItems && deterministicItems.length >= count) {
+    // For HARD, generate more base items (using EASY rules for max yield) to feed the Ollama transform
+    const detDifficulty = difficulty === 'HARD' ? 'EASY' : difficulty;
+    const detCount = difficulty === 'HARD' ? Math.ceil(count * 1.5) : count;
+    const deterministicItems = generateDeterministicMCQ(mcqConcepts, detCount, detDifficulty);
+
+    if (difficulty === 'HARD' && deterministicItems && deterministicItems.length > 0) {
+      // ── HARD: Always transform through Ollama ──
+      const resolvedModelForTransform = preResolvedModel || await getBestAvailableModel();
+      const hardTemp = 0.45;
+      const itemsToTransform = deterministicItems.slice(0, Math.ceil(count * 1.3));
+      const { transformed, failed, apiCalls } = await transformItemsToHardScenarios(
+        itemsToTransform, 'MCQ', lessonContent, mcqConcepts, resolvedModelForTransform, hardTemp
+      );
+
+      // Validate transformed items
+      const seenItemsLocal = new Set<string>();
+      const validTransformed: any[] = [];
+      for (const item of transformed) {
+        const res = validateMCQItem(item, 'HARD', mcqConcepts, lessonContent);
+        if (res.valid) {
+          const key = normalizeText(res.item.question);
+          if (!seenItemsLocal.has(key)) {
+            validTransformed.push(res.item);
+            seenItemsLocal.add(key);
+          }
+        }
+      }
+
+      if (validTransformed.length >= count) {
+        const elapsed = Date.now() - startTime;
+        const elapsedSeconds = Math.floor(elapsed / 1000);
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
+
+        console.log(`\n=== Generation Complete ===`);
+        console.log(`Requested: ${count} (deterministic → Ollama HARD MCQ transform)`);
+        console.log(`Total verified items generated: ${validTransformed.length}`);
+        console.log(`Final items returned: ${Math.min(validTransformed.length, count)}`);
+        console.log(`Rejected items: ${transformed.length - validTransformed.length}`);
+        console.log(`Total waves: 0 (${apiCalls} API calls for transform)`);
+        console.log(`Success rate: ${Math.round((validTransformed.length / transformed.length) * 100)}%`);
+        console.log(`Time elapsed: ${timeString}`);
+        console.log(`===========================\n`);
+
+        return {
+          type: 'mcq',
+          difficulty: 'hard',
+          items: validTransformed.slice(0, count),
+          rejectedItems: [],
+          stats: { requested: count, generated: validTransformed.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
+        };
+      }
+      // Partial results — seed the wave loop with what we have
+      _deterministicMCQSeed = validTransformed;
+      console.log(`HARD MCQ transform: ${validTransformed.length}/${count} — wave loop will fill remaining.`);
+    } else if (difficulty !== 'HARD' && deterministicItems && deterministicItems.length >= count) {
+      // EASY/MEDIUM: return deterministic items directly (no LLM needed)
       const elapsed = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsed / 1000);
       const minutes = Math.floor(elapsedSeconds / 60);
@@ -3180,9 +3667,7 @@ export async function generateQuizWithGemma(
         rejectedItems: [],
         stats: { requested: count, generated: deterministicItems.length, rejected: 0, waves: 0, apiCalls: 0 }
       };
-    }
-    // Save partial results to seed the wave loop
-    if (deterministicItems && deterministicItems.length > 0) {
+    } else if (deterministicItems && deterministicItems.length > 0) {
       _deterministicMCQSeed = deterministicItems;
       console.log(`Deterministic MCQ ${difficulty} produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
     }
@@ -3191,13 +3676,72 @@ export async function generateQuizWithGemma(
   // ── Deterministic fast-path for FLASHCARDS (ALL difficulties) ──
   // Builds front/back cards directly from key concept definitions.
   // EASY: simple recall, MEDIUM: varied styles, HARD: scenario/comparison.
+  //
+  // For HARD: deterministic items are collected as seeds, then each is
+  // transformed into a scenario-based item via Ollama (never returned as-is).
   let _deterministicFlashcardSeed: any[] | null = null;
   const flashcardConcepts = originalKeyConcepts.length >= 2 ? originalKeyConcepts
     : keyConcepts.length >= 2 ? keyConcepts
     : autoConcepts.length >= 2 ? autoConcepts : [];
   if (type === 'FLASHCARD' && flashcardConcepts.length >= 2) {
-    const deterministicItems = generateDeterministicFlashcards(flashcardConcepts, count, difficulty);
-    if (deterministicItems && deterministicItems.length >= count) {
+    // For HARD, generate more base items (using EASY rules for max yield) to feed the Ollama transform
+    const detDifficulty = difficulty === 'HARD' ? 'EASY' : difficulty;
+    const detCount = difficulty === 'HARD' ? Math.ceil(count * 1.5) : count;
+    const deterministicItems = generateDeterministicFlashcards(flashcardConcepts, detCount, detDifficulty);
+
+    if (difficulty === 'HARD' && deterministicItems && deterministicItems.length > 0) {
+      // ── HARD: Always transform through Ollama ──
+      const resolvedModelForTransform = preResolvedModel || await getBestAvailableModel();
+      const hardTemp = 0.55;
+      const itemsToTransform = deterministicItems.slice(0, Math.ceil(count * 1.3));
+      const { transformed, failed, apiCalls } = await transformItemsToHardScenarios(
+        itemsToTransform, 'FLASHCARD', lessonContent, flashcardConcepts, resolvedModelForTransform, hardTemp
+      );
+
+      // Validate transformed items
+      const seenItemsLocal = new Set<string>();
+      const validTransformed: any[] = [];
+      for (const item of transformed) {
+        const res = validateFlashcardItem(item);
+        if (res.valid) {
+          const key = normalizeText(res.item.front);
+          if (!seenItemsLocal.has(key)) {
+            validTransformed.push(res.item);
+            seenItemsLocal.add(key);
+          }
+        }
+      }
+
+      if (validTransformed.length >= count) {
+        const elapsed = Date.now() - startTime;
+        const elapsedSeconds = Math.floor(elapsed / 1000);
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
+
+        console.log(`\n=== Generation Complete ===`);
+        console.log(`Requested: ${count} (deterministic → Ollama HARD Flashcard transform)`);
+        console.log(`Total verified items generated: ${validTransformed.length}`);
+        console.log(`Final items returned: ${Math.min(validTransformed.length, count)}`);
+        console.log(`Rejected items: ${transformed.length - validTransformed.length}`);
+        console.log(`Total waves: 0 (${apiCalls} API calls for transform)`);
+        console.log(`Success rate: ${Math.round((validTransformed.length / transformed.length) * 100)}%`);
+        console.log(`Time elapsed: ${timeString}`);
+        console.log(`===========================\n`);
+
+        return {
+          type: 'flashcard',
+          difficulty: 'hard',
+          items: validTransformed.slice(0, count),
+          rejectedItems: [],
+          stats: { requested: count, generated: validTransformed.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
+        };
+      }
+      // Partial results — seed the wave loop with what we have
+      _deterministicFlashcardSeed = validTransformed;
+      console.log(`HARD Flashcard transform: ${validTransformed.length}/${count} — wave loop will fill remaining.`);
+    } else if (difficulty !== 'HARD' && deterministicItems && deterministicItems.length >= count) {
+      // EASY/MEDIUM: return deterministic items directly (no LLM needed)
       const elapsed = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsed / 1000);
       const minutes = Math.floor(elapsedSeconds / 60);
@@ -3205,7 +3749,7 @@ export async function generateQuizWithGemma(
       const timeString = minutes > 0 ? `${minutes}m ${seconds}s` : `${elapsed}ms`;
 
       console.log(`\n=== Generation Complete ===`);
-      console.log(`Requested: ${count} (deterministic Flashcard fast-path)`);
+      console.log(`Requested: ${count} (deterministic Flashcard ${difficulty} fast-path)`);
       console.log(`Total verified items generated: ${deterministicItems.length}`);
       console.log(`Final items returned: ${Math.min(deterministicItems.length, count)}`);
       console.log(`Rejected items: 0`);
@@ -3222,9 +3766,7 @@ export async function generateQuizWithGemma(
         rejectedItems: [],
         stats: { requested: count, generated: deterministicItems.length, rejected: 0, waves: 0, apiCalls: 0 }
       };
-    }
-    // Save partial results to seed the wave loop
-    if (deterministicItems && deterministicItems.length > 0) {
+    } else if (deterministicItems && deterministicItems.length > 0) {
       _deterministicFlashcardSeed = deterministicItems;
       console.log(`Deterministic Flashcards produced ${deterministicItems.length}/${count} — wave loop will fill remaining.`);
     }
