@@ -186,7 +186,7 @@ export default function PrototypeDashboard() {
       return;
     }
 
-    setStatusMessage("Starting transcription...");
+setStatusMessage("Starting recording...");
 
     try {
       const res = await fetch("/api/transcribe/start", {
@@ -290,7 +290,7 @@ export default function PrototypeDashboard() {
     if (!sessionId) return;
 
     setIsStopping(true);
-    setStatusMessage("Stopping transcription & generating summary...");
+    setStatusMessage("Saving your recording and generating notes...");
     stopDurationTimer();
 
     // Stop live stream and polling
@@ -324,11 +324,10 @@ export default function PrototypeDashboard() {
       setIsRecording(false);
       setIsStopping(false);
 
-      const formatLabel = sessionType === "meeting" ? "MOTM" : "Cornell Notes";
-      let msg = `Transcription saved! ${data.chunks_count} chunks recorded. `;
-      if (data.has_summary) msg += `${formatLabel} summary generated. `;
-      if (data.lesson_created) msg += "Lesson created for quizzes.";
-      else if (!data.has_summary) msg += "No summary generated.";
+      let msg = "Recording saved! ";
+      if (data.lesson_created) msg += "AI notes and transcripts are ready.";
+      else if (data.has_summary) msg += "AI notes have been generated.";
+      else msg += "AI notes will be ready shortly.";
       setStatusMessage(msg);
 
       // Update live chunks with final data (10s chunks, includes final buffer flush)
@@ -705,7 +704,7 @@ export default function PrototypeDashboard() {
           <div className="live-transcript-panel">
             <div className="live-transcript-header">
               <h3>Live Transcript</h3>
-              <span className="chunk-count">{liveChunks.length} chunk{liveChunks.length !== 1 ? "s" : ""}</span>
+              <span className="chunk-count">{liveChunks.length} segment{liveChunks.length !== 1 ? "s" : ""}</span>
             </div>
             <div className="live-transcript-content">
               {liveChunks.length === 0 ? (
