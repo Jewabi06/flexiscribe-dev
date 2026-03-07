@@ -70,6 +70,9 @@ export async function GET(request: Request) {
           : "Low"
       : "Low";
 
+    // Get total number of lessons (reviewers)
+    const totalReviewers = await prisma.lesson.count();
+
     return NextResponse.json(
       {
         generatedContent: {
@@ -81,7 +84,7 @@ export async function GET(request: Request) {
           totalStudents,
           avgScore,
           engagement,
-          totalReviewers: totalStudents, // Assuming each student has access to reviewers
+          totalReviewers, // Now correctly counts lessons
         },
         classes,
       },
