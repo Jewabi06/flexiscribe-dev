@@ -160,7 +160,17 @@ export default function TranscriptViewerPage() {
       container.style.maxWidth = "210mm";
       container.style.margin = "0 auto";
 
-      const filename = `${(transcript?.title || "transcript").replace(/[^a-zA-Z0-9 ]/g, "")}.pdf`;
+      const revDateObj = transcript?.date ? new Date(transcript.date) : (transcript?.createdAt ? new Date(transcript.createdAt) : new Date());
+      const revMm = String(revDateObj.getMonth() + 1).padStart(2, '0');
+      const revDd = String(revDateObj.getDate()).padStart(2, '0');
+      const revYy = String(revDateObj.getFullYear()).slice(2);
+      const revDateStr = `${revMm}-${revDd}-${revYy}`;
+      const revCourse = transcript?.class?.subject || transcript?.course || classCode || '';
+      const revTopic = transcript?.title || 'transcript';
+      const sanitize = (str) => str.replace(/ /g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+      const filename = revCourse
+        ? `${sanitize(revCourse)}_${sanitize(revTopic)}_${revDateStr}.pdf`
+        : `${sanitize(revTopic)}_${revDateStr}.pdf`;
 
       await html2pdf()
         .set({

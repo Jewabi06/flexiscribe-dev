@@ -175,7 +175,17 @@ export default function ClassReviewersPage() {
                   </div>
                   
                   <div className="reviewer-card-body">
-                    <h3 className="reviewer-title">{reviewer.title}</h3>
+                    <h3 className="reviewer-title">
+                      {(() => {
+                        const courseCode = reviewer.class?.subject || reviewer.course || '';
+                        const topic = reviewer.title || 'Untitled';
+                        const dateObj = reviewer.date ? new Date(reviewer.date) : new Date(reviewer.createdAt);
+                        const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                        const dd = String(dateObj.getDate()).padStart(2, '0');
+                        const yy = String(dateObj.getFullYear()).slice(2);
+                        return `${courseCode} | ${topic} | ${mm}-${dd}-${yy}`;
+                      })()}
+                    </h3>
                     <p className="reviewer-description">{reviewer.class?.subject || reviewer.course}</p>
                     
                     <div className="reviewer-meta">

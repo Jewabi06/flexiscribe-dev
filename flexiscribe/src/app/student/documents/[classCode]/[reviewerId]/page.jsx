@@ -36,25 +36,32 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
 
     let html = `<div style="${pageStyle}">`;
 
-    html += `<div style="text-align:center; padding-bottom:16px; margin-bottom:24px; border-bottom:2px solid var(--border-color);">`;
-    html += `<h1 style="margin:0 0 10px 0; font-size:18pt; font-weight:700; color:var(--text-main);">${meetingTitle}</h1>`;
-    html += `<p style="margin:3px 0; font-size:11pt; color:var(--text-muted);">Date: ${date}</p>`;
-    html += `<p style="margin:3px 0; font-size:11pt; color:var(--text-muted);">Time: ${time}</p>`;
-    html += `</div>`;
+    // Table-based MOTM layout with borders
+    html += `<table style="width:100%; border-collapse:collapse; border:1px solid var(--border-color);">`;
 
+    // Purple header row
+    html += `<tr>`;
+    html += `<td colspan="2" style="background:#7c3aed; color:#ffffff; text-align:center; padding:16px; border:1px solid var(--border-color);">`;
+    html += `<h1 style="margin:0 0 8px 0; font-size:18pt; font-weight:700; color:#ffffff;">${meetingTitle}</h1>`;
+    html += `<p style="margin:3px 0; font-size:11pt; color:#f0e6ff;">Date: ${date} &nbsp;|&nbsp; Time: ${time}</p>`;
+    html += `</td>`;
+    html += `</tr>`;
+
+    // Agendas
     agendas.forEach((agenda, idx) => {
       const agendaTitle = agenda.title || `Agenda ${idx + 1}`;
       const keyPoints = agenda.key_points || [];
       const clarifications = agenda.important_clarifications || [];
 
-      html += `<div style="margin-bottom:24px;">`;
-      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:var(--text-main);">${idx + 1}. ${agendaTitle}</h2>`;
+      html += `<tr>`;
+      html += `<td colspan="2" style="padding:16px; border:1px solid var(--border-color); text-align:justify;">`;
+      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:var(--accent-color);">${idx + 1}. ${agendaTitle}</h2>`;
 
       if (keyPoints.length > 0) {
         html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Key Points:</p>`;
         html += `<ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
         keyPoints.forEach((pt) => {
-          html += `<li style="margin-bottom:5px; font-size:11pt;">${pt}</li>`;
+          html += `<li style="margin-bottom:5px; font-size:11pt; text-align:justify;">${pt}</li>`;
         });
         html += `</ul>`;
       }
@@ -63,24 +70,32 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
         html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Important Clarifications:</p>`;
         html += `<ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
         clarifications.forEach((c) => {
-          html += `<li style="margin-bottom:5px; font-size:11pt;">${c}</li>`;
+          html += `<li style="margin-bottom:5px; font-size:11pt; text-align:justify;">${c}</li>`;
         });
         html += `</ul>`;
       }
 
-      html += `</div>`;
+      html += `</td>`;
+      html += `</tr>`;
     });
 
+    // Next meeting row
     if (nextMeeting) {
-      html += `<div style="margin-top:12px; padding:8px 0; color:var(--text-main);">`;
-      html += `<p style="font-size:11pt;"><strong>Next Meeting:</strong> ${typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting))}</p>`;
-      html += `</div>`;
+      html += `<tr>`;
+      html += `<td colspan="2" style="padding:12px 16px; border:1px solid var(--border-color); text-align:justify;">`;
+      html += `<p style="font-size:11pt; margin:0; color:var(--text-main);"><strong>Next Meeting:</strong> ${typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting))}</p>`;
+      html += `</td>`;
+      html += `</tr>`;
     }
 
-    html += `<div style="border-top:2px solid var(--border-color); margin-top:32px; padding-top:16px; color:var(--text-main);">`;
-    html += `<p style="font-size:11pt;"><strong>Prepared by:</strong> ${preparedBy}</p>`;
-    html += `</div>`;
+    // Prepared by row
+    html += `<tr>`;
+    html += `<td colspan="2" style="padding:12px 16px; border:1px solid var(--border-color); text-align:right;">`;
+    html += `<p style="font-size:11pt; margin:0; color:var(--text-main);"><strong>Prepared by:</strong> ${preparedBy}</p>`;
+    html += `</td>`;
+    html += `</tr>`;
 
+    html += `</table>`;
     html += `</div>`;
     return html;
   }
@@ -92,8 +107,7 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   const dd = String(dateObj.getDate()).padStart(2, '0');
   const yy = String(dateObj.getFullYear()).slice(2);
   const formattedDate = `${mm}-${dd}-${yy}`;
-  const courseCode = meta.classCode || meta.course || meta.class?.subject || '';
-  const title = courseCode ? `${courseCode} - ${topicTitle} - ${formattedDate}` : `${topicTitle} - ${formattedDate}`;
+  const courseCode = meta.class?.subject || meta.course || meta.classCode || '';
   const recordDate = dateObj.toLocaleDateString();
   const keyConcepts = s.key_concepts || s.cue_questions || [];
   const notes = s.notes || [];
@@ -104,17 +118,19 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
 
   let html = `<div style="${pageStyle}">`;
 
-  html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
+  // Header table with purple background and white text
+  html += `<table style="width:100%; border-collapse:collapse; border:1px solid var(--border-color);">`;
   html += `<tr>`;
-  html += `<td style="padding:14px 16px; width:35%; text-align:left; vertical-align:middle; font-size:11pt; color:#444; border-bottom:2px solid #333;"><strong>Date:</strong> ${recordDate}</td>`;
-  html += `<td style="padding:14px 16px; width:65%; text-align:right; vertical-align:middle; font-size:16pt; font-weight:700; color:#5b21b6; border-bottom:2px solid #333;">${title}</td>`;
+  html += `<td style="padding:14px 16px; width:35%; text-align:left; vertical-align:middle; font-size:11pt; color:#ffffff; background:#7c3aed; border:1px solid var(--border-color);"><strong>Date:</strong> ${recordDate}</td>`;
+  html += `<td style="padding:14px 16px; width:65%; text-align:right; vertical-align:middle; font-size:16pt; font-weight:700; color:#ffffff; background:#7c3aed; border:1px solid var(--border-color);">${topicTitle}</td>`;
   html += `</tr>`;
   html += `</table>`;
 
-  html += `<table style="width:100%; border-collapse:collapse; margin:0;">`;
+  // Main content table with borders
+  html += `<table style="width:100%; border-collapse:collapse; border:1px solid var(--border-color); page-break-inside:auto;">`;
   html += `<tr>`;
 
-  html += `<td style="width:35%; vertical-align:top; padding:16px; border-right:2px solid var(--border-color);">`;
+  html += `<td style="width:35%; vertical-align:top; padding:16px; border:1px solid var(--border-color);">`;
   html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Key Concepts</p>`;
   if (keyConcepts.length > 0) {
     html += `<ul style="margin:0; padding:0 0 0 18px; list-style-type:disc; color:var(--text-main);">`;
@@ -125,7 +141,7 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   }
   html += `</td>`;
 
-  html += `<td style="width:65%; vertical-align:top; padding:16px;">`;
+  html += `<td style="width:65%; vertical-align:top; padding:16px; border:1px solid var(--border-color);">`;
   html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Notes</p>`;
   if (Array.isArray(notes) && notes.length > 0) {
     notes.forEach((note) => {
@@ -143,9 +159,10 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   html += `</td>`;
 
   html += `</tr>`;
-  html += `</table>`;
 
-  html += `<div style="border-top:2px solid var(--border-color); padding:16px 0;">`;
+  // Summary row (inside same table, with border)
+  html += `<tr>`;
+  html += `<td colspan="2" style="padding:16px; border:1px solid var(--border-color);">`;
   html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">Summary</p>`;
   if (summaryArr.length > 0) {
     html += `<ul style="margin:0; padding:0 0 0 18px; color:var(--text-main);">`;
@@ -156,7 +173,10 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   } else {
     html += `<p style="font-size:11pt; color:var(--text-muted); font-style:italic;">Summary pending — will appear once fully generated.</p>`;
   }
-  html += `</div>`;
+  html += `</td>`;
+  html += `</tr>`;
+
+  html += `</table>`;
 
   html += `</div>`;
   return html;
@@ -306,6 +326,10 @@ export default function ReviewerEditorPage() {
             padding: 14px 16px;
             border: 1px solid var(--border-color);
           }
+          /* Key concepts start on front page - avoid page break before main table */
+          .pdf-export-wrapper table tr {
+            page-break-inside: avoid;
+          }
         </style>
       `;
 
@@ -330,8 +354,8 @@ export default function ReviewerEditorPage() {
       const revTopic = reviewer?.title || 'reviewer';
       const sanitize = (str) => str.replace(/ /g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
       const filename = revCourse
-        ? `${sanitize(revCourse)}_-_${sanitize(revTopic)}_-_${revDateStr}.pdf`
-        : `${sanitize(revTopic)}_-_${revDateStr}.pdf`;
+        ? `${sanitize(revCourse)}_${sanitize(revTopic)}_${revDateStr}.pdf`
+        : `${sanitize(revTopic)}_${revDateStr}.pdf`;
 
       const opt = {
         margin: [5, 5, 5, 5], // top, left, bottom, right
@@ -340,7 +364,7 @@ export default function ReviewerEditorPage() {
         // 2. FORCE WHITE BACKGROUND: Ensure html2canvas doesn't render transparent pages
         html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, 
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+        pagebreak: { mode: ['css', 'legacy'] },
       };
 
       await html2pdf().set(opt).from(container).save();
