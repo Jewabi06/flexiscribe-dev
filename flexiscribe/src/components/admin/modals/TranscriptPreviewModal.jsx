@@ -54,47 +54,12 @@ export default function TranscriptPreviewModal({ transcript, onClose }) {
 
         {/* BODY */}
         <div className="flex flex-1 overflow-hidden">
-
-          {/* TIMESTAMPS (DESKTOP ONLY) */}
-          <aside className="hidden sm:block w-[180px] bg-[#f7f6fb] border-r p-4 overflow-y-auto">
-            <h3 className="text-xs font-semibold uppercase mb-3 text-[#4c4172]">
-              Timestamps
-            </h3>
-
-            <ul className="space-y-2 text-sm">
-              {processedLines.map(
-                (line, idx) =>
-                  line.timestamp && (
-                    <li
-                      key={idx}
-                      onClick={() =>
-                        document
-                          .getElementById(`line-${idx}`)
-                          ?.scrollIntoView({ behavior: "smooth", block: "center" })
-                      }
-                      className="cursor-pointer text-[#6b5fa7] hover:text-[#4c4172]"
-                    >
-                      {line.timestamp}
-                    </li>
-                  )
-              )}
-            </ul>
-          </aside>
-
           {/* CONTENT */}
           <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4 text-[#3f3764]">
-            <Section title="Overview">{transcript.summary}</Section>
-            <Section title="Instructor Notes">{transcript.notes}</Section>
-
             <Section title="Transcript">
               <div className="space-y-3 text-sm leading-7">
                 {processedLines.map((line, idx) => (
                   <p key={idx} id={`line-${idx}`}>
-                    {line.timestamp && (
-                      <span className="mr-2 font-medium text-[#6b5fa7]">
-                        {line.timestamp}
-                      </span>
-                    )}
                     <span dangerouslySetInnerHTML={{ __html: line.text }} />
                   </p>
                 ))}

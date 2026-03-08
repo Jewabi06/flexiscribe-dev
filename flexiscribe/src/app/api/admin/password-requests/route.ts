@@ -14,17 +14,19 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status") || "pending";
+    const status = searchParams.get("status");
 
     const whereClause: Record<string, unknown> = {};
-    if (status !== "all") {
+    // Only add status filter if status parameter is provided and not 'all'
+    if (status && status !== "all" && status !== "") {
       whereClause.status = status;
     }
+    // If status is null/undefined/'all'/'', get ALL requests
 
     const requests = await prisma.passwordRequest.findMany({
       where: whereClause,
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take: 100, // Limit to last 100 requests
     });
 
     // Enrich with user data
@@ -32,12 +34,17 @@ export async function GET(request: NextRequest) {
       requests.map(async (req) => {
         const reqUser = await prisma.user.findUnique({
           where: { id: req.userId },
-          include: { student: true, educator: true },
+          include: { 
+            student: true, 
+            educator: true,
+            admin: true 
+          },
         });
 
         let userName = reqUser?.email || "Unknown";
         if (reqUser?.student) userName = reqUser.student.fullName;
         else if (reqUser?.educator) userName = reqUser.educator.fullName;
+        else if (reqUser?.admin) userName = reqUser.admin.fullName;
 
         return {
           id: req.id,
@@ -49,6 +56,7 @@ export async function GET(request: NextRequest) {
           createdAt: req.createdAt,
           updatedAt: req.updatedAt,
           resolvedAt: req.resolvedAt,
+          resolvedBy: req.resolvedBy,
           userName,
           userEmail: reqUser?.email || "Unknown",
           userRole: reqUser?.role || "Unknown",
@@ -119,6 +127,7 @@ export async function PATCH(request: NextRequest) {
       select: { id: true, fullName: true },
     });
 
+    // Handle approval
     if (action === "approve") {
       if (passwordRequest.type === "change" || passwordRequest.type === "reset") {
         if (!passwordRequest.newPasswordHash) {
@@ -149,12 +158,13 @@ export async function PATCH(request: NextRequest) {
           }),
         ]);
 
-        // Create audit log
+        // Get user details for audit log
         const reqUser = await prisma.user.findUnique({
           where: { id: passwordRequest.userId },
           select: { email: true, role: true },
         });
 
+        // Create audit log
         await prisma.auditLog.create({
           data: {
             action: `Password ${passwordRequest.type === "reset" ? "Reset" : "Change"} Approved`,
@@ -166,10 +176,14 @@ export async function PATCH(request: NextRequest) {
           },
         });
 
-        // Notify the user via a notification
+        // Notify the user
         const targetUser = await prisma.user.findUnique({
           where: { id: passwordRequest.userId },
-          include: { student: true, educator: true },
+          include: { 
+            student: true, 
+            educator: true,
+            admin: true 
+          },
         });
 
         if (targetUser?.student) {
@@ -190,15 +204,28 @@ export async function PATCH(request: NextRequest) {
               educatorId: targetUser.educator.id,
             },
           });
+        } else if (targetUser?.admin) {
+          await prisma.notification.create({
+            data: {
+              title: "Password Request Approved",
+              message: `Your password ${passwordRequest.type} request has been approved. You can now log in with your new password.${adminNote ? ` Admin note: ${adminNote}` : ""}`,
+              type: "success",
+              adminId: targetUser.admin.id,
+            },
+          });
         }
       }
 
       return NextResponse.json(
-        { message: "Password request approved and password has been updated" },
+        { 
+          success: true,
+          message: "Password request approved and password has been updated" 
+        },
         { status: 200 }
       );
     }
 
+    // Handle denial
     if (action === "deny") {
       await prisma.passwordRequest.update({
         where: { id: requestId },
@@ -210,12 +237,17 @@ export async function PATCH(request: NextRequest) {
         },
       });
 
-      // Notify the user
+      // Get target user for notification
       const targetUser = await prisma.user.findUnique({
         where: { id: passwordRequest.userId },
-        include: { student: true, educator: true },
+        include: { 
+          student: true, 
+          educator: true,
+          admin: true 
+        },
       });
 
+      // Notify the user
       if (targetUser?.student) {
         await prisma.notification.create({
           data: {
@@ -234,6 +266,15 @@ export async function PATCH(request: NextRequest) {
             educatorId: targetUser.educator.id,
           },
         });
+      } else if (targetUser?.admin) {
+        await prisma.notification.create({
+          data: {
+            title: "Password Request Denied",
+            message: `Your password ${passwordRequest.type} request has been denied.${adminNote ? ` Reason: ${adminNote}` : ""} Please contact the admin for more information.`,
+            type: "warning",
+            adminId: targetUser.admin.id,
+          },
+        });
       }
 
       // Create audit log
@@ -249,7 +290,10 @@ export async function PATCH(request: NextRequest) {
       });
 
       return NextResponse.json(
-        { message: "Password request has been denied" },
+        { 
+          success: true,
+          message: "Password request has been denied" 
+        },
         { status: 200 }
       );
     }

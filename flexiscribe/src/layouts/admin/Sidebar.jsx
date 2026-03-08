@@ -126,7 +126,7 @@ export default function Sidebar({ open, setOpen }) {
         </div>
 
         {/* CLOCK */}
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center pt-8 gap-6">
           <div className="relative w-32 h-32 rounded-full border border-white/60 flex items-center justify-center">
             {[...Array(12)].map((_, i) => (
               <span

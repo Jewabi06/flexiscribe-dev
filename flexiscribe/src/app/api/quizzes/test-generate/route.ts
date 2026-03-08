@@ -5,11 +5,13 @@ import { generateQuizWithGemma, getBestAvailableModel } from '@/lib/ollama';
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
+  // Start timing for performance tracking
+  const startTime = Date.now();
+  
   try {
-    const body = await request.json();
+    const body = await request.json();    
     const { content, type, difficulty, count } = body;
 
-    // Validation
     if (!content || !type || !difficulty || !count) {
       return NextResponse.json(
         { error: 'Missing required fields: content, type, difficulty, count' },
@@ -21,6 +23,7 @@ export async function POST(request: NextRequest) {
     const validDifficulties = ['EASY', 'MEDIUM', 'HARD'];
 
     if (!validTypes.includes(type)) {
+      console.error(`❌ Validation failed: Invalid type "${type}"`);
       return NextResponse.json(
         { error: `Invalid type. Must be one of: ${validTypes.join(', ')}` },
         { status: 400 }
@@ -28,6 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!validDifficulties.includes(difficulty)) {
+      console.error(`❌ Validation failed: Invalid difficulty "${difficulty}"`);
       return NextResponse.json(
         { error: `Invalid difficulty. Must be one of: ${validDifficulties.join(', ')}` },
         { status: 400 }
@@ -35,6 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (typeof count !== 'number' || count < 1 || count > 50) {
+      console.error(`❌ Validation failed: Invalid count "${count}"`);
       return NextResponse.json(
         { error: 'Count must be a number between 1 and 50' },
         { status: 400 }
@@ -42,6 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!content.trim()) {
+      console.error('❌ Validation failed: Empty content');
       return NextResponse.json(
         { error: 'Content cannot be empty' },
         { status: 400 }
@@ -56,26 +62,55 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Single call: check availability + resolve model
+    // Check Ollama availability and resolve model
     let resolvedModel: string;
     try {
+      // Test direct Ollama connection first
+      const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL;
+      const testResponse = await fetch(`http://${OLLAMA_BASE_URL}:11434/api/tags`, {
+        signal: AbortSignal.timeout(3000)
+      });
+      
+      if (testResponse.ok) {
+        const models = await testResponse.json();
+      } else {
+        throw new Error(`Ollama returned ${testResponse.status}`);
+      }
+      
       resolvedModel = await getBestAvailableModel();
-    } catch {
+    } catch (error: any) {
       return NextResponse.json(
         { error: 'Ollama service is not available. Please ensure Ollama is running with: ollama serve' },
         { status: 503 }
       );
     }
+    
+    const generationStartTime = Date.now();
+    
+    let generatedQuiz;
+    try {
+      generatedQuiz = await generateQuizWithGemma(
+        content,
+        type as 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
+        difficulty as 'EASY' | 'MEDIUM' | 'HARD',
+        count,
+        resolvedModel
+      );
+      
+      const generationDuration = Date.now() - generationStartTime;
+  
+      
+    } catch (error: any) {
+      const generationDuration = Date.now() - generationStartTime;
+      throw error; // Re-throw to be caught by outer catch
+    }
 
-    // Generate quiz — pass pre-resolved model
-    console.log(`Generating ${type} quiz with ${count} questions at ${difficulty} difficulty using ${resolvedModel}...`);
-    const generatedQuiz = await generateQuizWithGemma(
-      content,
-      type as 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
-      difficulty as 'EASY' | 'MEDIUM' | 'HARD',
-      count,
-      resolvedModel
-    );
+    // Validate generated quiz
+    if (!generatedQuiz) {
+      throw new Error('Generated quiz is null or undefined');
+    }
+
+    const totalDuration = Date.now() - startTime;
 
     return NextResponse.json({
       success: true,
@@ -93,8 +128,21 @@ export async function POST(request: NextRequest) {
         }
       },
     });
+    
   } catch (error) {
-    console.error('Error generating quiz:', error);
+    const totalDuration = Date.now() - startTime;
+    console.error('='.repeat(50));
+    console.error('❌ ERROR IN QUIZ GENERATION');
+    console.error('='.repeat(50));
+    console.error(`⏱️ Failed after: ${totalDuration}ms`);
+    console.error('Error details:', {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    console.error('='.repeat(50));
+    
     return NextResponse.json(
       {
         error: 'Failed to generate quiz',

@@ -8,15 +8,15 @@ export default function ManageClassesPage() {
   const [addOpen, setAddOpen] = useState(false);
 
   return (
-    <div className="p-3 space-y-5">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl sm:text-2xl font-bold text-[#4c4172]">Manage Classes</h1>
+      <div className="flex justify-end items-center">
         <button
           onClick={() => setAddOpen(true)}
-          className="px-5 py-2.5 bg-[#9d8adb] text-white rounded-full font-semibold hover:opacity-90 transition"
+          className="px-6 py-2.5 bg-[#9d8adb] text-white rounded-full font-semibold hover:opacity-90 transition flex items-center gap-2 shadow-md hover:shadow-lg min-w-[140px] justify-center"
         >
-          + Add Class
+          <span className="text-lg">+</span>
+          <span>Add Class</span>
         </button>
       </div>
 
