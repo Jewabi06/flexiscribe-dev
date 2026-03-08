@@ -161,7 +161,17 @@ export default function ClassTranscriptsPage() {
                   </div>
                   
                   <div className="transcript-card-body">
-                    <h3 className="transcript-title">{transcript.title}</h3>
+                    <h3 className="transcript-title">
+                      {(() => {
+                        const courseCode = transcript.class?.subject || transcript.course || '';
+                        const topic = transcript.title || 'Untitled';
+                        const dateObj = transcript.date ? new Date(transcript.date) : new Date(transcript.createdAt);
+                        const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                        const dd = String(dateObj.getDate()).padStart(2, '0');
+                        const yy = String(dateObj.getFullYear()).slice(2);
+                        return `${courseCode} | ${topic} | ${mm}-${dd}-${yy}`;
+                      })()}
+                    </h3>
                     
                     <div className="transcript-meta">
                       <div className="meta-item">

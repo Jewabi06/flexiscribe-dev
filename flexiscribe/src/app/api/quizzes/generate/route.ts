@@ -260,14 +260,16 @@ export async function POST(request: NextRequest) {
     });
     const sequenceNumber = existingCount + 1;
 
-    // Build the formatted title: [Lesson Title] | [Difficulty] [Quiz Type] #N | [mm/dd/yyyy]
+    // Build the formatted title: [Course Code] | [Lesson Title] - [Difficulty] [Quiz Type] #N | [mm/dd/yyyy]
     const now = new Date();
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
     const yyyy = now.getFullYear();
     const dateStr = `${mm}/${dd}/${yyyy}`;
     const typeLabel = QUIZ_TYPE_LABELS[type] || type;
-    const formattedTitle = `${lesson.title} | ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`;
+    const formattedTitle = lesson.subject
+      ? `${lesson.subject} | ${lesson.title} - ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`
+      : `${lesson.title} | ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`;
 
     // Save quiz to database (tied to the student for uniqueness)
     const quiz = await prisma.quiz.create({
