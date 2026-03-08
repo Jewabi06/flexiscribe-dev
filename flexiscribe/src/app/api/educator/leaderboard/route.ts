@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = searchParams.get("limit");
+    const limitParam = searchParams.get("limit");
+    const limit = limitParam ? parseInt(limitParam, 10) : NaN;
 
     // Resolve the educator record for the current user
     const educator = await prisma.educator.findUnique({
@@ -36,21 +37,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Educator profile not found" }, { status: 404 });
     }
 
-    // Get all class IDs belonging to this educator
-    const educatorClasses = await prisma.class.findMany({
-      where: { educatorId: educator.id },
-      select: { id: true },
-    });
-
-    const classIds = educatorClasses.map((c) => c.id);
-
-    // Only return students who are enrolled in one of this educator's classes
+    // Single query: students enrolled in any of this educator's classes, non-ghost only
     const students = await prisma.student.findMany({
-      where: classIds.length > 0
-        ? { classes: { some: { classId: { in: classIds } } } }
-        : { id: "__none__" },
+      where: {
+        user: { isGhost: false },
+        classes: { some: { class: { educatorId: educator.id } } },
+      },
       orderBy: { xp: "desc" },
-      ...(limit && { take: parseInt(limit) }),
+      ...(!isNaN(limit) && limit > 0 ? { take: limit } : {}),
       select: {
         id: true,
         fullName: true,

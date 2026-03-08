@@ -32,9 +32,16 @@ export async function GET(request: Request) {
       },
     });
 
-    // Get student count and quiz attempt statistics
-    const totalStudents = await prisma.student.count();
+    // Get student count (exclude ghost users so analytics reflect real students)
+    const totalStudents = await prisma.student.count({
+      where: { user: { isGhost: false } },
+    });
+    // Exclude ghost students' quiz attempts so analytics reflect real student performance
     const quizAttempts = await prisma.quizAttempt.findMany({
+      where: {
+        student: { user: { isGhost: false } },
+        totalQuestions: { gt: 0 }, // guard against division by zero
+      },
       select: {
         score: true,
         totalQuestions: true,
@@ -50,12 +57,13 @@ export async function GET(request: Request) {
       avgScore = Math.round(totalScore / quizAttempts.length);
     }
 
-    // Calculate engagement based on recent quiz attempts
+    // Calculate engagement based on recent quiz attempts by non-ghost students
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     
     const recentAttempts = await prisma.quizAttempt.count({
       where: {
+        student: { user: { isGhost: false } },
         completedAt: {
           gte: sevenDaysAgo,
         },

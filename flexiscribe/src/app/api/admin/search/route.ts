@@ -49,15 +49,17 @@ export async function GET(request: Request) {
         u.admin?.fullName ||
         u.email;
       const role = u.role;
+      const ghostSuffix = u.isGhost ? " 👻" : "";
       const detail = u.student
-        ? `${role} • ${u.student.studentNumber} • ${u.email}`
+        ? `${role} • ${u.student.studentNumber} • ${u.email}${ghostSuffix}`
         : `${role} • ${u.email}`;
       return {
         id: u.id,
         type: "user" as const,
-        title: name,
+        title: `${name}${ghostSuffix}`,
         subtitle: detail,
         href: "/admin/manage-accounts",
+        isGhost: u.isGhost,
       };
     });
 

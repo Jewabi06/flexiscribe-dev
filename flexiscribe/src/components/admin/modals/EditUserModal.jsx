@@ -15,6 +15,7 @@ export default function EditUserModal({ user, onClose }) {
   const [username, setUsername] = useState(user.username || "");
   const [email, setEmail] = useState(user.email || "");
   const [status, setStatus] = useState(user.status || "Active");
+  const [isGhost, setIsGhost] = useState(user.isGhost ?? false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
@@ -30,6 +31,7 @@ export default function EditUserModal({ user, onClose }) {
           username,
           email,
           status,
+          isGhost,
         }),
       });
 
@@ -147,6 +149,30 @@ export default function EditUserModal({ user, onClose }) {
               )}
             </div>
           </div>
+        {/* Ghost User Toggle — only for students */}
+        {user.role === "STUDENT" && (
+          <div className="flex items-start justify-between gap-3 bg-[#faf9ff] border border-[#e6e2fb] rounded-xl px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-[#4c4172]">👻 Ghost Account</p>
+              <p className="text-xs text-gray-500 mt-0.5 break-words">
+                Ghost users are hidden from students, leaderboards, and class rosters.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsGhost(!isGhost)}
+              className={`relative inline-flex h-6 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+                isGhost ? "bg-[#9d8adb]" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  isGhost ? "translate-x-9" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+        )}
 
           {/* Role (Read-only) */}
           <div>
