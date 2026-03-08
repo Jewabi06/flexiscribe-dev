@@ -56,10 +56,25 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const classes = await prisma.class.findMany({
+    const rawClasses = await prisma.class.findMany({
       where: { educatorId: educator.id },
       orderBy: [{ day: "asc" }, { startTime: "asc" }],
+      include: {
+        _count: {
+          select: {
+            enrollments: {
+              where: { student: { user: { isGhost: false } } },
+            },
+          },
+        },
+      },
     });
+
+    // Override stored `students` with live count of non-ghost enrolled students
+    const classes = rawClasses.map(({ _count, ...cls }) => ({
+      ...cls,
+      students: _count.enrollments,
+    }));
 
     return NextResponse.json({ classes }, { status: 200 });
   } catch (error) {
