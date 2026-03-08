@@ -85,6 +85,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Enrollment check: students may only generate quizzes from their enrolled classes
+    if (studentId && user && user.role === 'STUDENT') {
+      const enrollments = await prisma.studentClass.findMany({
+        where: { studentId },
+        include: { class: { select: { subject: true } } },
+      });
+      const enrolledSubjects = enrollments.map((e) => e.class.subject);
+      if (!enrolledSubjects.includes(lesson.subject)) {
+        return NextResponse.json(
+          { error: 'You do not have access to this reviewer.' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Build quiz content from structured JSON reviewer data (preferred) or
     // fall back to plain text for backwards compatibility.
     let quizContent: string;
@@ -346,12 +361,38 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint to retrieve available reviewers for quiz generation.
 // Only returns Cornell Notes reviewers — MOTM records are excluded.
+// If the caller is a STUDENT, only returns lessons for their enrolled classes.
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const subject = searchParams.get('subject');
 
-    const where = subject ? { subject } : {};
+    // Build subject filter based on enrollment for students
+    let enrolledSubjects: string[] | null = null;
+    const user = await verifyAuth(request);
+    if (user && user.role === 'STUDENT') {
+      const student = await prisma.student.findUnique({
+        where: { userId: user.userId as string },
+      });
+      if (student) {
+        const enrollments = await prisma.studentClass.findMany({
+          where: { studentId: student.id },
+          include: { class: { select: { subject: true } } },
+        });
+        enrolledSubjects = enrollments.map((e) => e.class.subject);
+      }
+    }
+
+    const where: Record<string, unknown> = {};
+    if (enrolledSubjects !== null) {
+      // Restrict to enrolled subjects; if none enrolled return empty list
+      where.subject = enrolledSubjects.length > 0 ? { in: enrolledSubjects } : '__none__';
+      if (subject) {
+        where.subject = enrolledSubjects.includes(subject) ? subject : '__none__';
+      }
+    } else if (subject) {
+      where.subject = subject;
+    }
 
     const lessons = await prisma.lesson.findMany({
       where,

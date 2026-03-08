@@ -327,6 +327,104 @@ export default function PasswordRequestsPage() {
           <p className="text-sm mt-1">Password change and reset requests will appear here.</p>
         </div>
       ) : (
+        <div className="overflow-x-auto rounded-2xl border border-[rgba(157,138,219,0.2)] shadow-sm">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gradient-to-r from-[#f5f0ff] to-[#ece6ff] text-[#4c4172]">
+                <th className="text-left px-5 py-3 font-semibold">User</th>
+                <th className="text-left px-5 py-3 font-semibold">Type</th>
+                <th className="text-left px-5 py-3 font-semibold">Reason</th>
+                <th className="text-left px-5 py-3 font-semibold">Status</th>
+                <th className="text-left px-5 py-3 font-semibold">Date</th>
+                <th className="text-center px-5 py-3 font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((req) => (
+                <tr key={req.id} className="border-t border-[rgba(157,138,219,0.1)] hover:bg-[rgba(157,138,219,0.04)] transition-colors">
+                  <td className="px-5 py-3">
+                    <div className="font-medium text-[#2d2555]">{req.userName || "Unknown"}</div>
+                    <div className="text-xs text-gray-400">{req.userEmail}</div>
+                    <div className="text-xs text-gray-400 capitalize">{req.userRole?.toLowerCase()}</div>
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[rgba(157,138,219,0.15)] text-[#4c4172]">
+                      {typeLabels[req.type] || req.type}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 max-w-[200px]">
+                    <span className="text-gray-600 line-clamp-2">{req.reason || "—"}</span>
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${statusColors[req.status]}`}>
+                      {req.status === "pending" && <Clock size={12} />}
+                      {req.status === "approved" && <Check size={12} />}
+                      {req.status === "denied" && <X size={12} />}
+                      {req.status}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
+                    {new Date(req.createdAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}
+                    <div className="text-xs text-gray-400">
+                      {new Date(req.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3">
+                    {req.status === "pending" ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleAction(req.id, "approve")}
+                            disabled={actionLoading === req.id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-500 text-white text-xs font-medium hover:bg-green-600 disabled:opacity-50 transition-colors"
+                          >
+                            <Check size={13} />
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => setExpandedId(expandedId === req.id ? null : req.id)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors"
+                          >
+                            <X size={13} />
+                            Deny
+                          </button>
+                        </div>
+                        {expandedId === req.id && (
+                          <div className="w-full space-y-2">
+                            <input
+                              type="text"
+                              placeholder="Reason for denial (optional)"
+                              value={adminNotes[req.id] || ""}
+                              onChange={(e) => setAdminNotes((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                              className="w-full px-3 py-1.5 text-xs text-gray-800 rounded-lg border border-gray-200 outline-none focus:border-red-300"
+                            />
+                            <button
+                              onClick={() => handleAction(req.id, "deny")}
+                              disabled={actionLoading === req.id}
+                              className="w-full px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
+                            >
+                              {actionLoading === req.id ? "Processing..." : "Confirm Deny"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center text-xs text-gray-500">
+                        {req.resolvedAt && (
+                          <span>
+                            {new Date(req.resolvedAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                        {req.adminNote && (
+                          <div className="mt-1 text-gray-700 italic">"{req.adminNote}"</div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         <div className="space-y-3">
           <div className="text-xs text-gray-400 font-medium px-1">
             Showing {filtered.length} request{filtered.length !== 1 ? "s" : ""}
