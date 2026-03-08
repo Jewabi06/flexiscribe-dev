@@ -14,7 +14,6 @@ export interface JWTPayload {
 
 // Generate a JWT token for authenticated users
 export async function generateToken(payload: JWTPayload): Promise<string> {
-  console.log("Generating token with secret length:", JWT_SECRET?.length);
   const token = await new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime(JWT_EXPIRES_IN)
@@ -35,7 +34,6 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
     };
   } catch (error) {
     console.error("Token verification failed:", error instanceof Error ? error.message : error);
-    console.error("JWT_SECRET exists:", !!JWT_SECRET, "Length:", JWT_SECRET?.length);
     return null;
   }
 }
@@ -123,10 +121,11 @@ export async function verifyAuth(request: Request): Promise<JWTPayload | null> {
 
     const cookies = cookieHeader.split(";").map((c) => c.trim());
     const authCookie = cookies.find((c) => c.startsWith("auth-token="));
-    
+
     if (!authCookie) return null;
 
-    const token = authCookie.split("=")[1];
+    // Use indexOf so the full value is captured even if it contains '=' characters.
+    const token = authCookie.slice(authCookie.indexOf("=") + 1);
     if (!token) return null;
 
     return await verifyToken(token);
