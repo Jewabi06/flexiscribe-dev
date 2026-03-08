@@ -7,11 +7,10 @@ export async function GET(
   { params }: { params: Promise<{ studentNumber: string }> }
 ) {
   try {
-    // Require authentication — unauthenticated callers must not probe student records
+    // Authentication is optional — this endpoint is called during the student login
+    // flow before the student has a session. Ghost check is applied only when an
+    // authenticated non-admin caller is looking up another student.
     const caller = await getCurrentUser();
-    if (!caller) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
 
     const { studentNumber } = await params;
 
@@ -41,8 +40,9 @@ export async function GET(
       );
     }
 
-    // Ghost students are invisible to non-admin callers
-    if (student.user.isGhost && caller.role !== "ADMIN") {
+    // Ghost students are invisible to authenticated non-admin callers.
+    // Unauthenticated access (login flow) is allowed so ghost students can still log in.
+    if (caller && student.user.isGhost && caller.role !== "ADMIN") {
       return NextResponse.json(
         { error: "Student not found" },
         { status: 404 }

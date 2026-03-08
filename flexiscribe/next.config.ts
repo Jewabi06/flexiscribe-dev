@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV === "development";
 
+// Vercel automatically sets VERCEL_URL to the deployment hostname (no protocol).
+// Use it in production so CORS headers point to the real app URL, not localhost.
+function getAppOrigin(): string {
+  if (isDev) return "http://localhost:3000";
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return process.env.NEXT_PUBLIC_APP_URL ?? "";
+}
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
@@ -25,9 +33,7 @@ const nextConfig: NextConfig = {
 
   // ── HTTP headers ──────────────────────────────────────────────────────────
   async headers() {
-    const allowedOrigins = isDev
-      ? "http://localhost:3000"
-      : (process.env.NEXT_PUBLIC_APP_URL ?? "");
+    const allowedOrigins = getAppOrigin();
 
     return [
       {

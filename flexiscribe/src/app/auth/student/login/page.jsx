@@ -11,30 +11,6 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
-  // Password Strength Checker - based on complexity, not just length
-  const getPasswordStrength = (pwd) => {
-    if (!pwd) return { label: "", color: "", width: "0%" };
-    
-    let score = 0;
-    
-    // Length check
-    if (pwd.length >= 8) score++;
-    if (pwd.length >= 12) score++;
-    
-    // Character variety checks
-    if (/[a-z]/.test(pwd)) score++; // lowercase
-    if (/[A-Z]/.test(pwd)) score++; // uppercase
-    if (/[0-9]/.test(pwd)) score++; // numbers
-    if (/[^a-zA-Z0-9]/.test(pwd)) score++; // special characters
-    
-    // Determine strength based on score
-    if (score <= 2) return { label: "Weak", color: "bg-red-400", width: "33%" };
-    if (score <= 4) return { label: "Medium", color: "bg-yellow-300", width: "66%" };
-    return { label: "Strong", color: "bg-green-400", width: "100%" };
-  };
-
-  const strength = getPasswordStrength(password);
-
   const handleBack = () => {
     router.push("/auth/role-selection?role=student");
   };
@@ -173,22 +149,6 @@ export default function Login() {
               </button>
             </div>
 
-            {/* Password strength */}
-            {strength.label && (
-              <div className="mt-3">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-gray-600">{strength.label}</span>
-                </div>
-                <div className="w-full h-2 bg-gray-200 rounded-full">
-                  <div
-                    className={`h-2 rounded-full ${strength.color}`}
-                    style={{
-                      width: strength.width,
-                    }}
-                  ></div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Submit */}

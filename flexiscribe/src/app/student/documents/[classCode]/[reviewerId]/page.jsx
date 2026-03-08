@@ -86,8 +86,15 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   }
 
   // ─── Cornell Notes format (Reviewer — default) ─────────────────
-  const title = s.title || "Untitled";
-  const recordDate = meta.date ? new Date(meta.date).toLocaleDateString() : new Date().toLocaleDateString();
+  const topicTitle = s.title || "Untitled";
+  const dateObj = meta.date ? new Date(meta.date) : (meta.createdAt ? new Date(meta.createdAt) : new Date());
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  const yy = String(dateObj.getFullYear()).slice(2);
+  const formattedDate = `${mm}-${dd}-${yy}`;
+  const courseCode = meta.classCode || meta.course || meta.class?.subject || '';
+  const title = courseCode ? `${courseCode} - ${topicTitle} - ${formattedDate}` : `${topicTitle} - ${formattedDate}`;
+  const recordDate = dateObj.toLocaleDateString();
   const keyConcepts = s.key_concepts || s.cue_questions || [];
   const notes = s.notes || [];
   const summaryArr = Array.isArray(s.summary) ? s.summary
@@ -208,7 +215,7 @@ export default function ReviewerEditorPage() {
 
         // If no saved content, render summaryJson as initial HTML
         if (!savedContent) {
-          const html = summaryJsonToHtml(transcription.summaryJson, transcription);
+          const html = summaryJsonToHtml(transcription.summaryJson, { ...transcription, classCode });
           initialContentRef.current = html;
           setEditorContent(html);
           setContentLoaded(true);
@@ -314,7 +321,17 @@ export default function ReviewerEditorPage() {
       container.style.maxWidth = '210mm';
       container.style.margin = '0 auto';
 
-      const filename = `${(reviewer?.title || 'reviewer').replace(/[^a-zA-Z0-9 ]/g, '')}.pdf`;
+      const revDateObj = reviewer?.date ? new Date(reviewer.date) : (reviewer?.createdAt ? new Date(reviewer.createdAt) : new Date());
+      const revMm = String(revDateObj.getMonth() + 1).padStart(2, '0');
+      const revDd = String(revDateObj.getDate()).padStart(2, '0');
+      const revYy = String(revDateObj.getFullYear()).slice(2);
+      const revDateStr = `${revMm}-${revDd}-${revYy}`;
+      const revCourse = reviewer?.class?.subject || reviewer?.course || classCode || '';
+      const revTopic = reviewer?.title || 'reviewer';
+      const sanitize = (str) => str.replace(/ /g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+      const filename = revCourse
+        ? `${sanitize(revCourse)}_-_${sanitize(revTopic)}_-_${revDateStr}.pdf`
+        : `${sanitize(revTopic)}_-_${revDateStr}.pdf`;
 
       const opt = {
         margin: [5, 5, 5, 5], // top, left, bottom, right

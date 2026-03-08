@@ -237,10 +237,36 @@ export default function QuizzesPage() {
   // Surface generation errors when the result arrives (including after tab switch)
   useEffect(() => {
     if (genResult && !genResult.success) {
+      const rawError = (genResult.error || '').toLowerCase();
+      const rawDetails = (genResult.details || '').toLowerCase();
+
+      let title = 'Something Went Wrong';
+      let message = "We couldn't generate your quiz. Please try again.";
+
+      if (rawError.includes('ollama') || rawError.includes('service') || rawError.includes('unavailable') || rawError.includes('connection')) {
+        title = 'Service Unavailable';
+        message = 'The quiz generation service is currently unavailable. Please try again in a moment.';
+      } else if (rawError.includes('timeout') || rawDetails.includes('timeout')) {
+        title = 'Taking Too Long';
+        message = 'Quiz generation is taking longer than expected. Please try again.';
+      } else if (rawError.includes('short') || rawError.includes('characters') || rawError.includes('content')) {
+        title = 'Not Enough Content';
+        message = "This reviewer doesn't have enough content to generate questions. Please try a different reviewer.";
+      } else if (rawError.includes('access') || rawError.includes('enrolled') || rawError.includes('forbidden')) {
+        title = 'Access Denied';
+        message = "You don't have access to this reviewer. Please make sure you're enrolled in the class.";
+      } else if (rawError.includes('session') || rawError.includes('token') || rawError.includes('auth') || rawError.includes('unauthorized')) {
+        title = 'Session Expired';
+        message = 'Your session has expired. Please log in again.';
+      } else if (rawError.includes('generate') || rawError.includes('valid') || rawError.includes('items')) {
+        title = 'Quiz Generation Failed';
+        message = "We couldn't create questions from this reviewer right now. Please try again or choose a different reviewer.";
+      }
+
       setModalInfo({
         isOpen: true,
-        title: genResult.error?.includes('Ollama') ? 'Connection Error' : 'Generation Failed',
-        message: `${genResult.error || 'Unknown error'}${genResult.details}`,
+        title,
+        message,
         type: 'error',
       });
       clearGenResult();
