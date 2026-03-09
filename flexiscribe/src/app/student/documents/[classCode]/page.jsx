@@ -134,7 +134,7 @@ export default function ClassReviewersPage() {
         currentTime={currentTime}
       />
 
-      <main className="main-content flex flex-col justify-between min-h-screen">
+      <main className="main-content flex flex-col min-h-screen">
         <StudentHeader darkMode={darkMode} setDarkMode={setDarkMode} studentProfile={studentProfile} />
         
         <div className="class-content">
