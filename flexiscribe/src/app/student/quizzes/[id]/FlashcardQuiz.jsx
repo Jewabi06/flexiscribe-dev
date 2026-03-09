@@ -61,18 +61,18 @@ export default function FlashcardQuiz({ quiz, questions }) {
     };
   }, [quiz.id, quiz.lesson, quiz.quizType, totalQuestions]);
 
-  // Load saved flipped states from localStorage
+  // Load saved flipped states from localStorage (only on mount / quiz change)
   useEffect(() => {
     const savedStates = localStorage.getItem(`quiz-flipped-${quiz.id}`);
     if (savedStates) {
-      const parsedStates = JSON.parse(savedStates);
-      setFlippedStates(parsedStates);
-      // Set the flipped state for current question if it exists
-      if (parsedStates[currentQuestionIndex] !== undefined) {
-        setIsFlipped(parsedStates[currentQuestionIndex]);
-      }
+      setFlippedStates(JSON.parse(savedStates));
     }
-  }, [quiz.id, currentQuestionIndex]);
+  }, [quiz.id]);
+
+  // Reset flip to front whenever the card index changes
+  useEffect(() => {
+    setIsFlipped(false);
+  }, [currentQuestionIndex]);
 
   // Save flipped states to localStorage whenever they change
   useEffect(() => {
@@ -140,18 +140,12 @@ export default function FlashcardQuiz({ quiz, questions }) {
   const handleNext = () => {
     if (currentQuestionIndex < totalQuestions - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
-      // Maintain the current flip state for the next card
-      const nextFlipped = flippedStates[currentQuestionIndex + 1];
-      setIsFlipped(nextFlipped !== undefined ? nextFlipped : isFlipped);
     }
   };
 
   const handlePrevious = () => {
     if (currentQuestionIndex > 0) {
       setCurrentQuestionIndex(currentQuestionIndex - 1);
-      // Maintain the current flip state for the previous card
-      const prevFlipped = flippedStates[currentQuestionIndex - 1];
-      setIsFlipped(prevFlipped !== undefined ? prevFlipped : isFlipped);
     }
   };
 
