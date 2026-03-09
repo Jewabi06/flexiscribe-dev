@@ -28,7 +28,7 @@ export default function QuizzesPage() {
   const [selectedNumQuestions, setSelectedNumQuestions] = useState("");
 
   // Persistent quiz generation state (survives tab navigation)
-  const { isGenerating, selectionValues, result: genResult, generate: startGeneration, clearResult: clearGenResult } = useQuizGeneration();
+  const { isGenerating, progress: genProgress, selectionValues, result: genResult, generate: startGeneration, clearResult: clearGenResult } = useQuizGeneration();
 
   // Restore dropdown values from the persisted generation state on remount
   useEffect(() => {
@@ -518,7 +518,12 @@ export default function QuizzesPage() {
                     <svg className="generate-spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="31.42 31.42" />
                     </svg>
-                    Generating Quiz...
+                    {genProgress?.message || 'Generating Quiz...'}
+                    {genProgress?.percent != null && (
+                      <span style={{ marginLeft: 6, opacity: 0.7, fontSize: '0.85em' }}>
+                        {genProgress.percent}%
+                      </span>
+                    )}
                   </>
                 ) : 'Generate Quiz'}
               </button>

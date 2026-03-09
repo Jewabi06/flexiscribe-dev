@@ -225,128 +225,170 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate quiz — pass pre-resolved model to avoid redundant /api/tags calls
+    // ── SSE streaming: generate quiz and send progress events ──
+    // This keeps the connection alive during slow HARD generation and prevents
+    // client-side timeouts. Validation errors above still return normal JSON.
     console.log(`Generating ${type} quiz with ${count} questions at ${difficulty} difficulty using ${resolvedModel}...`);
-    const generatedQuiz = await generateQuizWithGemma(
-      quizContent,
-      type as 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
-      difficulty as 'EASY' | 'MEDIUM' | 'HARD',
-      count,
-      resolvedModel,
-      keyConcepts,
-      originalKeyConcepts,
-      notes
-    );
 
-    // Guard: if the generator returned zero items, return a clear error
-    // instead of creating a 0-question quiz in the database.
-    if (!generatedQuiz.items || generatedQuiz.items.length === 0) {
-      return NextResponse.json(
-        {
-          error: generatedQuiz.warning || 'Could not generate any valid quiz items from this lesson content.',
-          stats: generatedQuiz.stats,
-        },
-        { status: 422 }
-      );
-    }
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (data: Record<string, unknown>) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            // Stream already closed (client disconnected) — ignore
+          }
+        };
 
-    // Compute the sequence number: count existing quizzes of the same lesson + type + student, then +1
-    const existingCount = await prisma.quiz.count({
-      where: {
-        lessonId,
-        type,
-        ...(studentId ? { studentId } : {}),
+        try {
+          send({ type: 'progress', stage: 'init', message: 'Starting quiz generation...', percent: 5 });
+
+          const generatedQuiz = await generateQuizWithGemma(
+            quizContent,
+            type as 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
+            difficulty as 'EASY' | 'MEDIUM' | 'HARD',
+            count,
+            resolvedModel,
+            keyConcepts,
+            originalKeyConcepts,
+            notes,
+            request.signal,
+            (progress) => send({ type: 'progress', ...progress })
+          );
+
+          // Guard: zero items
+          if (!generatedQuiz.items || generatedQuiz.items.length === 0) {
+            send({
+              type: 'error',
+              error: generatedQuiz.warning || 'Could not generate any valid quiz items from this lesson content.',
+              stats: generatedQuiz.stats,
+            });
+            controller.close();
+            return;
+          }
+
+          send({ type: 'progress', stage: 'saving', message: 'Saving quiz...', percent: 92 });
+
+          // Compute the sequence number
+          const existingCount = await prisma.quiz.count({
+            where: {
+              lessonId,
+              type,
+              ...(studentId ? { studentId } : {}),
+            },
+          });
+          const sequenceNumber = existingCount + 1;
+
+          // Build the formatted title
+          const now = new Date();
+          const mm = String(now.getMonth() + 1).padStart(2, '0');
+          const dd = String(now.getDate()).padStart(2, '0');
+          const yyyy = now.getFullYear();
+          const dateStr = `${mm}/${dd}/${yyyy}`;
+          const typeLabel = QUIZ_TYPE_LABELS[type] || type;
+          const formattedTitle = lesson.subject
+            ? `${lesson.subject} | ${lesson.title} - ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`
+            : `${lesson.title} | ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`;
+
+          // Save quiz to database
+          const quiz = await prisma.quiz.create({
+            data: {
+              lessonId,
+              type,
+              difficulty,
+              title: formattedTitle,
+              totalQuestions: generatedQuiz.items.length,
+              ...(studentId ? { studentId } : {}),
+              questions: {
+                create: generatedQuiz.items.map((item: any, index: number) => ({
+                  questionText: item.question || item.sentence || item.front || '',
+                  questionData: item,
+                  orderIndex: index,
+                })),
+              },
+            },
+            include: {
+              questions: true,
+              lesson: {
+                select: {
+                  title: true,
+                  subject: true,
+                },
+              },
+            },
+          });
+
+          // Audit log
+          try {
+            const userName = user?.email || "Unknown";
+            const userRole = user?.role || "STUDENT";
+            await prisma.auditLog.create({
+              data: {
+                action: "Quiz Generated",
+                details: `${type} quiz (${difficulty}, ${count} questions) generated from "${quiz.lesson.title}"`,
+                userRole: userRole as any,
+                userName,
+                userId: user?.userId as string || undefined,
+              },
+            });
+          } catch (e) {
+            console.error("Audit log error:", e);
+          }
+
+          // In-app notification
+          if (studentId) {
+            try {
+              await prisma.notification.create({
+                data: {
+                  title: 'Quiz Ready!',
+                  message: `Your ${difficulty} ${typeLabel} quiz "${lesson.title}" has been generated with ${generatedQuiz.items.length} questions.`,
+                  type: 'quiz_generated',
+                  studentId,
+                },
+              });
+            } catch (e) {
+              console.error("Notification error:", e);
+            }
+          }
+
+          // Final completion event
+          send({
+            type: 'complete',
+            success: true,
+            quiz: {
+              id: quiz.id,
+              title: formattedTitle,
+              type: quiz.type,
+              difficulty: quiz.difficulty,
+              totalQuestions: quiz.totalQuestions,
+              lessonTitle: quiz.lesson.title,
+              subject: quiz.lesson.subject,
+              questions: quiz.questions.map((q: any) => ({
+                id: q.id,
+                questionText: q.questionText,
+                data: q.questionData,
+              })),
+            },
+          });
+        } catch (error) {
+          console.error('Error generating quiz:', error);
+          send({
+            type: 'error',
+            error: 'Failed to generate quiz',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          });
+        } finally {
+          controller.close();
+        }
       },
     });
-    const sequenceNumber = existingCount + 1;
 
-    // Build the formatted title: [Course Code] | [Lesson Title] - [Difficulty] [Quiz Type] #N | [mm/dd/yyyy]
-    const now = new Date();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const yyyy = now.getFullYear();
-    const dateStr = `${mm}/${dd}/${yyyy}`;
-    const typeLabel = QUIZ_TYPE_LABELS[type] || type;
-    const formattedTitle = lesson.subject
-      ? `${lesson.subject} | ${lesson.title} - ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`
-      : `${lesson.title} | ${difficulty} ${typeLabel} #${sequenceNumber} | ${dateStr}`;
-
-    // Save quiz to database (tied to the student for uniqueness)
-    const quiz = await prisma.quiz.create({
-      data: {
-        lessonId,
-        type,
-        difficulty,
-        title: formattedTitle,
-        totalQuestions: generatedQuiz.items.length,
-        ...(studentId ? { studentId } : {}),
-        questions: {
-          create: generatedQuiz.items.map((item: any, index: number) => ({
-            questionText: item.question || item.sentence || item.front || '',
-            questionData: item,
-            orderIndex: index,
-          })),
-        },
-      },
-      include: {
-        questions: true,
-        lesson: {
-          select: {
-            title: true,
-            subject: true,
-          },
-        },
-      },
-    });
-
-    // Audit log - quiz generation
-    try {
-      const userName = user?.email || "Unknown";
-      const userRole = user?.role || "STUDENT";
-      await prisma.auditLog.create({
-        data: {
-          action: "Quiz Generated",
-          details: `${type} quiz (${difficulty}, ${count} questions) generated from "${quiz.lesson.title}"`,
-          userRole: userRole as any,
-          userName,
-          userId: user?.userId as string || undefined,
-        },
-      });
-    } catch (e) {
-      console.error("Audit log error:", e);
-    }
-
-    // Create an in-app notification for the student
-    if (studentId) {
-      try {
-        await prisma.notification.create({
-          data: {
-            title: 'Quiz Ready!',
-            message: `Your ${difficulty} ${typeLabel} quiz "${lesson.title}" has been generated with ${generatedQuiz.items.length} questions.`,
-            type: 'quiz_generated',
-            studentId,
-          },
-        });
-      } catch (e) {
-        console.error("Notification error:", e);
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      quiz: {
-        id: quiz.id,
-        title: formattedTitle,
-        type: quiz.type,
-        difficulty: quiz.difficulty,
-        totalQuestions: quiz.totalQuestions,
-        lessonTitle: quiz.lesson.title,
-        subject: quiz.lesson.subject,
-        questions: quiz.questions.map(q => ({
-          id: q.id,
-          questionText: q.questionText,
-          data: q.questionData,
-        })),
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error) {
