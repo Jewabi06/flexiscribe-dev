@@ -4,6 +4,7 @@
   padding: 20px;
   max-width: 1400px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .page-title {
@@ -37,6 +38,7 @@
   gap: 20px;
   max-width: 1000px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .podium-card {
@@ -257,6 +259,7 @@
   padding: 30px;
   box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
   margin-bottom: 30px;
+  width: 100%;
 }
 
 .table-header {
@@ -292,6 +295,7 @@
   border-radius: 12px;
   transition: all 0.3s ease;
   align-items: center;
+  width: 100%;
 }
 
 .leaderboard-row:hover {
@@ -520,8 +524,7 @@
   }
 
   .third-place {
-    order: 3;
-  }
+    order: 3;  }
 
   .table-header {
     display: none;
@@ -531,6 +534,8 @@
     grid-template-columns: 1fr;
     gap: 15px;
     padding: 15px;
+    width: 100%;
+    min-width: 0;
   }
 
   .cell {

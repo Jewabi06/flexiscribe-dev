@@ -283,7 +283,23 @@ export default function StudentLeaderboard() {
             </div>
 
             <div className="leaderboard-list">
-              {displayedLeaderboard.map((user) => (
+              {displayedLeaderboard.length === 0 ? (
+                <div className="empty-leaderboard" style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  textAlign: 'center', 
+                  padding: '40px 20px', 
+                  color: 'var(--text-secondary)',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '12px'
+                }}>
+                  <FaMedal style={{ fontSize: '32px', opacity: 0.3, marginBottom: '10px' }} />
+                  <p style={{ margin: 0, fontWeight: 500 }}>No other students on the leaderboard yet.</p>
+                </div>
+              ) : (
+              displayedLeaderboard.map((user) => (
                 <div 
                   key={user.rank} 
                   className={`leaderboard-row ${user.username === studentProfile?.username ? 'current-user' : ''}`}
@@ -330,7 +346,7 @@ export default function StudentLeaderboard() {
                     <span className="xp-value">{user.xp.toLocaleString()} XP</span>
                   </div>
                 </div>
-              ))}
+              )))}
               
               {/* Loading indicator */}
               {isLoading && (
