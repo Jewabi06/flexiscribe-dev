@@ -153,9 +153,9 @@ export default function EditUserModal({ user, onClose }) {
         {user.role === "STUDENT" && (
           <div className="flex items-start justify-between gap-3 bg-[#faf9ff] border border-[#e6e2fb] rounded-xl px-4 py-3">
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-[#4c4172]">👻 Ghost Account</p>
+              <p className="text-sm font-semibold text-[#4c4172]">Sub-Admin Account</p>
               <p className="text-xs text-gray-500 mt-0.5 break-words">
-                Ghost users are hidden from students, leaderboards, and class rosters.
+                Sub-admin users are hidden from students, leaderboards, and class rosters.
               </p>
             </div>
             <button
