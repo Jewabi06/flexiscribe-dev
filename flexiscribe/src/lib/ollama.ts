@@ -3544,6 +3544,116 @@ async function transformItemsToHardScenarios(
 }
 
 /**
+ * Enhance deterministic HARD items through Ollama within a strict time budget.
+ *
+ * Flow:
+ *   1. Takes already-generated deterministic HARD items (guaranteed baseline).
+ *   2. Attempts to enhance each through Ollama (rewrite as scenario, improve
+ *      distractors, etc.) with concurrency control.
+ *   3. When the time budget expires (or all items are processed), returns:
+ *      - `enhanced`   – items that were successfully transformed & validated.
+ *      - `unprocessed` – original items for indices that were never attempted
+ *                        OR whose enhancement failed validation.
+ *
+ * The caller assembles the final quiz by preferring `enhanced` items first,
+ * then filling with `unprocessed` originals to reach the requested count.
+ * This guarantees the user always receives a full quiz within the timeout.
+ */
+async function enhanceHardItems(
+  originals: any[],
+  type: 'MCQ' | 'FILL_IN_BLANK' | 'FLASHCARD',
+  lessonContent: string,
+  keyConcepts: { term: string; definition: string }[],
+  model: string,
+  temperature: number,
+  options: {
+    timeBudgetMs?: number;
+    validator?: (item: any) => { valid: boolean; item: any };
+    signal?: AbortSignal;
+    onProgress?: (event: { stage: string; message: string; percent: number }) => void;
+  } = {}
+): Promise<{ enhanced: any[]; unprocessed: any[]; apiCalls: number }> {
+  const BUDGET_MS = options.timeBudgetMs
+    ?? parseInt(process.env.OLLAMA_ENHANCE_TIME_MS ?? '120000', 10);
+  const SAFETY_MARGIN_MS = 10_000; // stop 10s before budget for final assembly
+  const concurrency = parseInt(process.env.OLLAMA_CONCURRENCY ?? '2', 10);
+  const enhanceStart = Date.now();
+
+  const enhanced: any[] = [];
+  const enhancedIndices = new Set<number>();
+  let apiCalls = 0;
+
+  console.log(`\n🔄 Enhancing ${originals.length} HARD ${type} items via Ollama (budget: ${BUDGET_MS / 1000}s, concurrency: ${concurrency})...`);
+
+  const processItem = async (item: any, idx: number): Promise<void> => {
+    const sliceSize = type === 'FILL_IN_BLANK' ? 1500 : 1200;
+    const lessonSlice = getLessonSlice(lessonContent, idx, sliceSize, 0);
+
+    let result: any = null;
+    try {
+      if (type === 'MCQ') {
+        result = await transformMCQToScenario(item, lessonSlice, model, temperature);
+      } else if (type === 'FILL_IN_BLANK') {
+        result = await transformFIBToScenario(item, lessonSlice, keyConcepts, model, temperature);
+      } else if (type === 'FLASHCARD') {
+        result = await transformFlashcardToScenario(item, lessonSlice, model, temperature);
+      }
+    } catch {
+      // Ollama call failed (timeout, network, abort) — original kept
+    }
+    apiCalls++;
+
+    // Validate the enhanced result
+    if (result && options.validator) {
+      const res = options.validator(result);
+      if (res.valid) {
+        enhancedIndices.add(idx);
+        enhanced.push(res.item);
+        return;
+      }
+    } else if (result && !options.validator) {
+      enhancedIndices.add(idx);
+      enhanced.push(result);
+      return;
+    }
+    // Enhancement failed validation or Ollama returned nothing — original will be used
+  };
+
+  // Process in batches of `concurrency`, respecting time budget
+  for (let i = 0; i < originals.length; i += concurrency) {
+    if (options.signal?.aborted) {
+      console.warn(`⚠ Enhancement aborted by signal after ${i} items.`);
+      break;
+    }
+
+    const elapsed = Date.now() - enhanceStart;
+    if (elapsed >= BUDGET_MS - SAFETY_MARGIN_MS) {
+      console.log(`⏱ Enhancement budget reached (${Math.round(elapsed / 1000)}s). Processed ${i}/${originals.length}.`);
+      break;
+    }
+
+    const batch = originals.slice(i, i + concurrency);
+    await Promise.all(batch.map((item, j) => processItem(item, i + j)));
+
+    const processed = Math.min(i + concurrency, originals.length);
+    options.onProgress?.({
+      stage: 'enhance',
+      message: `Enhancing: ${processed}/${originals.length} processed, ${enhanced.length} improved...`,
+      percent: Math.round((processed / originals.length) * 70) + 15,
+    });
+    console.log(`  Enhance progress: ${processed}/${originals.length}, ${enhanced.length} improved (${Math.round((Date.now() - enhanceStart) / 1000)}s)`);
+  }
+
+  // Unprocessed = originals whose index was NOT successfully enhanced
+  const unprocessed = originals.filter((_, idx) => !enhancedIndices.has(idx));
+
+  const totalElapsed = Math.round((Date.now() - enhanceStart) / 1000);
+  console.log(`✅ Enhancement complete: ${enhanced.length} improved, ${unprocessed.length} kept original, ${apiCalls} calls (${totalElapsed}s)`);
+
+  return { enhanced, unprocessed, apiCalls };
+}
+
+/**
  * Generate quiz using Ollama with structured prompts (auto-selects best available model)
  * High-performance parallel-wave architecture with 1.5x overgeneration
  */
@@ -3593,92 +3703,47 @@ export async function generateQuizWithGemma(
   // key concepts — eliminating the "answer not found" and paraphrasing
   // failures that plague the LLM-based pipeline.
   //
-  // For HARD: deterministic items are collected as seeds, then each is
-  // transformed into a scenario-based item via Ollama (never returned as-is).
+  // For HARD: generate deterministic HARD items first (instant), then
+  // enhance as many as possible via Ollama within a strict time budget.
+  // If time runs out, enhanced items + remaining originals fill the count.
   let _deterministicSeed: any[] | null = null;
   const fibConcepts = keyConcepts.length >= 4 ? keyConcepts : (autoConcepts.length >= 4 ? autoConcepts : []);
   if (type === 'FILL_IN_BLANK' && fibConcepts.length >= 4) {
     if (difficulty === 'HARD') {
-      // ── Step 1: Try deterministic HARD directly — instant, no LLM ──
-      const hardDet = generateDeterministicFIB(lessonContent, fibConcepts, count, 'HARD', notes);
-      if (hardDet && hardDet.length >= count) {
+      // ── Step 1: Generate deterministic HARD items (instant) ──
+      const hardDet = generateDeterministicFIB(lessonContent, fibConcepts, Math.ceil(count * 1.2), 'HARD', notes);
+      if (hardDet && hardDet.length > 0) {
+        const itemsToEnhance = hardDet.slice(0, count);
+        const resolvedModelForEnhance = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
+        onProgress?.({ stage: 'enhance', message: `Enhancing ${itemsToEnhance.length} HARD FIB items via AI...`, percent: 10 });
+
+        // ── Step 2: Enhance within time budget ──
+        const { enhanced, unprocessed, apiCalls } = await enhanceHardItems(
+          itemsToEnhance, 'FILL_IN_BLANK', lessonContent, fibConcepts, resolvedModelForEnhance, 0.40,
+          {
+            validator: (item: any) => validateFillInBlankItem(item, lessonContent, fibConcepts, 'HARD', notes),
+            signal,
+            onProgress,
+          }
+        );
+
+        // ── Step 3: Assemble — prefer enhanced, fill with originals ──
+        const finalItems = [...enhanced, ...unprocessed].slice(0, count);
         const elapsed = Date.now() - startTime;
         const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-        console.log(`\n=== Generation Complete (deterministic HARD FIB fast-path) ===`);
-        console.log(`Requested: ${count} | Produced: ${hardDet.length} | Time: ${timeString}`);
+        console.log(`\n=== Generation Complete (HARD FIB: ${enhanced.length} enhanced + ${Math.max(0, finalItems.length - enhanced.length)} original) ===`);
+        console.log(`Requested: ${count} | Produced: ${finalItems.length} | Time: ${timeString}`);
         console.log(`===========================\n`);
         onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
         return {
           type: 'fill_blank',
           difficulty: 'hard',
-          items: hardDet.slice(0, count),
+          items: finalItems,
           rejectedItems: [],
-          stats: { requested: count, generated: hardDet.length, rejected: 0, waves: 0, apiCalls: 0 }
+          stats: { requested: count, generated: finalItems.length, rejected: 0, waves: 0, apiCalls }
         };
       }
-
-      // ── Step 2: Deterministic HARD yielded partial — seed those, try transform for the rest ──
-      const hardSeed = hardDet ?? [];
-      if (hardSeed.length > 0) {
-        console.log(`Deterministic HARD FIB produced ${hardSeed.length}/${count} — will attempt transform for remainder.`);
-      }
-
-      // Generate EASY base items for transform
-      const detCount = Math.ceil(count * 1.5);
-      const deterministicItems = generateDeterministicFIB(lessonContent, fibConcepts, detCount, 'EASY', notes);
-
-      if (deterministicItems && deterministicItems.length > 0) {
-        const resolvedModelForTransform = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
-        const hardTemp = 0.40;
-        const remaining = count - hardSeed.length;
-        const itemsToTransform = deterministicItems.slice(0, Math.min(remaining, 5));
-        onProgress?.({ stage: 'transform', message: `Transforming ${itemsToTransform.length} items to HARD scenarios...`, percent: 15 });
-        const { validItems: validTransformed, transformed, failed: _failedFIB, apiCalls } = await transformItemsToHardScenarios(
-          itemsToTransform, 'FILL_IN_BLANK', lessonContent, fibConcepts, resolvedModelForTransform, hardTemp,
-          {
-            targetValid: remaining,
-            validator: (item: any) => validateFillInBlankItem(item, lessonContent, fibConcepts, 'HARD', notes),
-            signal,
-          }
-        );
-
-        // Combine deterministic HARD seed + transformed items
-        const combined = [...hardSeed, ...validTransformed];
-        if (combined.length >= count) {
-          const elapsed = Date.now() - startTime;
-          const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-          console.log(`\n=== Generation Complete (HARD FIB: ${hardSeed.length} det + ${validTransformed.length} transformed) ===`);
-          console.log(`Requested: ${count} | Produced: ${combined.length} | Time: ${timeString}`);
-          console.log(`===========================\n`);
-          return {
-            type: 'fill_blank',
-            difficulty: 'hard',
-            items: combined.slice(0, count),
-            rejectedItems: [],
-            stats: { requested: count, generated: combined.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
-          };
-        }
-        if (combined.length >= Math.ceil(count * 0.6)) {
-          const elapsed = Date.now() - startTime;
-          const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-          console.log(`\n=== Generation Complete (HARD FIB partial early-return: ${combined.length}/${count}) ===`);
-          console.log(`Time: ${timeString}`);
-          console.log(`===========================\n`);
-          return {
-            type: 'fill_blank',
-            difficulty: 'hard',
-            items: combined.slice(0, count),
-            rejectedItems: [],
-            stats: { requested: count, generated: combined.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
-          };
-        }
-        // Seed the wave loop with whatever we have
-        _deterministicSeed = combined;
-        console.log(`HARD FIB: ${combined.length}/${count} after det+transform — wave loop will fill remaining.`);
-      } else if (hardSeed.length > 0) {
-        _deterministicSeed = hardSeed;
-        console.log(`HARD FIB: ${hardSeed.length}/${count} from det only — wave loop will fill remaining.`);
-      }
+      // Det HARD produced nothing (extremely rare) — fall through to wave loop
     } else {
       // EASY / MEDIUM path (unchanged)
       const deterministicItems = generateDeterministicFIB(lessonContent, fibConcepts, count, difficulty, notes);
@@ -3719,95 +3784,49 @@ export async function generateQuizWithGemma(
   // quiz questions. Expanded variants produce fragment terms
   // like "learning discovers" that are not valid concepts for MCQ.
   //
-  // For HARD: try deterministic HARD first (instant). If enough items,
-  // return immediately with zero LLM calls. Otherwise seed those +
-  // transform a small batch via Ollama, then fall through to wave loop.
+  // For HARD: generate deterministic HARD items first (instant), then
+  // enhance as many as possible via Ollama within a strict time budget.
+  // If time runs out, enhanced items + remaining originals fill the count.
   let _deterministicMCQSeed: any[] | null = null;
   const mcqConcepts = originalKeyConcepts.length >= 4 ? originalKeyConcepts
     : keyConcepts.length >= 4 ? keyConcepts
     : autoConcepts.length >= 4 ? autoConcepts : [];
   if (type === 'MCQ' && mcqConcepts.length >= 4) {
     if (difficulty === 'HARD') {
-      // ── Step 1: Try deterministic HARD directly — instant, no LLM ──
-      const hardDet = generateDeterministicMCQ(mcqConcepts, count, 'HARD');
-      if (hardDet && hardDet.length >= count) {
+      // ── Step 1: Generate deterministic HARD items (instant) ──
+      const hardDet = generateDeterministicMCQ(mcqConcepts, Math.ceil(count * 1.2), 'HARD');
+      if (hardDet && hardDet.length > 0) {
+        const itemsToEnhance = hardDet.slice(0, count);
+        const resolvedModelForEnhance = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
+        onProgress?.({ stage: 'enhance', message: `Enhancing ${itemsToEnhance.length} HARD MCQ items via AI...`, percent: 10 });
+
+        // ── Step 2: Enhance within time budget ──
+        const { enhanced, unprocessed, apiCalls } = await enhanceHardItems(
+          itemsToEnhance, 'MCQ', lessonContent, mcqConcepts, resolvedModelForEnhance, 0.45,
+          {
+            validator: (item: any) => validateMCQItem(item, 'HARD', mcqConcepts, lessonContent),
+            signal,
+            onProgress,
+          }
+        );
+
+        // ── Step 3: Assemble — prefer enhanced, fill with originals ──
+        const finalItems = [...enhanced, ...unprocessed].slice(0, count);
         const elapsed = Date.now() - startTime;
         const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-        console.log(`\n=== Generation Complete (deterministic HARD MCQ fast-path) ===`);
-        console.log(`Requested: ${count} | Produced: ${hardDet.length} | Time: ${timeString}`);
+        console.log(`\n=== Generation Complete (HARD MCQ: ${enhanced.length} enhanced + ${Math.max(0, finalItems.length - enhanced.length)} original) ===`);
+        console.log(`Requested: ${count} | Produced: ${finalItems.length} | Time: ${timeString}`);
         console.log(`===========================\n`);
         onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
         return {
           type: 'mcq',
           difficulty: 'hard',
-          items: hardDet.slice(0, count),
+          items: finalItems,
           rejectedItems: [],
-          stats: { requested: count, generated: hardDet.length, rejected: 0, waves: 0, apiCalls: 0 }
+          stats: { requested: count, generated: finalItems.length, rejected: 0, waves: 0, apiCalls }
         };
       }
-
-      // ── Step 2: Deterministic HARD yielded partial — seed those, try transform for the rest ──
-      const hardSeed = hardDet ?? [];
-      if (hardSeed.length > 0) {
-        console.log(`Deterministic HARD MCQ produced ${hardSeed.length}/${count} — will attempt transform for remainder.`);
-      }
-
-      // Generate EASY base items for transform
-      const detCount = Math.ceil(count * 1.5);
-      const deterministicItems = generateDeterministicMCQ(mcqConcepts, detCount, 'EASY');
-
-      if (deterministicItems && deterministicItems.length > 0) {
-        const resolvedModelForTransform = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
-        const hardTemp = 0.45;
-        const remaining = count - hardSeed.length;
-        const itemsToTransform = deterministicItems.slice(0, Math.min(remaining, 5));
-        onProgress?.({ stage: 'transform', message: `Transforming ${itemsToTransform.length} MCQ items to HARD scenarios...`, percent: 15 });
-        const { validItems: validTransformed, transformed, failed: _failedMCQ, apiCalls } = await transformItemsToHardScenarios(
-          itemsToTransform, 'MCQ', lessonContent, mcqConcepts, resolvedModelForTransform, hardTemp,
-          {
-            targetValid: remaining,
-            validator: (item: any) => validateMCQItem(item, 'HARD', mcqConcepts, lessonContent),
-            signal,
-          }
-        );
-
-        // Combine deterministic HARD seed + transformed items
-        const combined = [...hardSeed, ...validTransformed];
-        if (combined.length >= count) {
-          const elapsed = Date.now() - startTime;
-          const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-          console.log(`\n=== Generation Complete (HARD MCQ: ${hardSeed.length} det + ${validTransformed.length} transformed) ===`);
-          console.log(`Requested: ${count} | Produced: ${combined.length} | Time: ${timeString}`);
-          console.log(`===========================\n`);
-          return {
-            type: 'mcq',
-            difficulty: 'hard',
-            items: combined.slice(0, count),
-            rejectedItems: [],
-            stats: { requested: count, generated: combined.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
-          };
-        }
-        if (combined.length >= Math.ceil(count * 0.6)) {
-          const elapsed = Date.now() - startTime;
-          const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-          console.log(`\n=== Generation Complete (HARD MCQ partial early-return: ${combined.length}/${count}) ===`);
-          console.log(`Time: ${timeString}`);
-          console.log(`===========================\n`);
-          return {
-            type: 'mcq',
-            difficulty: 'hard',
-            items: combined.slice(0, count),
-            rejectedItems: [],
-            stats: { requested: count, generated: combined.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
-          };
-        }
-        // Seed the wave loop with whatever we have
-        _deterministicMCQSeed = combined;
-        console.log(`HARD MCQ: ${combined.length}/${count} after det+transform — wave loop will fill remaining.`);
-      } else if (hardSeed.length > 0) {
-        _deterministicMCQSeed = hardSeed;
-        console.log(`HARD MCQ: ${hardSeed.length}/${count} from det only — wave loop will fill remaining.`);
-      }
+      // Det HARD produced nothing (extremely rare) — fall through to wave loop
     } else {
       // EASY / MEDIUM path (unchanged)
       const deterministicItems = generateDeterministicMCQ(mcqConcepts, count, difficulty);
@@ -3847,95 +3866,49 @@ export async function generateQuizWithGemma(
   // Builds front/back cards directly from key concept definitions.
   // EASY: simple recall, MEDIUM: varied styles, HARD: scenario/comparison.
   //
-  // For HARD: try deterministic HARD first (instant). If enough items,
-  // return immediately with zero LLM calls. Otherwise seed those +
-  // transform a small batch via Ollama, then fall through to wave loop.
+  // For HARD: generate deterministic HARD items first (instant), then
+  // enhance as many as possible via Ollama within a strict time budget.
+  // If time runs out, enhanced items + remaining originals fill the count.
   let _deterministicFlashcardSeed: any[] | null = null;
   const flashcardConcepts = originalKeyConcepts.length >= 2 ? originalKeyConcepts
     : keyConcepts.length >= 2 ? keyConcepts
     : autoConcepts.length >= 2 ? autoConcepts : [];
   if (type === 'FLASHCARD' && flashcardConcepts.length >= 2) {
     if (difficulty === 'HARD') {
-      // ── Step 1: Try deterministic HARD directly — instant, no LLM ──
-      const hardDet = generateDeterministicFlashcards(flashcardConcepts, count, 'HARD');
-      if (hardDet && hardDet.length >= count) {
+      // ── Step 1: Generate deterministic HARD items (instant) ──
+      const hardDet = generateDeterministicFlashcards(flashcardConcepts, Math.ceil(count * 1.2), 'HARD');
+      if (hardDet && hardDet.length > 0) {
+        const itemsToEnhance = hardDet.slice(0, count);
+        const resolvedModelForEnhance = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
+        onProgress?.({ stage: 'enhance', message: `Enhancing ${itemsToEnhance.length} HARD Flashcard items via AI...`, percent: 10 });
+
+        // ── Step 2: Enhance within time budget ──
+        const { enhanced, unprocessed, apiCalls } = await enhanceHardItems(
+          itemsToEnhance, 'FLASHCARD', lessonContent, flashcardConcepts, resolvedModelForEnhance, 0.55,
+          {
+            validator: (item: any) => validateFlashcardItem(item),
+            signal,
+            onProgress,
+          }
+        );
+
+        // ── Step 3: Assemble — prefer enhanced, fill with originals ──
+        const finalItems = [...enhanced, ...unprocessed].slice(0, count);
         const elapsed = Date.now() - startTime;
         const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-        console.log(`\n=== Generation Complete (deterministic HARD Flashcard fast-path) ===`);
-        console.log(`Requested: ${count} | Produced: ${hardDet.length} | Time: ${timeString}`);
+        console.log(`\n=== Generation Complete (HARD Flashcard: ${enhanced.length} enhanced + ${Math.max(0, finalItems.length - enhanced.length)} original) ===`);
+        console.log(`Requested: ${count} | Produced: ${finalItems.length} | Time: ${timeString}`);
         console.log(`===========================\n`);
         onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
         return {
           type: 'flashcard',
           difficulty: 'hard',
-          items: hardDet.slice(0, count),
+          items: finalItems,
           rejectedItems: [],
-          stats: { requested: count, generated: hardDet.length, rejected: 0, waves: 0, apiCalls: 0 }
+          stats: { requested: count, generated: finalItems.length, rejected: 0, waves: 0, apiCalls }
         };
       }
-
-      // ── Step 2: Deterministic HARD yielded partial — seed those, try transform for the rest ──
-      const hardSeed = hardDet ?? [];
-      if (hardSeed.length > 0) {
-        console.log(`Deterministic HARD Flashcard produced ${hardSeed.length}/${count} — will attempt transform for remainder.`);
-      }
-
-      // Generate EASY base items for transform
-      const detCount = Math.ceil(count * 1.5);
-      const deterministicItems = generateDeterministicFlashcards(flashcardConcepts, detCount, 'EASY');
-
-      if (deterministicItems && deterministicItems.length > 0) {
-        const resolvedModelForTransform = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
-        const hardTemp = 0.55;
-        const remaining = count - hardSeed.length;
-        const itemsToTransform = deterministicItems.slice(0, Math.min(remaining, 5));
-        onProgress?.({ stage: 'transform', message: `Transforming ${itemsToTransform.length} Flashcard items to HARD scenarios...`, percent: 15 });
-        const { validItems: validTransformed, transformed, failed: _failedFlash, apiCalls } = await transformItemsToHardScenarios(
-          itemsToTransform, 'FLASHCARD', lessonContent, flashcardConcepts, resolvedModelForTransform, hardTemp,
-          {
-            targetValid: remaining,
-            validator: (item: any) => validateFlashcardItem(item),
-            signal,
-          }
-        );
-
-        // Combine deterministic HARD seed + transformed items
-        const combined = [...hardSeed, ...validTransformed];
-        if (combined.length >= count) {
-          const elapsed = Date.now() - startTime;
-          const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-          console.log(`\n=== Generation Complete (HARD Flashcard: ${hardSeed.length} det + ${validTransformed.length} transformed) ===`);
-          console.log(`Requested: ${count} | Produced: ${combined.length} | Time: ${timeString}`);
-          console.log(`===========================\n`);
-          return {
-            type: 'flashcard',
-            difficulty: 'hard',
-            items: combined.slice(0, count),
-            rejectedItems: [],
-            stats: { requested: count, generated: combined.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
-          };
-        }
-        if (combined.length >= Math.ceil(count * 0.6)) {
-          const elapsed = Date.now() - startTime;
-          const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-          console.log(`\n=== Generation Complete (HARD Flashcard partial early-return: ${combined.length}/${count}) ===`);
-          console.log(`Time: ${timeString}`);
-          console.log(`===========================\n`);
-          return {
-            type: 'flashcard',
-            difficulty: 'hard',
-            items: combined.slice(0, count),
-            rejectedItems: [],
-            stats: { requested: count, generated: combined.length, rejected: transformed.length - validTransformed.length, waves: 0, apiCalls }
-          };
-        }
-        // Seed the wave loop with whatever we have
-        _deterministicFlashcardSeed = combined;
-        console.log(`HARD Flashcard: ${combined.length}/${count} after det+transform — wave loop will fill remaining.`);
-      } else if (hardSeed.length > 0) {
-        _deterministicFlashcardSeed = hardSeed;
-        console.log(`HARD Flashcard: ${hardSeed.length}/${count} from det only — wave loop will fill remaining.`);
-      }
+      // Det HARD produced nothing (extremely rare) — fall through to wave loop
     } else {
       // EASY / MEDIUM path (unchanged)
       const deterministicItems = generateDeterministicFlashcards(flashcardConcepts, count, difficulty);
