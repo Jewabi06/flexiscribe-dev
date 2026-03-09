@@ -15,11 +15,56 @@ import { useState, useEffect, useCallback, useRef } from "react";
 let _isGenerating = false;
 let _generationPromise = null;   // the live fetch promise (or null)
 let _result = null;              // { success, data } | { success: false, error }
+let _progress = null;            // { stage, message, percent } — SSE progress
 let _selectionValues = null;     // raw dropdown values (lessonId, type, difficulty, count)
 let _subscribers = new Set();    // all mounted hook instances
 
 function _notify() {
   _subscribers.forEach((fn) => fn());
+}
+
+/**
+ * Parse SSE events from a ReadableStream response body.
+ * Calls `onEvent(data)` for each parsed `data:` line.
+ */
+async function _readSSE(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || ''; // last element may be incomplete
+
+      for (const part of parts) {
+        const dataLine = part.split('\n').find((l) => l.startsWith('data: '));
+        if (!dataLine) continue;
+        try {
+          const data = JSON.parse(dataLine.slice(6));
+          onEvent(data);
+        } catch {
+          // malformed JSON — skip
+        }
+      }
+    }
+
+    // Flush any remaining buffer
+    if (buffer.trim()) {
+      const dataLine = buffer.split('\n').find((l) => l.startsWith('data: '));
+      if (dataLine) {
+        try {
+          onEvent(JSON.parse(dataLine.slice(6)));
+        } catch { /* ignore */ }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 /**
@@ -56,51 +101,70 @@ export default function useQuizGeneration() {
 
     _isGenerating = true;
     _result = null;
+    _progress = null;
     _selectionValues = apiParams ? { ...apiParams } : null;
     _notify();
 
-    _generationPromise = fetch("/api/quizzes/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(apiParams),
-    })
-      .then(async (response) => {
-        const data = await response.json();
-        if (response.ok && data.success) {
-          _result = { success: true, data };
-          // Store quiz info for notification
-          localStorage.setItem(
-            "quiz-generated",
-            JSON.stringify({
-              type: data.quiz.type,
-              difficulty: data.quiz.difficulty,
-              count: data.quiz.totalQuestions,
-            })
-          );
-          // Navigate to the generated quiz (works even if component re-mounted)
-          router.push(`/student/quizzes/${data.quiz.id}`);
-        } else {
+    _generationPromise = (async () => {
+      try {
+        const response = await fetch("/api/quizzes/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(apiParams),
+        });
+
+        // Non-200 responses are still plain JSON (validation / auth errors)
+        if (!response.ok) {
+          const data = await response.json();
           _result = {
             success: false,
             error: data.error || "Unknown error",
             details: data.details || "",
           };
+          return;
         }
-      })
-      .catch((error) => {
+
+        // 200 — SSE stream with progress + completion events
+        await _readSSE(response, (event) => {
+          if (event.type === "progress") {
+            _progress = { stage: event.stage, message: event.message, percent: event.percent };
+            _notify();
+          } else if (event.type === "complete" && event.success) {
+            _result = { success: true, data: event };
+            // Store quiz info for notification
+            localStorage.setItem(
+              "quiz-generated",
+              JSON.stringify({
+                type: event.quiz.type,
+                difficulty: event.quiz.difficulty,
+                count: event.quiz.totalQuestions,
+              })
+            );
+            // Navigate to the generated quiz
+            router.push(`/student/quizzes/${event.quiz.id}`);
+          } else if (event.type === "error") {
+            _result = {
+              success: false,
+              error: event.error || "Unknown error",
+              details: event.details || "",
+            };
+          }
+        });
+      } catch (error) {
         console.error("Error generating quiz:", error);
         _result = {
           success: false,
           error: "Failed to generate quiz. Please ensure Ollama is running and try again.",
           details: "",
         };
-      })
-      .finally(() => {
+      } finally {
         _isGenerating = false;
         _generationPromise = null;
+        _progress = null;
         _selectionValues = null;
         _notify();
-      });
+      }
+    })();
 
     return _generationPromise;
   }, []);
@@ -112,6 +176,7 @@ export default function useQuizGeneration() {
 
   return {
     isGenerating: _isGenerating,
+    progress: _progress,
     selectionValues: _selectionValues,
     result: _result,
     generate,
