@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Editor } from "@tinymce/tinymce-react";
 import { 
@@ -198,22 +198,10 @@ export default function ReviewerEditorPage() {
   const [reviewer, setReviewer] = useState(null);
   const [fetchError, setFetchError] = useState(null);
   const [modalInfo, setModalInfo] = useState({ isOpen: false, title: "", message: "", type: "info" });
-  const [isMobile, setIsMobile] = useState(false);
   const editorRef = useRef(null);
   const contentInitialized = useRef(false);
   const initialContentRef = useRef("");
   const isTyping = useRef(false);
-
-  // Detect mobile viewport
-  const checkMobile = useCallback(() => {
-    setIsMobile(window.innerWidth < 768);
-  }, []);
-
-  useEffect(() => {
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, [checkMobile]);
 
   // Load theme preference
   useEffect(() => {
@@ -442,8 +430,8 @@ export default function ReviewerEditorPage() {
         {!loading && (
           <div className="tinymce-wrapper">
             <Editor
-              // 1. COMBINED KEY: Forces re-mount when content loads OR theme changes OR mobile changes
-              key={contentLoaded ? (darkMode ? 'loaded-dark' : 'loaded-light') + (isMobile ? '-mobile' : '-desktop') : 'loading'}
+              // 1. COMBINED KEY: Forces re-mount when content loads OR theme changes
+              key={contentLoaded ? (darkMode ? 'loaded-dark' : 'loaded-light') : 'loading'}
               
               tinymceScriptSrc="/tinymce/tinymce.min.js"
               initialValue={initialContentRef.current || "<p>Loading content...</p>"}
@@ -457,10 +445,9 @@ export default function ReviewerEditorPage() {
                 setEditorContent(content);
               }}
               init={{
-                height: isMobile ? '100%' : 700,
-                min_height: isMobile ? 500 : 600,
+                height: 700,
                 width: '100%',
-                menubar: !isMobile,
+                menubar: false,
                 promotion: false,
                 license_key: 'gpl',
                 plugins: [
@@ -468,28 +455,10 @@ export default function ReviewerEditorPage() {
                   'anchor', 'searchreplace', 'visualblocks', 'code',
                   'insertdatetime', 'media', 'table', 'help', 'wordcount'
                 ],
-                // Use toolbar_mode: 'wrap' — all buttons wrap to new rows, NEVER hidden
-                toolbar_mode: 'wrap',
-                toolbar: isMobile
-                  ? [
-                      'undo redo',
-                      'bold italic underline | forecolor',
-                      'blocks',
-                      'alignleft aligncenter alignright alignjustify',
-                      'bullist numlist',
-                      'table | removeformat',
-                    ].join(' | ')
-                  : 'undo redo | blocks | bold italic underline forecolor | alignleft aligncenter alignright alignjustify | bullist numlist | table | removeformat | help',
+                toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist | table | removeformat',
                 table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol | tablecellprops tablemergecells tablesplitcells',
-
-                // Mobile-specific TinyMCE config block
-                mobile: {
-                  toolbar_mode: 'wrap',
-                  menubar: false,
-                  toolbar: 'undo redo | bold italic | blocks | alignleft aligncenter alignright alignjustify | bullist numlist | table | forecolor | removeformat',
-                },
-
-                // 2. DYNAMIC STYLES
+                
+                // 2. DYNAMIC STYLES: Define the variables at the root level
                 content_style: `
                   :root {
                     --text-main: ${darkMode ? '#e8e8e8' : '#1a1a1a'};
@@ -497,45 +466,74 @@ export default function ReviewerEditorPage() {
                     --border-color: ${darkMode ? '#4c4172' : '#333333'};
                     --accent-color: ${darkMode ? '#c5a6f9' : '#5b21b6'};
                   }
+                  
                   body {
                     font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                    font-size: ${isMobile ? '11pt' : '12pt'};
+                    font-size: 12pt;
                     line-height: 1.7;
-                    color: var(--text-main);
+                    color: var(--text-main); 
                     background-color: ${darkMode ? '#1a1625' : '#ffffff'};
-                    max-width: ${isMobile ? '100%' : '210mm'};
-                    margin: 0 auto;
-                    padding: ${isMobile ? '8px' : '20mm 18mm'};
-                    text-align: justify;
-                    box-sizing: border-box;
-                    -webkit-text-size-adjust: 100%;
-                    touch-action: manipulation;
                   }
+
+                  /* FIX 1: Aggressively target the wrapper DIV to ensure it fits */
+                  body > div {
+                    width: 100% !important;
+                    max-width: 210mm !important;
+                    box-sizing: border-box !important;
+                  }
+                  
                   table {
                     border-collapse: collapse;
-                    width: 100%;
+                    width: 100% !important;
+                    max-width: 100%;
                     margin: 0;
-                    table-layout: ${isMobile ? 'auto' : 'fixed'};
-                    word-break: break-word;
+                    table-layout: fixed;
+                    word-wrap: break-word;
                   }
+                  
                   table td, table th {
-                    padding: ${isMobile ? '8px 10px' : '14px 16px'};
                     vertical-align: top;
                     text-align: justify;
-                    border: 1px solid var(--border-color);
-                    word-break: break-word;
+                    border: 1px solid var(--border-color) !important;
+                    box-sizing: border-box !important;
                     overflow-wrap: break-word;
                   }
-                  @media (max-width: 640px) {
-                    table td, table th { display: block; width: 100% !important; border-bottom: none; }
-                    table tr { display: block; border-bottom: 1px solid var(--border-color); margin-bottom: 8px; }
-                    table { border: 1px solid var(--border-color); }
-                  }
+                  
                   h1, h2, h3 { color: var(--text-main); }
                   ul { margin: 4px 0 12px 24px; padding: 0; }
                   li { margin-bottom: 5px; }
                   p { margin: 0 0 8px 0; }
-                  img { max-width: 100%; height: auto; }
+
+                  /* FIX 2: MOBILE RESPONSIVE OVERRIDES */
+                  @media (max-width: 600px) {
+                    /* Crush the massive 20mm 18mm inline padding on the div */
+                    body > div {
+                      padding: 12px !important;
+                    }
+                    
+                    /* Force ALL table elements to become block elements so they stack vertically */
+                    table, thead, tbody, th, td, tr {
+                      display: block !important;
+                      width: 100% !important;
+                      box-sizing: border-box !important;
+                    }
+                    
+                    table td, table th {
+                      padding: 14px !important;
+                      border-bottom: none !important; /* Remove middle borders to look cleaner */
+                      font-size: 11pt;
+                    }
+                    
+                    /* Keep the bottom border for the last item in the stacked row */
+                    table td:last-child {
+                      border-bottom: 1px solid var(--border-color) !important;
+                    }
+                    
+                    /* Fix the right-aligned title header */
+                    td[style*="text-align:right"] {
+                      text-align: left !important;
+                    }
+                  }
                 `,
 
                 skin: darkMode ? 'oxide-dark' : 'oxide',
@@ -543,34 +541,14 @@ export default function ReviewerEditorPage() {
                 
                 branding: false,
                 resize: false,
-                statusbar: !isMobile,
-                table_default_attributes: { border: '0' },
-                table_default_styles: { 'border-collapse': 'collapse', 'width': '100%' },
-
-                // Touch / mobile UX enhancements
-                touch_calc_line_height: true,
-                iframe_attrs: { loading: 'lazy' },
-
-                // Ensure dialogs fit mobile viewport
-                setup: (editor) => {
-                  editor.on('OpenWindow', () => {
-                    // Give dialogs a tick to render, then ensure they fit the viewport
-                    setTimeout(() => {
-                      const dialogs = document.querySelectorAll('.tox-dialog');
-                      dialogs.forEach((d) => {
-                        d.style.maxWidth = 'calc(100vw - 16px)';
-                        d.style.maxHeight = 'calc(100dvh - 16px)';
-                        d.style.overflowY = 'auto';
-                      });
-                      const dialogWraps = document.querySelectorAll('.tox-dialog-wrap');
-                      dialogWraps.forEach((w) => {
-                        w.style.padding = '8px';
-                        w.style.alignItems = 'flex-start';
-                        w.style.paddingTop = '8px';
-                      });
-                    }, 50);
-                  });
+                statusbar: true,
+                table_default_attributes: {
+                  border: '0'
                 },
+                table_default_styles: {
+                  'border-collapse': 'collapse',
+                  'width': '100%'
+                }
               }}
             />
           </div>
