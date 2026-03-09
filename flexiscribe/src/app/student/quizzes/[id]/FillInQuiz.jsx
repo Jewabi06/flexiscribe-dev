@@ -148,12 +148,17 @@ export default function FillInQuiz({ quiz, questions }) {
   const handleNext = () => {
     if (currentQuestionIndex < totalQuestions - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
-    }
+      // Load the answer for the next question
+      const nextAnswer = answers[currentQuestionIndex + 1];
+      setUserAnswer(nextAnswer !== undefined ? nextAnswer : "");    }
   };
 
   const handlePrevious = () => {
     if (currentQuestionIndex > 0) {
       setCurrentQuestionIndex(currentQuestionIndex - 1);
+      // Load the answer for the previous question
+      const prevAnswer = answers[currentQuestionIndex - 1];
+      setUserAnswer(prevAnswer !== undefined ? prevAnswer : "");
     }
   };
 
