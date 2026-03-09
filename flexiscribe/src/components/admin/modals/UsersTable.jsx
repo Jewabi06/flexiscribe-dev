@@ -142,10 +142,10 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
                     {u.fullName || u.name || "N/A"}
                     {u.isGhost && (
                       <span
-                        title="Ghost account – hidden from students"
+                        title="Sub-admin – hidden from students"
                         className="ml-1 text-xs bg-[#ede9fe] text-[#6f63a6] border border-[#c9bff8] rounded-full px-2 py-0.5 font-medium"
                       >
-                        👻 Ghost
+                        SUB-ADMIN
                       </span>
                     )}
                   </p>
@@ -212,10 +212,10 @@ export default function UsersTable({ roleFilter, statusFilter, dateFilter }) {
                     {u.fullName || u.name || "N/A"}
                     {u.isGhost && (
                       <span
-                        title="Ghost account"
+                        title="Sub-Admin account"
                         className="ml-1 text-xs bg-[#ede9fe] text-[#6f63a6] border border-[#c9bff8] rounded-full px-2 py-0.5 font-medium"
                       >
-                        👻 Ghost
+                        SUB-ADMIN
                       </span>
                     )}
                   </p>
