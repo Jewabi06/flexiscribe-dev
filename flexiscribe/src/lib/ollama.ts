@@ -3703,21 +3703,42 @@ export async function generateQuizWithGemma(
   // key concepts — eliminating the "answer not found" and paraphrasing
   // failures that plague the LLM-based pipeline.
   //
-  // For HARD: generate deterministic HARD items first (instant), then
-  // enhance as many as possible via Ollama within a strict time budget.
-  // If time runs out, enhanced items + remaining originals fill the count.
+  // For HARD: generate deterministic HARD items first (instant). If they
+  // meet the count, return immediately. Enhancement via Ollama is optional
+  // (ENABLE_HARD_ENHANCEMENT=true) and only runs on a small batch when
+  // deterministic output falls short.
   let _deterministicSeed: any[] | null = null;
   const fibConcepts = keyConcepts.length >= 4 ? keyConcepts : (autoConcepts.length >= 4 ? autoConcepts : []);
+  const enableEnhancement = process.env.ENABLE_HARD_ENHANCEMENT === 'true';
   if (type === 'FILL_IN_BLANK' && fibConcepts.length >= 4) {
     if (difficulty === 'HARD') {
       // ── Step 1: Generate deterministic HARD items (instant) ──
       const hardDet = generateDeterministicFIB(lessonContent, fibConcepts, Math.ceil(count * 1.2), 'HARD', notes);
-      if (hardDet && hardDet.length > 0) {
-        const itemsToEnhance = hardDet.slice(0, count);
+
+      if (hardDet && hardDet.length >= count) {
+        // Fast path — deterministic HARD already meets the count, return instantly
+        const elapsed = Date.now() - startTime;
+        const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
+        console.log(`\n=== Generation Complete (deterministic HARD FIB fast-path) ===`);
+        console.log(`Requested: ${count} | Produced: ${hardDet.length} | Time: ${timeString}`);
+        console.log(`===========================\n`);
+        onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
+        return {
+          type: 'fill_blank',
+          difficulty: 'hard',
+          items: hardDet.slice(0, count),
+          rejectedItems: [],
+          stats: { requested: count, generated: hardDet.length, rejected: 0, waves: 0, apiCalls: 0 }
+        };
+      }
+
+      // Deterministic HARD produced partial results — try enhancement for the gap
+      if (hardDet && hardDet.length > 0 && enableEnhancement) {
+        const shortfall = count - hardDet.length;
+        const itemsToEnhance = hardDet.slice(0, Math.min(shortfall, 5));
         const resolvedModelForEnhance = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
         onProgress?.({ stage: 'enhance', message: `Enhancing ${itemsToEnhance.length} HARD FIB items via AI...`, percent: 10 });
 
-        // ── Step 2: Enhance within time budget ──
         const { enhanced, unprocessed, apiCalls } = await enhanceHardItems(
           itemsToEnhance, 'FILL_IN_BLANK', lessonContent, fibConcepts, resolvedModelForEnhance, 0.40,
           {
@@ -3727,11 +3748,10 @@ export async function generateQuizWithGemma(
           }
         );
 
-        // ── Step 3: Assemble — prefer enhanced, fill with originals ──
-        const finalItems = [...enhanced, ...unprocessed].slice(0, count);
+        const finalItems = [...enhanced, ...unprocessed, ...hardDet.slice(itemsToEnhance.length)].slice(0, count);
         const elapsed = Date.now() - startTime;
         const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-        console.log(`\n=== Generation Complete (HARD FIB: ${enhanced.length} enhanced + ${Math.max(0, finalItems.length - enhanced.length)} original) ===`);
+        console.log(`\n=== Generation Complete (HARD FIB: ${enhanced.length} enhanced + ${finalItems.length - enhanced.length} original) ===`);
         console.log(`Requested: ${count} | Produced: ${finalItems.length} | Time: ${timeString}`);
         console.log(`===========================\n`);
         onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
@@ -3742,6 +3762,10 @@ export async function generateQuizWithGemma(
           rejectedItems: [],
           stats: { requested: count, generated: finalItems.length, rejected: 0, waves: 0, apiCalls }
         };
+      } else if (hardDet && hardDet.length > 0) {
+        // Enhancement disabled or partial det — seed wave loop with what we have
+        _deterministicSeed = hardDet;
+        console.log(`Deterministic HARD FIB produced ${hardDet.length}/${count} (enhancement ${enableEnhancement ? 'enabled' : 'disabled'}) — wave loop will fill remaining.`);
       }
       // Det HARD produced nothing (extremely rare) — fall through to wave loop
     } else {
@@ -3784,9 +3808,9 @@ export async function generateQuizWithGemma(
   // quiz questions. Expanded variants produce fragment terms
   // like "learning discovers" that are not valid concepts for MCQ.
   //
-  // For HARD: generate deterministic HARD items first (instant), then
-  // enhance as many as possible via Ollama within a strict time budget.
-  // If time runs out, enhanced items + remaining originals fill the count.
+  // For HARD: generate deterministic HARD items first (instant). If they
+  // meet the count, return immediately. Enhancement is optional
+  // (ENABLE_HARD_ENHANCEMENT=true) and capped at min(shortfall, 5).
   let _deterministicMCQSeed: any[] | null = null;
   const mcqConcepts = originalKeyConcepts.length >= 4 ? originalKeyConcepts
     : keyConcepts.length >= 4 ? keyConcepts
@@ -3795,12 +3819,31 @@ export async function generateQuizWithGemma(
     if (difficulty === 'HARD') {
       // ── Step 1: Generate deterministic HARD items (instant) ──
       const hardDet = generateDeterministicMCQ(mcqConcepts, Math.ceil(count * 1.2), 'HARD');
-      if (hardDet && hardDet.length > 0) {
-        const itemsToEnhance = hardDet.slice(0, count);
+
+      if (hardDet && hardDet.length >= count) {
+        // Fast path — deterministic HARD already meets the count, return instantly
+        const elapsed = Date.now() - startTime;
+        const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
+        console.log(`\n=== Generation Complete (deterministic HARD MCQ fast-path) ===`);
+        console.log(`Requested: ${count} | Produced: ${hardDet.length} | Time: ${timeString}`);
+        console.log(`===========================\n`);
+        onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
+        return {
+          type: 'mcq',
+          difficulty: 'hard',
+          items: hardDet.slice(0, count),
+          rejectedItems: [],
+          stats: { requested: count, generated: hardDet.length, rejected: 0, waves: 0, apiCalls: 0 }
+        };
+      }
+
+      // Deterministic HARD produced partial results — try enhancement for the gap
+      if (hardDet && hardDet.length > 0 && enableEnhancement) {
+        const shortfall = count - hardDet.length;
+        const itemsToEnhance = hardDet.slice(0, Math.min(shortfall, 5));
         const resolvedModelForEnhance = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
         onProgress?.({ stage: 'enhance', message: `Enhancing ${itemsToEnhance.length} HARD MCQ items via AI...`, percent: 10 });
 
-        // ── Step 2: Enhance within time budget ──
         const { enhanced, unprocessed, apiCalls } = await enhanceHardItems(
           itemsToEnhance, 'MCQ', lessonContent, mcqConcepts, resolvedModelForEnhance, 0.45,
           {
@@ -3810,11 +3853,10 @@ export async function generateQuizWithGemma(
           }
         );
 
-        // ── Step 3: Assemble — prefer enhanced, fill with originals ──
-        const finalItems = [...enhanced, ...unprocessed].slice(0, count);
+        const finalItems = [...enhanced, ...unprocessed, ...hardDet.slice(itemsToEnhance.length)].slice(0, count);
         const elapsed = Date.now() - startTime;
         const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-        console.log(`\n=== Generation Complete (HARD MCQ: ${enhanced.length} enhanced + ${Math.max(0, finalItems.length - enhanced.length)} original) ===`);
+        console.log(`\n=== Generation Complete (HARD MCQ: ${enhanced.length} enhanced + ${finalItems.length - enhanced.length} original) ===`);
         console.log(`Requested: ${count} | Produced: ${finalItems.length} | Time: ${timeString}`);
         console.log(`===========================\n`);
         onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
@@ -3825,6 +3867,9 @@ export async function generateQuizWithGemma(
           rejectedItems: [],
           stats: { requested: count, generated: finalItems.length, rejected: 0, waves: 0, apiCalls }
         };
+      } else if (hardDet && hardDet.length > 0) {
+        _deterministicMCQSeed = hardDet;
+        console.log(`Deterministic HARD MCQ produced ${hardDet.length}/${count} (enhancement ${enableEnhancement ? 'enabled' : 'disabled'}) — wave loop will fill remaining.`);
       }
       // Det HARD produced nothing (extremely rare) — fall through to wave loop
     } else {
@@ -3866,9 +3911,9 @@ export async function generateQuizWithGemma(
   // Builds front/back cards directly from key concept definitions.
   // EASY: simple recall, MEDIUM: varied styles, HARD: scenario/comparison.
   //
-  // For HARD: generate deterministic HARD items first (instant), then
-  // enhance as many as possible via Ollama within a strict time budget.
-  // If time runs out, enhanced items + remaining originals fill the count.
+  // For HARD: generate deterministic HARD items first (instant). If they
+  // meet the count, return immediately. Enhancement is optional
+  // (ENABLE_HARD_ENHANCEMENT=true) and capped at min(shortfall, 5).
   let _deterministicFlashcardSeed: any[] | null = null;
   const flashcardConcepts = originalKeyConcepts.length >= 2 ? originalKeyConcepts
     : keyConcepts.length >= 2 ? keyConcepts
@@ -3877,12 +3922,31 @@ export async function generateQuizWithGemma(
     if (difficulty === 'HARD') {
       // ── Step 1: Generate deterministic HARD items (instant) ──
       const hardDet = generateDeterministicFlashcards(flashcardConcepts, Math.ceil(count * 1.2), 'HARD');
-      if (hardDet && hardDet.length > 0) {
-        const itemsToEnhance = hardDet.slice(0, count);
+
+      if (hardDet && hardDet.length >= count) {
+        // Fast path — deterministic HARD already meets the count, return instantly
+        const elapsed = Date.now() - startTime;
+        const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
+        console.log(`\n=== Generation Complete (deterministic HARD Flashcard fast-path) ===`);
+        console.log(`Requested: ${count} | Produced: ${hardDet.length} | Time: ${timeString}`);
+        console.log(`===========================\n`);
+        onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
+        return {
+          type: 'flashcard',
+          difficulty: 'hard',
+          items: hardDet.slice(0, count),
+          rejectedItems: [],
+          stats: { requested: count, generated: hardDet.length, rejected: 0, waves: 0, apiCalls: 0 }
+        };
+      }
+
+      // Deterministic HARD produced partial results — try enhancement for the gap
+      if (hardDet && hardDet.length > 0 && enableEnhancement) {
+        const shortfall = count - hardDet.length;
+        const itemsToEnhance = hardDet.slice(0, Math.min(shortfall, 5));
         const resolvedModelForEnhance = process.env.OLLAMA_HARD_MODEL || preResolvedModel || await getBestAvailableModel();
         onProgress?.({ stage: 'enhance', message: `Enhancing ${itemsToEnhance.length} HARD Flashcard items via AI...`, percent: 10 });
 
-        // ── Step 2: Enhance within time budget ──
         const { enhanced, unprocessed, apiCalls } = await enhanceHardItems(
           itemsToEnhance, 'FLASHCARD', lessonContent, flashcardConcepts, resolvedModelForEnhance, 0.55,
           {
@@ -3892,11 +3956,10 @@ export async function generateQuizWithGemma(
           }
         );
 
-        // ── Step 3: Assemble — prefer enhanced, fill with originals ──
-        const finalItems = [...enhanced, ...unprocessed].slice(0, count);
+        const finalItems = [...enhanced, ...unprocessed, ...hardDet.slice(itemsToEnhance.length)].slice(0, count);
         const elapsed = Date.now() - startTime;
         const timeString = elapsed < 60000 ? `${elapsed}ms` : `${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
-        console.log(`\n=== Generation Complete (HARD Flashcard: ${enhanced.length} enhanced + ${Math.max(0, finalItems.length - enhanced.length)} original) ===`);
+        console.log(`\n=== Generation Complete (HARD Flashcard: ${enhanced.length} enhanced + ${finalItems.length - enhanced.length} original) ===`);
         console.log(`Requested: ${count} | Produced: ${finalItems.length} | Time: ${timeString}`);
         console.log(`===========================\n`);
         onProgress?.({ stage: 'complete', message: 'Quiz generated!', percent: 100 });
@@ -3907,6 +3970,9 @@ export async function generateQuizWithGemma(
           rejectedItems: [],
           stats: { requested: count, generated: finalItems.length, rejected: 0, waves: 0, apiCalls }
         };
+      } else if (hardDet && hardDet.length > 0) {
+        _deterministicFlashcardSeed = hardDet;
+        console.log(`Deterministic HARD Flashcard produced ${hardDet.length}/${count} (enhancement ${enableEnhancement ? 'enabled' : 'disabled'}) — wave loop will fill remaining.`);
       }
       // Det HARD produced nothing (extremely rare) — fall through to wave loop
     } else {
