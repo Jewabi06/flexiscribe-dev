@@ -94,8 +94,13 @@ export async function POST(request: NextRequest) {
         (currentDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      // Inactive for 1+ days — streak broken, restart at 1
-      newCount = 1;
+      if (daysDiff === 1) {
+        // Consecutive day — increment streak
+        newCount = student.streakCount + 1;
+      } else {
+        // Gap of 2+ days — streak broken, restart at 1
+        newCount = 1;
+      }
       isActive = true;
     } else {
       // First activity ever
