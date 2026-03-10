@@ -327,11 +327,12 @@ export default function StudentRegister() {
                 onChange={setProgram}
                 placeholder="Select Program"
                 options={[
-                  { value: "BSCS", label: "BS Computer Science" },
-                  { value: "BSIT", label: "BS Information Technology" },
-                  { value: "BSCPE", label: "BS Computer Engineering" },
-                  { value: "BSIE", label: "BS Industrial Engineering" },
-                  { value: "BSECE", label: "BS Electrical Engineering" },
+                  { value: "BSCS", label: "BSCS" },
+                  { value: "BSIT", label: "BSIT" },
+                  { value: "BSCPE", label: "BSCPE" },
+                  { value: "BSIE", label: "BSIE" },
+                  { value: "BSECE", label: "BSECE" },
+                  { value: "SEDM", label: "SEDM" }
                 ]}
               />
             </div>
