@@ -2,7 +2,7 @@ import ollama
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import OLLAMA_GPU_LAYERS
+from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL
 
 # ─── Generation Profiles ─────────────────────────────────────────────────
 # Different tasks need different token budgets.
@@ -44,7 +44,7 @@ def generate_response(
     system: str = "json_api",
 ) -> str:
     """
-    Send prompt to Ollama with the specified generation profile.
+    Send prompt to local Ollama with the specified generation profile.
 
     Args:
         model:   Ollama model name (e.g. 'gemma3:1b')
@@ -56,6 +56,58 @@ def generate_response(
     system_prompt = SYSTEM_PROMPTS.get(system, SYSTEM_PROMPTS["json_api"])
 
     response = ollama.chat(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        options=options,
+    )
+
+    return response["message"]["content"].strip()
+
+
+# ─── Remote GPU-powered Ollama client ─────────────────────────────────────
+# Used for final Cornell Notes / MOTM generation after transcription stops.
+# Connects to OLLAMA_BASE_URL (e.g. Google Cloud VM with GPU) for faster
+# inference with gemma3:4b, mirroring the approach used in quiz generation.
+
+_remote_client = None
+
+
+def _get_remote_client():
+    """Lazy-init a remote Ollama client pointing at OLLAMA_BASE_URL."""
+    global _remote_client
+    if _remote_client is None:
+        _remote_client = ollama.Client(host=OLLAMA_BASE_URL)
+        print(f"[OLLAMA] Remote client initialised → {OLLAMA_BASE_URL}")
+    return _remote_client
+
+
+def generate_response_remote(
+    model: str,
+    prompt: str,
+    profile: str = "extended",
+    system: str = "json_api",
+) -> str:
+    """
+    Send prompt to the remote GPU-powered Ollama instance.
+
+    Used for final summary generation after transcription stops.
+    The remote server (OLLAMA_BASE_URL) runs a larger model (e.g.
+    gemma3:4b) on GPU for faster, higher-quality output.
+
+    Args:
+        model:   Ollama model name (e.g. 'gemma3:4b')
+        prompt:  User prompt text
+        profile: 'short' (1024 tokens) | 'extended' (4096 tokens)
+        system:  Key from SYSTEM_PROMPTS
+    """
+    options = PROFILES.get(profile, PROFILES["extended"])
+    system_prompt = SYSTEM_PROMPTS.get(system, SYSTEM_PROMPTS["json_api"])
+
+    client = _get_remote_client()
+    response = client.chat(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},

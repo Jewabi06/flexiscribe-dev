@@ -177,6 +177,14 @@ OLLAMA_MODEL = "gemma3:1b"  # Fits Jetson Orin Nano (~815MB) alongside Whisper s
 # inference hits the GPU at a time.
 OLLAMA_GPU_LAYERS = 99
 
+# ─── Remote GPU-powered Ollama for final summary generation ───────────────
+# After transcription stops, the final Cornell Notes / MOTM summary is
+# generated on a remote GPU-powered Ollama instance (e.g. Google Cloud VM)
+# using gemma3:4b for faster and higher-quality output.
+# Per-minute summaries still use the local Jetson Ollama (gemma3:1b).
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_CORNELL_MODEL = os.environ.get("OLLAMA_CORNELL_MODEL", "gemma3:4b")
+
 # Minute buffer interval (seconds)
 BUFFER_INTERVAL = 60
 
