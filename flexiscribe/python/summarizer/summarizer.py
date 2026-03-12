@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from summarizer.ollama_client import generate_response
+from summarizer.ollama_client import generate_response, generate_response_remote
 from summarizer.prompt_builder import (
     build_topic_extraction_prompt,
     build_minute_summary_prompt,
@@ -21,17 +21,19 @@ from summarizer.prompt_builder import (
     build_motm_prompt,
 )
 from summarizer.json_utils import extract_json, validate_cornell_schema
-from config import OLLAMA_MODEL
+from config import OLLAMA_MODEL, OLLAMA_CORNELL_MODEL
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Stage 1 — Topic Extraction
 # ═══════════════════════════════════════════════════════════════════════════
 
-def extract_topics(chunks: list, model=None) -> dict:
+def extract_topics(chunks: list, model=None, remote=False) -> dict:
     """
     Analyse transcript chunks to determine the main topic and subtopics.
     Uses a representative sample (first 5 + last 3 chunks) for speed.
+
+    When remote=True, uses the GPU-powered OLLAMA_BASE_URL for faster inference.
     """
     model = model or OLLAMA_MODEL
 
@@ -41,8 +43,9 @@ def extract_topics(chunks: list, model=None) -> dict:
     )
 
     prompt = build_topic_extraction_prompt(sample_text)
+    gen_fn = generate_response_remote if remote else generate_response
     result = extract_json(
-        generate_response(model, prompt, profile="short", system="topic_analyst")
+        gen_fn(model, prompt, profile="short", system="topic_analyst")
     )
     return {
         "main_topic": result.get("main_topic", "Unknown Topic"),
@@ -73,16 +76,22 @@ def summarize_cornell_context_aware(
     """
     Multi-stage context-aware Cornell Notes generation.
 
+    Uses the remote GPU-powered Ollama instance (OLLAMA_BASE_URL) with
+    gemma3:4b for faster, higher-quality output — mirroring the approach
+    used in quiz generation.
+
     Pipeline:
-      1. Extract topics from the full transcript
+      1. Extract topics from the full transcript  (remote GPU)
       2. Format summaries text with topic context
-      3. Generate Cornell Notes with completeness guarantees
+      3. Generate Cornell Notes with completeness guarantees  (remote GPU)
       4. Validate and normalise output schema
     """
-    model = model or OLLAMA_MODEL
+    model = model or OLLAMA_CORNELL_MODEL
 
-    # Stage 1 — topic extraction
-    topics = extract_topics(transcript_chunks, model)
+    print(f"[SUMMARIZER] Using remote OLLAMA_BASE_URL with model {model}")
+
+    # Stage 1 — topic extraction (remote GPU)
+    topics = extract_topics(transcript_chunks, model, remote=True)
     main_topic = topics["main_topic"]
     subtopics = topics["subtopics"]
     print(f"[SUMMARIZER] Topic: {main_topic}")
@@ -91,10 +100,10 @@ def summarize_cornell_context_aware(
     # Stage 2 — build structured summaries text
     summaries_text = _format_summaries_for_cornell(minute_summaries)
 
-    # Stage 3 — generate Cornell Notes with topic awareness
+    # Stage 3 — generate Cornell Notes with topic awareness (remote GPU)
     prompt = build_cornell_from_summaries_prompt(summaries_text, main_topic, subtopics)
     result = extract_json(
-        generate_response(model, prompt, profile="extended")
+        generate_response_remote(model, prompt, profile="extended")
     )
 
     # Stage 4 — validate schema
@@ -142,7 +151,8 @@ def summarize_cornell_from_summaries(summaries_text, model=None):
 
 
 def summarize_motm(transcript, model=None):
-    model = model or OLLAMA_MODEL
+    model = model or OLLAMA_CORNELL_MODEL
+    print(f"[SUMMARIZER] MOTM using remote OLLAMA_BASE_URL with model {model}")
     return extract_json(
-        generate_response(model, build_motm_prompt(transcript), profile="extended")
+        generate_response_remote(model, build_motm_prompt(transcript), profile="extended")
     )
