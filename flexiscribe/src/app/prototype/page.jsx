@@ -11,6 +11,9 @@ export default function PrototypeDashboard() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioStream, setAudioStream] = useState(null);
   const [showGuide, setShowGuide] = useState(false);
+  const [liveCaption, setLiveCaption] = useState("");
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
 
   // Course selection & transcription state
   const [classes, setClasses] = useState([]);
@@ -33,11 +36,48 @@ export default function PrototypeDashboard() {
   const transcriptEndRef = useRef(null);
   const durationRef = useRef(null);
   const startTimeRef = useRef(null);
+  const summaryPollRef = useRef(null);
+  const captionTimerRef = useRef(null);
   const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
-    setShowGuide(true);
+    setShowGuide(false);
+
+    const restoreSession = async () => {
+      const saved = localStorage.getItem("flexiSession");
+      if (!saved) return;
+      try {
+        const { sessionId: savedSessionId, transcriptionId: savedTranscriptionId } = JSON.parse(saved);
+        if (savedSessionId) {
+          setSessionId(savedSessionId);
+          setTranscriptionId(savedTranscriptionId);
+
+          const statusRes = await fetch(`/api/transcribe/status?sessionId=${savedSessionId}`);
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.status === "running") {
+              setIsRecording(true);
+              startLiveStream(savedSessionId);
+              setStatusMessage("Resuming active recording session...");
+            } else if (statusData.status === "stopping" || statusData.status === "SUMMARIZING" || statusData.status === "summarizing") {
+              setIsRecording(false);
+              setIsFinalizing(true);
+              setShowStatusModal(true);
+              setStatusMessage("Summary is being generated. Resuming status watcher...");
+              pollSummaryStatus(savedSessionId);
+            } else if (statusData.status === "COMPLETED" || statusData.status === "completed") {
+              setStatusMessage("Previous session has already finished.");
+              localStorage.removeItem("flexiSession");
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Restore session error:", err);
+      }
+    };
+
+    restoreSession();
 
     if (typeof window !== "undefined" && navigator?.mediaDevices?.getUserMedia) {
       checkMicrophonePermission();
@@ -141,13 +181,9 @@ export default function PrototypeDashboard() {
     setAudioLevel(0);
   };
 
+  // Microphone state is read-only for UI; connect status is auto-detected.
   const handleMicClick = () => {
-    if (micConnected) {
-      stopAudioMonitoring();
-      setMicConnected(false);
-    } else {
-      checkMicrophonePermission();
-    }
+    // no-op to preserve disabled design
   };
 
   // ─── Duration timer ────────────────────────────────────────────────
@@ -208,6 +244,10 @@ setStatusMessage("Starting recording...");
       const data = await res.json();
       setSessionId(data.session_id);
       setTranscriptionId(data.transcription_id);
+      localStorage.setItem(
+        "flexiSession",
+        JSON.stringify({ sessionId: data.session_id, transcriptionId: data.transcription_id })
+      );
       setIsRecording(true);
       setLiveChunks([]);
       setStatusMessage("Recording in progress...");
@@ -219,6 +259,33 @@ setStatusMessage("Starting recording...");
       console.error("Error starting transcription:", error);
       setStatusMessage("Failed to start transcription. Is the backend running?");
     }
+  };
+
+  const startLiveCaption = (text) => {
+    if (captionTimerRef.current) {
+      clearInterval(captionTimerRef.current);
+      captionTimerRef.current = null;
+    }
+
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      setLiveCaption("");
+      return;
+    }
+
+    let index = 0;
+    const totalDuration = 5000;
+    const intervalMs = Math.max(50, Math.min(300, Math.floor(totalDuration / words.length)));
+    setLiveCaption("");
+
+    captionTimerRef.current = setInterval(() => {
+      index += 1;
+      setLiveCaption(words.slice(0, index).join(" "));
+      if (index >= words.length) {
+        clearInterval(captionTimerRef.current);
+        captionTimerRef.current = null;
+      }
+    }, intervalMs);
   };
 
   // ─── SSE live stream with polling fallback ────────────────────────
@@ -240,6 +307,9 @@ setStatusMessage("Starting recording...");
                 text: data.text,
               }];
             });
+            if (data.text) {
+              startLiveCaption(data.text);
+            }
           }
         } catch (e) {
           // Ignore parse errors from keepalive comments
@@ -285,6 +355,52 @@ setStatusMessage("Starting recording...");
     }, 5000);
   };
 
+  const clearSummaryPoll = () => {
+    if (summaryPollRef.current) {
+      clearTimeout(summaryPollRef.current);
+      summaryPollRef.current = null;
+    }
+  };
+
+  const pollSummaryStatus = async (sid) => {
+    if (!sid) return;
+
+    try {
+      const res = await fetch(`/api/transcribe/status?sessionId=${sid}`);
+      if (!res.ok) {
+        throw new Error(`Status fetch failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      if (data.status === "COMPLETED" || data.status === "complete") {
+        setIsFinalizing(false);
+        setShowStatusModal(false);
+        setStatusMessage("Summary generation complete.");
+        setIsStopping(false);
+        clearSummaryPoll();
+        // Keep last session values for resume awareness, then clear next step.
+        localStorage.removeItem("flexiSession");
+
+        // Refresh the live caption once summary is done.
+        if (data.live_transcript?.chunks) {
+          setLiveChunks(data.live_transcript.chunks);
+        }
+
+        return;
+      }
+
+      setIsFinalizing(true);
+      setShowStatusModal(true);
+      setStatusMessage("Summary is being generated, please wait...");
+    } catch (err) {
+      console.error("Summary status poll error:", err);
+      setStatusMessage("Unable to get summary status. Retrying...");
+    }
+
+    clearSummaryPoll();
+    summaryPollRef.current = setTimeout(() => pollSummaryStatus(sid), 5000);
+  };
+
   // ─── Stop transcription ───────────────────────────────────────────
   const handleStopRecording = async () => {
     if (!sessionId) return;
@@ -321,23 +437,40 @@ setStatusMessage("Starting recording...");
       }
 
       const data = await res.json();
-      setIsRecording(false);
-      setIsStopping(false);
 
-      let msg = "Recording saved! ";
-      if (data.lesson_created) msg += "AI notes and transcripts are ready.";
-      else if (data.has_summary) msg += "AI notes have been generated.";
-      else msg += "AI notes will be ready shortly.";
-      setStatusMessage(msg);
+      // Recording has stopped at the audio level, but final state waits for summary completion.
+      setIsRecording(false);
 
       // Update live chunks with final data (10s chunks, includes final buffer flush)
       if (data.live_transcript?.chunks) {
         setLiveChunks(data.live_transcript.chunks);
       }
 
-      // Reset session
-      setSessionId(null);
-      setTranscriptionId(null);
+      if (data.summary_pending) {
+        setIsFinalizing(true);
+        setShowStatusModal(true);
+        setStatusMessage("Recording stopped. Final summary is being generated; this can take a few moments.");
+        localStorage.setItem(
+          "flexiSession",
+          JSON.stringify({ sessionId, transcriptionId })
+        );
+        pollSummaryStatus(sessionId);
+      } else {
+        setIsFinalizing(false);
+        setShowStatusModal(false);
+
+        let msg = "Recording saved! ";
+        if (data.lesson_created) msg += "AI notes and transcripts are ready.";
+        else if (data.has_summary) msg += "AI notes have been generated.";
+        else msg += "AI notes will be ready shortly.";
+        setStatusMessage(msg);
+
+        localStorage.removeItem("flexiSession");
+        setSessionId(null);
+        setTranscriptionId(null);
+      }
+
+      setIsStopping(false);
     } catch (error) {
       console.error("Error stopping transcription:", error);
       setStatusMessage("Failed to stop transcription.");
@@ -353,9 +486,18 @@ setStatusMessage("Starting recording...");
     }
 
     if (!isRecording) {
-      handleStartRecording();
+      if (!selectedCourse) {
+        setStatusMessage("Please select a course to start recording.");
+        setShowCourseSelect(true);
+        return;
+      }
+      if (!sessionType) {
+        setShowSessionTypeSelect(true);
+        return;
+      }
+      await handleStartRecording();
     } else {
-      handleStopRecording();
+      await handleStopRecording();
     }
   };
 
@@ -576,6 +718,30 @@ setStatusMessage("Starting recording...");
         </div>
       )}
 
+      {showStatusModal && (
+        <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
+          <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="guide-header">
+              <div className="guide-step-icon"><FaBook /></div>
+              <div>
+                <h2 className="guide-title">Generating Summary</h2>
+                <p className="guide-subtitle">Please wait while we finalize your session.</p>
+              </div>
+            </div>
+            <div style={{ textAlign: "center", marginTop: "1rem" }}>
+              <div className="status-spinner" />
+              <p>{statusMessage || "Finalizing transcript and summary..."}</p>
+              <p style={{ fontSize: "0.85rem", opacity: 0.8 }}>This may take a moment, do not close the window until complete.</p>
+            </div>
+            {!isFinalizing && (
+              <button className="guide-button" onClick={() => setShowStatusModal(false)}>
+                Close
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="prototype-content">
         {/* Action Buttons - Top Right */}
         <div className="action-buttons">
@@ -602,45 +768,14 @@ setStatusMessage("Starting recording...");
           </div>
         </div>
 
-        {/* Course & Session Type Selector Bar */}
-        <div className="course-selector-bar">
-          <button
-            className={`course-select-btn ${selectedCourse ? "has-course" : ""}`}
-            onClick={() => setShowCourseSelect(true)}
-            disabled={isRecording}
-          >
-            <FaBook />
-            <span>{selectedCourse || "Select Course"}</span>
-          </button>
-
-          {/* Session Type Toggle */}
-          <div className="session-type-toggle">
-            <button
-              className={`session-type-btn ${sessionType === "lecture" ? "active" : ""}`}
-              onClick={() => { setSessionType("lecture"); if (!isRecording) setShowSessionTypeSelect(true); }}
-              disabled={isRecording}
-            >
-              <FaChalkboardTeacher />
-              <span>Lecture</span>
-            </button>
-            <button
-              className={`session-type-btn ${sessionType === "meeting" ? "active" : ""}`}
-              onClick={() => { setSessionType("meeting"); if (!isRecording) setShowSessionTypeSelect(true); }}
-              disabled={isRecording}
-            >
-              <FaUsers />
-              <span>Meeting</span>
-            </button>
+        {/* Course & Session Type are selected via modal flow shown when play is pressed */}
+        {isRecording && (
+          <div className="recording-info">
+            <span className="recording-dot"></span>
+            <span className="recording-label">REC — {selectedCourse || "Unknown"} ({sessionType === "meeting" ? "Meeting" : "Lecture"})</span>
+            <span className="recording-duration">{duration}</span>
           </div>
-          
-          {isRecording && (
-            <div className="recording-info">
-              <span className="recording-dot"></span>
-              <span className="recording-label">REC &mdash; {selectedCourse} ({sessionType === "meeting" ? "Meeting" : "Lecture"})</span>
-              <span className="recording-duration">{duration}</span>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Main Control Panel */}
         <div className="control-panel">
@@ -665,9 +800,9 @@ setStatusMessage("Starting recording...");
             <div className="control-label">MIC</div>
             <button
               className={`control-button mic-button ${micConnected ? "connected" : "disconnected"} ${audioLevel > 0.1 ? "active" : ""}`}
-              onClick={handleMicClick}
-              aria-label="Check microphone"
-              style={{ "--audio-level": audioLevel }}
+              disabled
+              aria-label="Microphone status"
+              style={{ "--audio-level": audioLevel, cursor: "default" }}
             >
               {audioLevel > 0.1 ? (
                 <div className="sound-wave">
@@ -700,23 +835,14 @@ setStatusMessage("Starting recording...");
         </div>
 
         {/* Live Transcript Display */}
-        {(isRecording || liveChunks.length > 0) && (
+        {(isRecording || liveCaption) && (
           <div className="live-transcript-panel">
             <div className="live-transcript-header">
               <h3>Live Transcript</h3>
-              <span className="chunk-count">{liveChunks.length} segment{liveChunks.length !== 1 ? "s" : ""}</span>
+              <span className="chunk-count">{liveChunks.length} backend segment{liveChunks.length !== 1 ? "s" : ""}</span>
             </div>
             <div className="live-transcript-content">
-              {liveChunks.length === 0 ? (
-                <p className="live-transcript-empty">Waiting for speech...</p>
-              ) : (
-                liveChunks.map((chunk, i) => (
-                  <div key={chunk.chunk_id || i} className="live-chunk">
-                    <span className="chunk-timestamp">[{chunk.timestamp}]</span>
-                    <span className="chunk-text">{chunk.text}</span>
-                  </div>
-                ))
-              )}
+              <p className="live-caption">{liveCaption || "Waiting for speech..."}</p>
               <div ref={transcriptEndRef} />
             </div>
           </div>

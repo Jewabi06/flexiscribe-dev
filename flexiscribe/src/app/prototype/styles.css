@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* App container uses full viewport and avoids scrolling */
+.prototype-container {
+  overflow: hidden;
+  height: 100vh;
+}
+
+.prototype-content {
+  overflow: hidden;
+  max-height: calc(100vh - 2rem);
+}
+
 /* CSS Variables */
 :root {
   --brand-primary: linear-gradient(135deg, #9d8adb 0%, #4c4172 100%);
@@ -148,6 +167,20 @@
     0 0 0 1px rgba(255, 255, 255, 0.1) inset;
   position: relative;
   animation: slideUp 0.4s ease;
+}
+
+.status-spinner {
+  width: 45px;
+  height: 45px;
+  margin: 0.8rem auto;
+  border: 6px solid rgba(156, 149, 216, 0.35);
+  border-top-color: var(--brand-tertiary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes slideUp {
