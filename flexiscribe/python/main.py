@@ -243,7 +243,7 @@ def _summary_callback_worker(session: TranscriptionSession):
     """
     Background thread: waits for the summarizer to finish generating the
     final Cornell/MOTM summary, then POSTs it to the Next.js callback
-    endpoint so the reviewer (Lesson) and notifications are created.
+    endpoint with retry logic.
     """
     try:
         # Wait for the summarizer thread to fully complete (Cornell generation)
@@ -270,11 +270,23 @@ def _summary_callback_worker(session: TranscriptionSession):
         if CALLBACK_SECRET:
             headers["x-callback-secret"] = CALLBACK_SECRET
 
-        resp = requests.post(callback_url, json=payload, headers=headers, timeout=30)
-        if resp.ok:
-            print(f"[CALLBACK] Summary delivered successfully for session {session.session_id}.")
+        # Retry up to 3 times
+        for attempt in range(3):
+            try:
+                resp = requests.post(callback_url, json=payload, headers=headers, timeout=30)
+                if resp.ok:
+                    print(f"[CALLBACK] Summary delivered successfully for session {session.session_id}.")
+                    break
+                else:
+                    print(f"[CALLBACK] Attempt {attempt+1} failed ({resp.status_code}): {resp.text[:200]}")
+                    if attempt < 2:
+                        time.sleep(2 ** attempt)
+            except Exception as e:
+                print(f"[CALLBACK] Attempt {attempt+1} error: {e}")
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
         else:
-            print(f"[CALLBACK] Callback failed ({resp.status_code}): {resp.text[:200]}")
+            print(f"[CALLBACK] All attempts failed for session {session.session_id}.")
 
     except Exception as e:
         print(f"[CALLBACK] Error in summary callback worker: {e}")

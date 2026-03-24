@@ -224,8 +224,8 @@ def summarization_worker(stop_event: threading.Event, session):
                     session.final_summary = {
                         "title": f"Lecture - {session.course_code}",
                         "key_concepts": [],
-                        "notes": [{"term": "Summary", "definition": "Summary generation failed. Minute summaries available.", "example": ""}],
-                        "summary": ["Review the per-minute summaries for details."],
+                        "notes": [],
+                        "summary": ["Summary generation failed. Minute summaries available."],
                     }
 
         session.status = "completed"

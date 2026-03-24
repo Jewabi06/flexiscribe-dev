@@ -83,7 +83,7 @@ AUDIO_DEVICE, AUDIO_NATIVE_RATE = _detect_audio_device()
 
 # ─── Whisper settings ─────────────────────────────────────────────────────
 WHISPER_SAMPLE_RATE = 16000  # Whisper always needs 16kHz
-CHUNK_DURATION = 10  # seconds per audio chunk
+CHUNK_DURATION = 3            # seconds per audio chunk (real‑time)
 CHANNELS = 1
 
 # Model: "small" (~244M params, ~0.9 GB VRAM) — best balance of accuracy and

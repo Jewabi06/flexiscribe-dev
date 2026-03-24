@@ -56,7 +56,6 @@ def _resample_audio(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarr
 _model = None
 _model_lock = threading.Lock()
 
-# Common Whisper hallucinations when given silence or noise
 # Common Whisper hallucinations when given silence or noise.
 # Also includes fragments from WHISPER_INITIAL_PROMPT that Whisper
 # sometimes regurgitates during quiet/unclear audio segments.
@@ -91,8 +90,8 @@ def get_whisper_model():
                         _model = whisper.load_model(WHISPER_MODEL, device="cpu")
                     else:
                         raise
-                print(f"[INFO] Whisper model loaded on "
-                      f"{next(_model.parameters()).device}.")
+                actual_device = next(_model.parameters()).device
+                print(f"[INFO] Whisper model loaded on {actual_device}.")
     return _model
 
 
@@ -128,6 +127,7 @@ def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool, use_f
     use_fp16 is determined by the caller based on the **actual** model device
     (not the config value, which may be stale after a CUDA → CPU fallback).
     """
+    t_start = time.time()
     if needs_resample:
         audio_data = _resample_audio(
             audio_data, AUDIO_NATIVE_RATE, WHISPER_SAMPLE_RATE,
@@ -164,6 +164,9 @@ def _transcribe_chunk(model, audio_data: np.ndarray, needs_resample: bool, use_f
     )
     result = whisper.decode(model, mel, options)
     transcript_text = result.text.strip()
+
+    t_end = time.time()
+    print(f"[PERF] Transcription took {t_end - t_start:.2f}s for {CHUNK_DURATION}s audio")
 
     if not transcript_text:
         print("[DEBUG] Whisper returned empty transcript.")
@@ -291,12 +294,9 @@ def whisper_worker(stop_event: threading.Event, session):
                     continue
 
                 # If stop was signalled, still transcribe this last buffered audio
-                t0 = time.time()
                 text = _transcribe_chunk(model, audio_data, needs_resample, use_fp16)
-                elapsed = time.time() - t0
                 if text:
                     _append_live_chunk(text)
-                    print(f"[PERF] Transcription took {elapsed:.1f}s")
 
             # ── Process ALL remaining audio after stop ────────────────
             time.sleep(0.3)
