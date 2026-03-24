@@ -12,6 +12,7 @@ export default function PrototypeDashboard() {
   const [audioStream, setAudioStream] = useState(null);
   const [showGuide, setShowGuide] = useState(false);
   const [liveCaption, setLiveCaption] = useState("");
+  const [fullTranscript, setFullTranscript] = useState("");
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
 
@@ -38,6 +39,7 @@ export default function PrototypeDashboard() {
   const startTimeRef = useRef(null);
   const summaryPollRef = useRef(null);
   const captionTimerRef = useRef(null);
+  const liveCaptionQueueRef = useRef([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export default function PrototypeDashboard() {
             if (statusData.status === "running") {
               setIsRecording(true);
               startLiveStream(savedSessionId);
+              startLiveCaptionScheduler();
               setStatusMessage("Resuming active recording session...");
             } else if (statusData.status === "stopping" || statusData.status === "SUMMARIZING" || statusData.status === "summarizing") {
               setIsRecording(false);
@@ -93,6 +96,7 @@ export default function PrototypeDashboard() {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
       if (durationRef.current) clearInterval(durationRef.current);
+      stopLiveCaptionScheduler();
     };
   }, []);
 
@@ -210,6 +214,27 @@ export default function PrototypeDashboard() {
     }
   };
 
+  const startLiveCaptionScheduler = () => {
+    if (captionTimerRef.current) clearInterval(captionTimerRef.current);
+    captionTimerRef.current = setInterval(() => {
+      const queue = liveCaptionQueueRef.current;
+      if (queue.length > 0) {
+        const nextText = queue.shift();
+        setLiveCaption(nextText);
+        setFullTranscript((prev) => (prev ? `${prev} ${nextText}` : nextText));
+      } else {
+        setLiveCaption("");
+      }
+    }, 5000);
+  };
+
+  const stopLiveCaptionScheduler = () => {
+    if (captionTimerRef.current) {
+      clearInterval(captionTimerRef.current);
+      captionTimerRef.current = null;
+    }
+  };
+
   // ─── Start transcription ──────────────────────────────────────────
   const handleStartRecording = async () => {
     if (!micConnected) {
@@ -250,43 +275,20 @@ setStatusMessage("Starting recording...");
       );
       setIsRecording(true);
       setLiveChunks([]);
+      setFullTranscript("");
       setStatusMessage("Recording in progress...");
       startDurationTimer();
 
       // Start live stream (SSE with polling fallback)
       startLiveStream(data.session_id);
+      startLiveCaptionScheduler();
     } catch (error) {
       console.error("Error starting transcription:", error);
       setStatusMessage("Failed to start transcription. Is the backend running?");
     }
   };
 
-  const startLiveCaption = (text) => {
-    if (captionTimerRef.current) {
-      clearInterval(captionTimerRef.current);
-      captionTimerRef.current = null;
-    }
 
-    const words = text.trim().split(/\s+/).filter(Boolean);
-    if (words.length === 0) {
-      setLiveCaption("");
-      return;
-    }
-
-    let index = 0;
-    const totalDuration = 5000;
-    const intervalMs = Math.max(50, Math.min(300, Math.floor(totalDuration / words.length)));
-    setLiveCaption("");
-
-    captionTimerRef.current = setInterval(() => {
-      index += 1;
-      setLiveCaption(words.slice(0, index).join(" "));
-      if (index >= words.length) {
-        clearInterval(captionTimerRef.current);
-        captionTimerRef.current = null;
-      }
-    }, intervalMs);
-  };
 
   // ─── SSE live stream with polling fallback ────────────────────────
   const startLiveStream = (sid) => {
@@ -299,7 +301,6 @@ setStatusMessage("Starting recording...");
           const data = JSON.parse(event.data);
           if (data.type === "live_chunk") {
             setLiveChunks((prev) => {
-              // Avoid duplicates by checking chunk_id
               if (prev.some((c) => c.chunk_id === data.chunk_id)) return prev;
               return [...prev, {
                 chunk_id: data.chunk_id,
@@ -307,8 +308,12 @@ setStatusMessage("Starting recording...");
                 text: data.text,
               }];
             });
+
             if (data.text) {
-              startLiveCaption(data.text);
+              liveCaptionQueueRef.current.push(data.text);
+              if (!captionTimerRef.current) {
+                startLiveCaptionScheduler();
+              }
             }
           }
         } catch (e) {
@@ -409,7 +414,7 @@ setStatusMessage("Starting recording...");
     setStatusMessage("Saving your recording and generating notes...");
     stopDurationTimer();
 
-    // Stop live stream and polling
+    // Stop live stream, polling, and live-caption scheduler
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -418,6 +423,7 @@ setStatusMessage("Starting recording...");
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
+    stopLiveCaptionScheduler();
 
     try {
       const res = await fetch("/api/transcribe/stop", {
@@ -838,12 +844,23 @@ setStatusMessage("Starting recording...");
         {(isRecording || liveCaption) && (
           <div className="live-transcript-panel">
             <div className="live-transcript-header">
-              <h3>Live Transcript</h3>
-              <span className="chunk-count">{liveChunks.length} backend segment{liveChunks.length !== 1 ? "s" : ""}</span>
+              <h3>Live Caption</h3>
             </div>
-            <div className="live-transcript-content">
-              <p className="live-caption">{liveCaption || "Waiting for speech..."}</p>
-              <div ref={transcriptEndRef} />
+            <div className="live-transcript-content" style={{ minHeight: "5.2rem" }}>
+              <p className="live-caption" style={{ fontSize: "1.8rem", fontWeight: 700, lineHeight: 1.3 }}>
+                {liveCaption || "Listening for speech..."}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {fullTranscript && (
+          <div className="completed-transcript-panel">
+            <div className="live-transcript-header">
+              <h3>Completed Transcript (cumulative)</h3>
+            </div>
+            <div className="live-transcript-content" style={{ whiteSpace: "pre-wrap", fontSize: "0.95rem", maxHeight: "20vh", overflowY: "auto" }}>
+              {fullTranscript}
             </div>
           </div>
         )}
