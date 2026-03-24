@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers, FaChalkboardTeacher } from "react-icons/fa";
+import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers, FaChalkboardTeacher, FaExclamationTriangle } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import "./styles.css";
 
@@ -29,6 +29,10 @@ export default function PrototypeDashboard() {
   const [showSessionTypeSelect, setShowSessionTypeSelect] = useState(false);
   const [sessionType, setSessionType] = useState("lecture"); // "lecture" | "meeting"
 
+  // Error modal state
+  const [errorModalOpen, setErrorModalOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -38,6 +42,7 @@ export default function PrototypeDashboard() {
   const durationRef = useRef(null);
   const startTimeRef = useRef(null);
   const summaryPollRef = useRef(null);
+  const summaryPollStartRef = useRef(null);
   const captionTimerRef = useRef(null);
   const liveCaptionQueueRef = useRef([]);
   const router = useRouter();
@@ -97,6 +102,7 @@ export default function PrototypeDashboard() {
       if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
       if (durationRef.current) clearInterval(durationRef.current);
       stopLiveCaptionScheduler();
+      clearSummaryPoll();
     };
   }, []);
 
@@ -247,7 +253,7 @@ export default function PrototypeDashboard() {
       return;
     }
 
-setStatusMessage("Starting recording...");
+    setStatusMessage("Starting recording...");
 
     try {
       const res = await fetch("/api/transcribe/start", {
@@ -287,8 +293,6 @@ setStatusMessage("Starting recording...");
       setStatusMessage("Failed to start transcription. Is the backend running?");
     }
   };
-
-
 
   // ─── SSE live stream with polling fallback ────────────────────────
   const startLiveStream = (sid) => {
@@ -363,10 +367,30 @@ setStatusMessage("Starting recording...");
       clearTimeout(summaryPollRef.current);
       summaryPollRef.current = null;
     }
+    summaryPollStartRef.current = null;
   };
 
   const pollSummaryStatus = async (sid) => {
     if (!sid) return;
+
+    // Start tracking time if this is the first poll
+    if (!summaryPollStartRef.current) {
+      summaryPollStartRef.current = Date.now();
+    }
+
+    // Check for timeout (5 minutes = 300000 ms)
+    if (Date.now() - summaryPollStartRef.current > 300000) {
+      clearSummaryPoll();
+      setErrorMessage(
+        "Summary generation timed out. The backend may be overloaded or the summarization process failed. Please check the backend logs for details."
+      );
+      setErrorModalOpen(true);
+      setIsFinalizing(false);
+      setShowStatusModal(false);
+      setIsStopping(false);
+      localStorage.removeItem("flexiSession");
+      return;
+    }
 
     try {
       const res = await fetch(`/api/transcribe/status?sessionId=${sid}`);
@@ -381,10 +405,8 @@ setStatusMessage("Starting recording...");
         setStatusMessage("Summary generation complete.");
         setIsStopping(false);
         clearSummaryPoll();
-        // Keep last session values for resume awareness, then clear next step.
         localStorage.removeItem("flexiSession");
 
-        // Refresh the live caption once summary is done.
         if (data.live_transcript?.chunks) {
           setLiveChunks(data.live_transcript.chunks);
         }
@@ -435,7 +457,8 @@ setStatusMessage("Starting recording...");
 
       if (!res.ok) {
         const err = await res.json();
-        setStatusMessage(err.error || "Failed to stop transcription.");
+        setErrorMessage(err.error || "Failed to stop transcription.");
+        setErrorModalOpen(true);
         setIsStopping(false);
         return;
       }
@@ -477,7 +500,8 @@ setStatusMessage("Starting recording...");
       setIsStopping(false);
     } catch (error) {
       console.error("Error stopping transcription:", error);
-      setStatusMessage("Failed to stop transcription.");
+      setErrorMessage(error.message || "Failed to stop transcription. Check backend connection.");
+      setErrorModalOpen(true);
       setIsStopping(false);
     }
   };
@@ -722,6 +746,7 @@ setStatusMessage("Starting recording...");
         </div>
       )}
 
+      {/* Summary status modal */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
@@ -742,6 +767,35 @@ setStatusMessage("Starting recording...");
                 Close
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Error Modal */}
+      {errorModalOpen && (
+        <div className="guide-overlay" onClick={() => setErrorModalOpen(false)}>
+          <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="guide-header">
+              <div className="guide-step-icon" style={{ backgroundColor: "#dc2626" }}>
+                <FaExclamationTriangle />
+              </div>
+              <div>
+                <h2 className="guide-title">Error</h2>
+                <p className="guide-subtitle">An error occurred during transcription stop</p>
+              </div>
+            </div>
+            <div style={{ textAlign: "center", marginTop: "1rem" }}>
+              <p style={{ color: "#991b1b", backgroundColor: "#fee2e2", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem" }}>
+                {errorMessage}
+              </p>
+              <button
+                className="guide-button"
+                onClick={() => setErrorModalOpen(false)}
+                style={{ backgroundColor: "#dc2626" }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
