@@ -1,6 +1,7 @@
 import ollama
 import sys
 import os
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL
 
@@ -89,9 +90,10 @@ def generate_response_remote(
     prompt: str,
     profile: str = "extended",
     system: str = "json_api",
+    max_retries: int = 3,
 ) -> str:
     """
-    Send prompt to the remote GPU-powered Ollama instance.
+    Send prompt to the remote GPU-powered Ollama instance with retry logic.
 
     Used for final summary generation after transcription stops.
     The remote server (OLLAMA_BASE_URL) runs a larger model (e.g.
@@ -102,18 +104,35 @@ def generate_response_remote(
         prompt:  User prompt text
         profile: 'short' (1024 tokens) | 'extended' (4096 tokens)
         system:  Key from SYSTEM_PROMPTS
+        max_retries: Number of retry attempts on failure
     """
     options = PROFILES.get(profile, PROFILES["extended"])
     system_prompt = SYSTEM_PROMPTS.get(system, SYSTEM_PROMPTS["json_api"])
 
     client = _get_remote_client()
-    response = client.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        options=options,
-    )
 
-    return response["message"]["content"].strip()
+    for attempt in range(max_retries):
+        try:
+            response = client.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                options=options,
+            )
+            return response["message"]["content"].strip()
+        except Exception as e:
+            print(f"[OLLAMA] Remote call attempt {attempt+1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # exponential backoff
+            else:
+                print("[OLLAMA] All remote attempts failed, falling back to local model")
+                # Fallback to local Ollama (if available)
+                try:
+                    return generate_response(model, prompt, profile, system)
+                except Exception as local_e:
+                    print(f"[OLLAMA] Local fallback also failed: {local_e}")
+                    return ""  # final fallback empty string
+
+    return ""  # should never reach here

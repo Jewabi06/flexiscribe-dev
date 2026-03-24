@@ -310,10 +310,8 @@ setStatusMessage("Starting recording...");
             });
 
             if (data.text) {
-              liveCaptionQueueRef.current.push(data.text);
-              if (!captionTimerRef.current) {
-                startLiveCaptionScheduler();
-              }
+              setLiveCaption(data.text);
+              setFullTranscript((prev) => (prev ? `${prev} ${data.text}` : data.text));
             }
           }
         } catch (e) {
@@ -850,17 +848,6 @@ setStatusMessage("Starting recording...");
               <p className="live-caption" style={{ fontSize: "1.8rem", fontWeight: 700, lineHeight: 1.3 }}>
                 {liveCaption || "Listening for speech..."}
               </p>
-            </div>
-          </div>
-        )}
-
-        {fullTranscript && (
-          <div className="completed-transcript-panel">
-            <div className="live-transcript-header">
-              <h3>Completed Transcript (cumulative)</h3>
-            </div>
-            <div className="live-transcript-content" style={{ whiteSpace: "pre-wrap", fontSize: "0.95rem", maxHeight: "20vh", overflowY: "auto" }}>
-              {fullTranscript}
             </div>
           </div>
         )}
