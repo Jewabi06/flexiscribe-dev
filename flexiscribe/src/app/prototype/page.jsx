@@ -382,7 +382,7 @@ export default function PrototypeDashboard() {
       }
 
       const data = await res.json();
-      if (data.status === "COMPLETED" || data.status === "complete") {
+      if (data.status?.toLowerCase() === "completed") {
         setIsFinalizing(false);
         setShowStatusModal(false);
         setStatusMessage("Summary generation complete.");
@@ -394,6 +394,15 @@ export default function PrototypeDashboard() {
           setLiveChunks(data.live_transcript.chunks);
         }
 
+        return;
+      }
+
+      if (data.status?.toLowerCase() === "error") {
+        setIsFinalizing(false);
+        setShowStatusModal(false);
+        setStatusMessage("Summary generation failed. Please retry.");
+        setIsStopping(false);
+        clearSummaryPoll();
         return;
       }
 

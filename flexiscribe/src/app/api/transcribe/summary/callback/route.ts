@@ -39,11 +39,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Update the transcription with the final summary
+    const hasValidSummary = Boolean(
+      final_summary && (final_summary.title || final_summary.meeting_title)
+    );
     const transcription = await prisma.transcription.update({
       where: { id: transcription_id },
       data: {
         summaryJson: final_summary,
-        status: "COMPLETED",
+        status: hasValidSummary ? "COMPLETED" : "ERROR",
       },
       include: {
         class: {

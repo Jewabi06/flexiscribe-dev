@@ -251,8 +251,21 @@ def _summary_callback_worker(session: TranscriptionSession):
             session.summarizer_thread.join(timeout=600)  # generous for long lectures on CPU
 
         if not session.final_summary:
-            print(f"[CALLBACK] No final summary for session {session.session_id} — skipping callback.")
-            return
+            if session.minute_summaries:
+                print(f"[CALLBACK] No final summary for session {session.session_id} — using minute summaries fallback.")
+                session.final_summary = {
+                    "title": f"Fallback summary for {session.course_code}",
+                    "key_concepts": [],
+                    "notes": [],
+                    "summary": [
+                        f"Minute {m.get('minute', '?')}: {m.get('summary', '').strip()}"
+                        for m in session.minute_summaries
+                        if m.get('summary')
+                    ],
+                }
+            else:
+                print(f"[CALLBACK] No final summary and no minute summaries for session {session.session_id} — skipping callback.")
+                return
 
         if not session.transcription_id:
             print(f"[CALLBACK] No transcription_id for session {session.session_id} — skipping callback.")
@@ -276,6 +289,7 @@ def _summary_callback_worker(session: TranscriptionSession):
                 resp = requests.post(callback_url, json=payload, headers=headers, timeout=30)
                 if resp.ok:
                     print(f"[CALLBACK] Summary delivered successfully for session {session.session_id}.")
+                    session.status = "completed"
                     break
                 else:
                     print(f"[CALLBACK] Attempt {attempt+1} failed ({resp.status_code}): {resp.text[:200]}")
@@ -287,6 +301,7 @@ def _summary_callback_worker(session: TranscriptionSession):
                     time.sleep(2 ** attempt)
         else:
             print(f"[CALLBACK] All attempts failed for session {session.session_id}.")
+            session.status = "error"
 
     except Exception as e:
         print(f"[CALLBACK] Error in summary callback worker: {e}")
