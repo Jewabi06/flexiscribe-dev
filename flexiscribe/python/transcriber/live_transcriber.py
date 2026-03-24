@@ -32,7 +32,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from summarizer.summarizer import summarize_minute, summarize_cornell_context_aware, summarize_motm
+from summarizer.summarizer import summarize_minute, summarize_cornell_context_aware, summarize_cornell, summarize_motm
 from utils.json_writer import write_json
 from config import BUFFER_INTERVAL, SUMMARY_MAX_WORKERS
 
@@ -180,6 +180,8 @@ def summarization_worker(stop_event: threading.Event, session):
         session.minutes_done.set()
         print(f"[INFO] minutes_done signalled — {len(session.minute_summaries)} summaries ready.")
 
+        successful_final_summary = False
+
         # ── Generate final summary from minute summaries ─────────────
         if session.minute_summaries:
             summaries_text = _format_minute_summaries(session.minute_summaries)
@@ -195,6 +197,7 @@ def summarization_worker(stop_event: threading.Event, session):
                         session.final_summary_path,
                     )
                     print("[INFO] MOTM generated successfully.")
+                    successful_final_summary = True
                 except Exception as e:
                     print(f"[ERROR] MOTM generation failed: {e}")
                     session.final_summary = {
@@ -206,6 +209,7 @@ def summarization_worker(stop_event: threading.Event, session):
                         "next_meeting": {"date": "To be announced", "time": "To be announced"},
                         "prepared_by": "To be determined",
                     }
+                    successful_final_summary = False
             else:
                 print("[INFO] Generating context-aware Cornell summary...")
                 try:
@@ -219,6 +223,7 @@ def summarization_worker(stop_event: threading.Event, session):
                         session.final_summary_path,
                     )
                     print("[INFO] Final Cornell summary generated.")
+                    successful_final_summary = True
                 except Exception as e:
                     print(f"[ERROR] Final Cornell summary failed: {e}")
                     session.final_summary = {
@@ -227,10 +232,40 @@ def summarization_worker(stop_event: threading.Event, session):
                         "notes": [],
                         "summary": ["Summary generation failed. Minute summaries available."],
                     }
+                    successful_final_summary = False
+        else:
+            print("[INFO] No minute summaries available; generating fallback final summary.")
+            transcript_text = "\n".join(c.get("text", "") for c in session.transcript_chunks)
+            if transcript_text.strip():
+                try:
+                    fallback_cornell = summarize_cornell(transcript_text)
+                    session.final_summary = fallback_cornell
+                    write_json(
+                        session.get_final_summary_json(),
+                        session.final_summary_path,
+                    )
+                    print("[INFO] Fallback Cornell summary generated from transcript chunks.")
+                    successful_final_summary = True
+                except Exception as e:
+                    print(f"[ERROR] Fallback Cornell summary failed: {e}")
+                    session.final_summary = {
+                        "title": f"Lecture - {session.course_code}",
+                        "key_concepts": [],
+                        "notes": [],
+                        "summary": ["No minute summaries available, and fallback generation failed."],
+                    }
+                    successful_final_summary = False
+            else:
+                session.final_summary = {
+                    "title": f"Lecture - {session.course_code}",
+                    "key_concepts": [],
+                    "notes": [],
+                    "summary": ["No transcript text available to summarize."],
+                }
+                successful_final_summary = False
 
-        session.status = "completed"
-        print(f"[INFO] Session {session.session_id} completed.")
-
+        session.status = "completed" if successful_final_summary else "error"
+        print(f"[INFO] Session {session.session_id} final status={session.status}.")
     except Exception as e:
         session.status = "error"
         print(f"[ERROR] Summarization worker error: {e}")
