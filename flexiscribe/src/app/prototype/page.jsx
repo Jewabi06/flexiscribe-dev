@@ -1,6 +1,6 @@
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaUserCircle, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers, FaChalkboardTeacher, FaExclamationTriangle } from "react-icons/fa";
+import React, { useState, useEffect, useRef } from "react";
+import { FaPlay, FaStop, FaMicrophone, FaCheck, FaPowerOff, FaQuestionCircle, FaSignOutAlt, FaBook, FaUsers, FaChalkboardTeacher, FaExclamationTriangle, FaCheckCircle } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import "./styles.css";
 
@@ -25,9 +25,12 @@ export default function PrototypeDashboard() {
   const [statusMessage, setStatusMessage] = useState("");
   const [isStopping, setIsStopping] = useState(false);
   const [duration, setDuration] = useState("0m 0s");
-  const [showCourseSelect, setShowCourseSelect] = useState(false);
-  const [showSessionTypeSelect, setShowSessionTypeSelect] = useState(false);
+  const [showClassSessionModal, setShowClassSessionModal] = useState(false);
   const [sessionType, setSessionType] = useState("lecture"); // "lecture" | "meeting"
+
+  // Consent modal state
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false);
 
   // Error modal state
   const [errorModalOpen, setErrorModalOpen] = useState(false);
@@ -91,7 +94,6 @@ export default function PrototypeDashboard() {
       checkMicrophonePermission();
     }
 
-    // Fetch educator's classes
     fetchClasses();
 
     return () => {
@@ -106,27 +108,23 @@ export default function PrototypeDashboard() {
     };
   }, []);
 
-  // Stop recording when mic is disconnected
   useEffect(() => {
     if (!micConnected && isRecording) {
       handleStopRecording();
     }
   }, [micConnected]);
 
-  // Auto-scroll transcript panel when new chunks arrive
   useEffect(() => {
     if (transcriptEndRef.current) {
       transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [liveChunks]);
 
-  // ─── Fetch educator's classes with enrolled students ───────────────
   const fetchClasses = async () => {
     try {
       const res = await fetch("/api/educator/classes");
       if (res.ok) {
         const data = await res.json();
-        // Only show classes that have students enrolled
         const classesWithStudents = (data.classes || []).filter((c) => c.students > 0);
         setClasses(classesWithStudents);
       }
@@ -135,7 +133,6 @@ export default function PrototypeDashboard() {
     }
   };
 
-  // ─── Microphone handling ───────────────────────────────────────────
   const checkMicrophonePermission = async () => {
     if (typeof window === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
       setMicConnected(false);
@@ -163,7 +160,6 @@ export default function PrototypeDashboard() {
     audioContextRef.current = audioContext;
     analyserRef.current = analyser;
 
-    // Throttled to ~10fps (every 6th frame) to reduce CPU/GPU load on Jetson
     let frameSkip = 0;
     const detectAudio = () => {
       frameSkip++;
@@ -191,12 +187,6 @@ export default function PrototypeDashboard() {
     setAudioLevel(0);
   };
 
-  // Microphone state is read-only for UI; connect status is auto-detected.
-  const handleMicClick = () => {
-    // no-op to preserve disabled design
-  };
-
-  // ─── Duration timer ────────────────────────────────────────────────
   const startDurationTimer = () => {
     startTimeRef.current = Date.now();
     durationRef.current = setInterval(() => {
@@ -241,15 +231,14 @@ export default function PrototypeDashboard() {
     }
   };
 
-  // ─── Start transcription ──────────────────────────────────────────
   const handleStartRecording = async () => {
     if (!micConnected) {
       setStatusMessage("Please connect your microphone first!");
       return;
     }
     if (!selectedCourse) {
-      setShowCourseSelect(true);
       setStatusMessage("Please select a course before recording.");
+      setShowClassSessionModal(true);
       return;
     }
 
@@ -285,7 +274,6 @@ export default function PrototypeDashboard() {
       setStatusMessage("Recording in progress...");
       startDurationTimer();
 
-      // Start live stream (SSE with polling fallback)
       startLiveStream(data.session_id);
       startLiveCaptionScheduler();
     } catch (error) {
@@ -294,7 +282,6 @@ export default function PrototypeDashboard() {
     }
   };
 
-  // ─── SSE live stream with polling fallback ────────────────────────
   const startLiveStream = (sid) => {
     try {
       const es = new EventSource(`/api/transcribe/live?sessionId=${sid}`);
@@ -335,12 +322,10 @@ export default function PrototypeDashboard() {
         startPolling(sid);
       };
     } catch (e) {
-      // SSE not supported, fall back to polling
       startPolling(sid);
     }
   };
 
-  // ─── Polling fallback for live updates ──────────────────────────────
   const startPolling = (sid) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(async () => {
@@ -373,12 +358,10 @@ export default function PrototypeDashboard() {
   const pollSummaryStatus = async (sid) => {
     if (!sid) return;
 
-    // Start tracking time if this is the first poll
     if (!summaryPollStartRef.current) {
       summaryPollStartRef.current = Date.now();
     }
 
-    // Check for timeout (5 minutes = 300000 ms)
     if (Date.now() - summaryPollStartRef.current > 300000) {
       clearSummaryPoll();
       setErrorMessage(
@@ -426,7 +409,6 @@ export default function PrototypeDashboard() {
     summaryPollRef.current = setTimeout(() => pollSummaryStatus(sid), 5000);
   };
 
-  // ─── Stop transcription ───────────────────────────────────────────
   const handleStopRecording = async () => {
     if (!sessionId) return;
 
@@ -434,7 +416,6 @@ export default function PrototypeDashboard() {
     setStatusMessage("Saving your recording and generating notes...");
     stopDurationTimer();
 
-    // Stop live stream, polling, and live-caption scheduler
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -465,10 +446,8 @@ export default function PrototypeDashboard() {
 
       const data = await res.json();
 
-      // Recording has stopped at the audio level, but final state waits for summary completion.
       setIsRecording(false);
 
-      // Update live chunks with final data (10s chunks, includes final buffer flush)
       if (data.live_transcript?.chunks) {
         setLiveChunks(data.live_transcript.chunks);
       }
@@ -506,7 +485,6 @@ export default function PrototypeDashboard() {
     }
   };
 
-  // ─── Play button handler ──────────────────────────────────────────
   const handlePlayClick = async () => {
     if (typeof window === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
       alert("MediaDevices API not available. Please use HTTPS or localhost.");
@@ -515,21 +493,39 @@ export default function PrototypeDashboard() {
 
     if (!isRecording) {
       if (!selectedCourse) {
-        setStatusMessage("Please select a course to start recording.");
-        setShowCourseSelect(true);
+        setStatusMessage("Please select a class and session type first.");
+        setShowClassSessionModal(true);
         return;
       }
       if (!sessionType) {
-        setShowSessionTypeSelect(true);
+        setShowClassSessionModal(true);
         return;
       }
-      await handleStartRecording();
+      setShowConsentModal(true);
     } else {
       await handleStopRecording();
     }
   };
 
-  // ─── Logout ────────────────────────────────────────────────────────
+  const handleConsentConfirm = () => {
+    setShowConsentModal(false);
+    setConsentChecked(false);
+    handleStartRecording();
+  };
+
+  const openClassSessionModal = () => {
+    setShowClassSessionModal(true);
+  };
+
+  const handleSaveClassSession = () => {
+    if (selectedCourse && sessionType) {
+      setShowClassSessionModal(false);
+      setStatusMessage(`${selectedCourse} — ${sessionType === "meeting" ? "Meeting" : "Lecture"} selected. Ready to record.`);
+    } else {
+      setStatusMessage("Please select both a course and session type.");
+    }
+  };
+
   const handleLogout = async () => {
     if (isRecording) {
       await handleStopRecording();
@@ -557,7 +553,6 @@ export default function PrototypeDashboard() {
     return null;
   }
 
-  // Get unique course codes from classes
   const courseCodes = [...new Set(classes.map((c) => c.subject))];
 
   return (
@@ -577,7 +572,6 @@ export default function PrototypeDashboard() {
             </div>
 
             <div className="guide-content">
-              {/* Step 1 */}
               <div className="guide-step">
                 <div className="guide-step-number">1</div>
                 <div className="guide-step-icon"><FaPowerOff /></div>
@@ -587,7 +581,6 @@ export default function PrototypeDashboard() {
                 </div>
               </div>
 
-              {/* Step 2 */}
               <div className="guide-step">
                 <div className="guide-step-number">2</div>
                 <div className="guide-step-icon"><FaMicrophone /></div>
@@ -597,43 +590,30 @@ export default function PrototypeDashboard() {
                 </div>
               </div>
 
-              {/* Step 3 */}
               <div className="guide-step">
                 <div className="guide-step-number">3</div>
                 <div className="guide-step-icon"><FaBook /></div>
                 <div className="guide-step-content">
-                  <h3 className="guide-step-title">SELECT COURSE</h3>
-                  <p className="guide-step-text">Choose the <strong>Course Code</strong> for the class you<br />are about to teach. Transcripts are saved per course.</p>
+                  <h3 className="guide-step-title">SELECT COURSE & SESSION</h3>
+                  <p className="guide-step-text">Tap the <strong>Class/Session</strong> button to choose the course<br />and session type (Lecture or Meeting).</p>
                 </div>
               </div>
 
-              {/* Step 4 */}
               <div className="guide-step">
                 <div className="guide-step-number">4</div>
-                <div className="guide-step-icon"><FaChalkboardTeacher /></div>
-                <div className="guide-step-content">
-                  <h3 className="guide-step-title">SESSION TYPE</h3>
-                  <p className="guide-step-text">Choose <strong>Lecture</strong> for Cornell Notes or <strong>Meeting</strong><br />for Minutes of the Meeting (MOTM) format.</p>
-                </div>
-              </div>
-
-              {/* Step 5 */}
-              <div className="guide-step">
-                <div className="guide-step-number">5</div>
                 <div className="guide-step-icon"><FaPlay /></div>
                 <div className="guide-step-content">
                   <h3 className="guide-step-title">START RECORD</h3>
-                  <p className="guide-step-text">Start the recording by pressing the <strong>Play Button</strong><br />shown on the screen. Speak clearly into the mic.</p>
+                  <p className="guide-step-text">Press the <strong>Play Button</strong> and agree to the consent.<br />Speak clearly into the mic to transcribe.</p>
                 </div>
               </div>
 
-              {/* Step 6 */}
               <div className="guide-step">
-                <div className="guide-step-number">6</div>
+                <div className="guide-step-number">5</div>
                 <div className="guide-step-icon"><div className="stop-icon"></div></div>
                 <div className="guide-step-content">
                   <h3 className="guide-step-title">STOP RECORD</h3>
-                  <p className="guide-step-text">Stop the recording by pressing the <strong>Stop Button</strong><br />shown on the screen. Your recording will be saved.</p>
+                  <p className="guide-step-text">Press the <strong>Stop Button</strong> to end recording.<br />Your session will be saved and summarized.</p>
                 </div>
               </div>
             </div>
@@ -643,105 +623,138 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Course Selection Modal */}
-      {showCourseSelect && (
-        <div className="guide-overlay" onClick={() => setShowCourseSelect(false)}>
+      {/* Class & Session Selection Modal */}
+      {showClassSessionModal && (
+        <div className="guide-overlay" onClick={() => setShowClassSessionModal(false)}>
           <div className="guide-modal course-select-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="guide-close" onClick={() => setShowCourseSelect(false)}>✕</button>
+            <button className="guide-close" onClick={() => setShowClassSessionModal(false)}>✕</button>
 
             <div className="guide-header">
               <div className="guide-step-icon"><FaBook /></div>
               <div>
-                <h2 className="guide-title">Select Course</h2>
-                <p className="guide-subtitle">Choose the class you are teaching</p>
+                <h2 className="guide-title">Class & Session</h2>
+                <p className="guide-subtitle">Select the course and session type</p>
               </div>
             </div>
 
-            <div className="course-list">
-              {courseCodes.length === 0 ? (
-                <div className="no-courses">
-                  <p>No classes with enrolled students found.</p>
-                  <p className="text-sm" style={{ opacity: 0.7, marginTop: "0.5rem" }}>
-                    Please ask the admin to add your class and ensure students have joined.
-                  </p>
+            <div className="class-session-content">
+              {/* Course Selection */}
+              <div className="selection-section">
+                <label className="selection-label">Course</label>
+                <div className="course-list">
+                  {courseCodes.length === 0 ? (
+                    <div className="no-courses">
+                      <p>No classes with enrolled students found.</p>
+                      <p className="text-sm" style={{ opacity: 0.7, marginTop: "0.5rem" }}>
+                        Please ask the admin to add your class and ensure students have joined.
+                      </p>
+                    </div>
+                  ) : (
+                    courseCodes.map((code) => {
+                      const classesForCode = classes.filter((c) => c.subject === code);
+                      const totalStudents = classesForCode.reduce((sum, c) => sum + c.students, 0);
+                      const sections = classesForCode.map((c) => c.section).join(", ");
+                      return (
+                        <button
+                          key={code}
+                          className={`course-option ${selectedCourse === code ? "selected" : ""}`}
+                          onClick={() => setSelectedCourse(code)}
+                        >
+                          <div className="course-option-code">{code}</div>
+                          <div className="course-option-details">
+                            Section {sections} &bull; {totalStudents} student{totalStudents !== 1 ? "s" : ""}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
-              ) : (
-                courseCodes.map((code) => {
-                  const classesForCode = classes.filter((c) => c.subject === code);
-                  const totalStudents = classesForCode.reduce((sum, c) => sum + c.students, 0);
-                  const sections = classesForCode.map((c) => c.section).join(", ");
-                  return (
-                    <button
-                      key={code}
-                      className={`course-option ${selectedCourse === code ? "selected" : ""}`}
-                      onClick={() => {
-                        setSelectedCourse(code);
-                        setShowCourseSelect(false);
-                        setShowSessionTypeSelect(true);
-                      }}
-                    >
-                      <div className="course-option-code">{code}</div>
-                      <div className="course-option-details">
-                        Section {sections} &bull; {totalStudents} student{totalStudents !== 1 ? "s" : ""}
-                      </div>
-                    </button>
-                  );
-                })
-              )}
+              </div>
+
+              {/* Session Type Selection */}
+              <div className="selection-section">
+                <label className="selection-label">Session Type</label>
+                <div className="session-type-list">
+                  <button
+                    className={`session-type-option ${sessionType === "lecture" ? "selected" : ""}`}
+                    onClick={() => setSessionType("lecture")}
+                  >
+                    <div className="session-type-icon lecture-icon">
+                      <FaChalkboardTeacher />
+                    </div>
+                    <div className="session-type-info">
+                      <div className="session-type-name">Lecture</div>
+                      <div className="session-type-desc">Generates <strong>Cornell Notes</strong> with cue questions, notes, and summary.</div>
+                    </div>
+                  </button>
+
+                  <button
+                    className={`session-type-option ${sessionType === "meeting" ? "selected" : ""}`}
+                    onClick={() => setSessionType("meeting")}
+                  >
+                    <div className="session-type-icon meeting-icon">
+                      <FaUsers />
+                    </div>
+                    <div className="session-type-info">
+                      <div className="session-type-name">Meeting</div>
+                      <div className="session-type-desc">Generates <strong>Minutes of the Meeting</strong> with agenda, decisions, and action items.</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
             </div>
+
+            <button 
+              className="guide-button" 
+              onClick={handleSaveClassSession}
+              disabled={!selectedCourse || !sessionType}
+            >
+              Save & Close
+            </button>
           </div>
         </div>
       )}
 
-      {/* Session Type Selection Modal */}
-      {showSessionTypeSelect && (
-        <div className="guide-overlay" onClick={() => setShowSessionTypeSelect(false)}>
-          <div className="guide-modal session-type-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="guide-close" onClick={() => setShowSessionTypeSelect(false)}>✕</button>
+      {/* Consent Modal */}
+      {showConsentModal && (
+        <div className="guide-overlay" onClick={() => setShowConsentModal(false)}>
+          <div className="guide-modal consent-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="guide-close" onClick={() => setShowConsentModal(false)}>✕</button>
 
             <div className="guide-header">
-              <div className="guide-step-icon"><FaChalkboardTeacher /></div>
+              <div className="guide-step-icon" style={{ background: "#c5a6f9" }}>
+                <FaCheckCircle />
+              </div>
               <div>
-                <h2 className="guide-title">Session Type</h2>
-                <p className="guide-subtitle">How should the AI format your notes?</p>
+                <h2 className="guide-title">Consent to Record</h2>
+                <p className="guide-subtitle">Please confirm before starting the session</p>
               </div>
             </div>
 
-            <div className="session-type-list">
-              <button
-                className={`session-type-option ${sessionType === "lecture" ? "selected" : ""}`}
-                onClick={() => {
-                  setSessionType("lecture");
-                  setShowSessionTypeSelect(false);
-                  setStatusMessage(`${selectedCourse} — Lecture selected. Ready to record.`);
-                }}
-              >
-                <div className="session-type-icon lecture-icon">
-                  <FaChalkboardTeacher />
-                </div>
-                <div className="session-type-info">
-                  <div className="session-type-name">Lecture</div>
-                  <div className="session-type-desc">Generates <strong>Cornell Notes</strong> with cue questions, notes, and summary.</div>
-                </div>
-              </button>
-
-              <button
-                className={`session-type-option ${sessionType === "meeting" ? "selected" : ""}`}
-                onClick={() => {
-                  setSessionType("meeting");
-                  setShowSessionTypeSelect(false);
-                  setStatusMessage(`${selectedCourse} — Meeting selected. Ready to record.`);
-                }}
-              >
-                <div className="session-type-icon meeting-icon">
-                  <FaUsers />
-                </div>
-                <div className="session-type-info">
-                  <div className="session-type-name">Meeting</div>
-                  <div className="session-type-desc">Generates <strong>Minutes of the Meeting</strong> with agenda, decisions, and action items.</div>
-                </div>
-              </button>
+            <div className="consent-content">
+              <p className="consent-text">
+                I, the professor, acknowledge that this session will be recorded for educational purposes. 
+                The transcript and AI-generated notes will be stored securely and made available to enrolled students.
+                I confirm that I have the authority to record this lecture/meeting and that all participants are aware.
+              </p>
+              <label className="consent-checkbox">
+                <input 
+                  type="checkbox" 
+                  checked={consentChecked}
+                  onChange={(e) => setConsentChecked(e.target.checked)}
+                />
+                <span className="consent-checkbox-text">I agree and consent to the recording of this session.</span>
+              </label>
             </div>
+
+            <button 
+              className="guide-button" 
+              onClick={handleConsentConfirm}
+              disabled={!consentChecked}
+              style={{ opacity: consentChecked ? 1 : 0.6 }}
+            >
+              Start Recording
+            </button>
           </div>
         </div>
       )}
@@ -749,18 +762,12 @@ export default function PrototypeDashboard() {
       {/* Summary status modal */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
-          <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="guide-header">
-              <div className="guide-step-icon"><FaBook /></div>
-              <div>
-                <h2 className="guide-title">Generating Summary</h2>
-                <p className="guide-subtitle">Please wait while we finalize your session.</p>
-              </div>
-            </div>
-            <div style={{ textAlign: "center", marginTop: "1rem" }}>
-              <div className="status-spinner" />
-              <p>{statusMessage || "Finalizing transcript and summary..."}</p>
-              <p style={{ fontSize: "0.85rem", opacity: 0.8 }}>This may take a moment, do not close the window until complete.</p>
+          <div className="guide-modal summary-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="summary-loading-container">
+              <div className="status-spinner-large"></div>
+              <h3 className="summary-title">Generating Summary</h3>
+              <p className="summary-message">{statusMessage || "Finalizing transcript and summary..."}</p>
+              <p className="summary-hint">This may take a moment, do not close the window until complete.</p>
             </div>
             {!isFinalizing && (
               <button className="guide-button" onClick={() => setShowStatusModal(false)}>
@@ -801,15 +808,19 @@ export default function PrototypeDashboard() {
       )}
 
       <div className="prototype-content">
-        {/* Action Buttons - Top Right */}
+        {/* Action Buttons - Top Right - Icon Only */}
         <div className="action-buttons">
+          <button className="action-btn class-btn" onClick={openClassSessionModal} aria-label="Select class and session">
+            <FaBook />
+            <span>Class</span>
+          </button>
           <button className="action-btn help-btn" onClick={toggleGuide} aria-label="Open guide">
             <FaQuestionCircle />
             <span>Guide</span>
           </button>
           <button className="action-btn logout-btn" onClick={handleLogout} aria-label="Logout">
             <FaSignOutAlt />
-            <span>Logout</span>
+      
           </button>
         </div>
 
@@ -826,7 +837,17 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Course & Session Type are selected via modal flow shown when play is pressed */}
+        {/* Course & Session Info Bar */}
+        <div className="info-bar">
+          {selectedCourse && sessionType && (
+            <div className="session-badge">
+              <span className="course-badge">{selectedCourse}</span>
+              <span className="type-badge">{sessionType === "meeting" ? "Meeting" : "Lecture"}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Recording Info */}
         {isRecording && (
           <div className="recording-info">
             <span className="recording-dot"></span>
@@ -892,16 +913,11 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Live Transcript Display */}
-        {(isRecording || liveCaption) && (
+        {/* Live Caption Display - No header */}
+        {(liveCaption || isRecording) && (
           <div className="live-transcript-panel">
-            <div className="live-transcript-header">
-              <h3>Live Caption</h3>
-            </div>
-            <div className="live-transcript-content" style={{ minHeight: "5.2rem" }}>
-              <p className="live-caption" style={{ fontSize: "1.8rem", fontWeight: 700, lineHeight: 1.3 }}>
-                {liveCaption || "Listening for speech..."}
-              </p>
+            <div className="live-transcript-content" style={{ minHeight: "5.2rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <p className="live-caption">{liveCaption || "Listening for speech..."}</p>
             </div>
           </div>
         )}
