@@ -40,7 +40,7 @@ from typing import Optional
 from config import OUTPUT_DIR, FRONTEND_URL, CALLBACK_SECRET
 from session_manager import session_manager, TranscriptionSession
 from transcriber.whisper_worker import whisper_worker
-from transcriber.live_transcriber import summarization_worker
+from transcriber.live_transcriber import summarization_worker, generate_summary_from_transcript_json
 from utils.json_writer import write_json
 
 app = FastAPI(
@@ -78,6 +78,14 @@ class StopRequest(BaseModel):
 class UploadConfirmRequest(BaseModel):
     session_id: str
     file_type: str  # "transcript" | "minute_summary" | "final_summary" | "all"
+
+
+class RegenerateSummaryRequest(BaseModel):
+    transcription_id: str
+    transcript_json: dict
+    minute_summaries: Optional[list] = None
+    session_type: Optional[str] = "lecture"  # "lecture" | "meeting"
+    course_code: Optional[str] = ""
 
 
 class SessionStatusResponse(BaseModel):
@@ -331,6 +339,29 @@ def get_summary_status(session_id: str):
             "status": "pending",
             "message": "Final summary is still being generated.",
         }
+
+
+@app.post("/transcribe/summary/regenerate")
+def regenerate_summary(req: RegenerateSummaryRequest):
+    """Generate/refresh a final summary from transcriptJson and persist it."""
+    if not req.transcript_json:
+        raise HTTPException(status_code=400, detail="transcript_json is required")
+
+    try:
+        final_summary = generate_summary_from_transcript_json(
+            req.transcript_json,
+            minute_summaries=req.minute_summaries,
+            session_type=req.session_type or "lecture",
+            course_code=req.course_code or "",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {e}")
+
+    return {
+        "status": "success",
+        "final_summary": final_summary,
+        "transcription_id": req.transcription_id,
+    }
 
 
 # ─── Session status / live data ──────────────────────────────────────────

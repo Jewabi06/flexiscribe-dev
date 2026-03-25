@@ -273,3 +273,100 @@ def summarization_worker(stop_event: threading.Event, session):
         traceback.print_exc()
     finally:
         executor.shutdown(wait=False)
+
+
+def generate_summary_from_transcript_json(
+    transcript_json: dict,
+    minute_summaries: list | None = None,
+    session_type: str = "lecture",
+    course_code: str = "",
+) -> dict:
+    """Generate a final Cornell/MOTM summary from transcriptJson and minute summaries."""
+    # The frontend must not mutate transcriptJson here.
+    # Use the existing summarization pipeline implementation.
+    transcript_chunks = transcript_json.get("chunks") if isinstance(transcript_json, dict) else None
+
+    if transcript_chunks is None or not isinstance(transcript_chunks, list):
+        raise ValueError("Invalid transcript_json: expected an object with a chunks array")
+
+    try:
+        if minute_summaries and isinstance(minute_summaries, list) and len(minute_summaries) > 0:
+            if session_type == "meeting":
+                # MOTM generation from full transcript
+                full_text = "\n".join(c.get("text", "") for c in transcript_chunks)
+                return summarize_motm(full_text)
+            # Lecture: context-aware Cornell using minute summaries and transcript chunks
+            return summarize_cornell_context_aware(transcript_chunks, minute_summaries)
+
+        # No valid minute summaries available: fallback Cornell from full text (multipass for long transcripts)
+        full_text = "\n".join(c.get("text", "") for c in transcript_chunks)
+        return _summarize_text_multipass(full_text)
+
+    except Exception as e:
+        # Fail-safe fallback summary (avoids crashing when Ollama is unavailable)
+        print(f"[WARN] Summary provider failed: {e}")
+        return {
+            "title": f"Fallback summary for {course_code or 'transcript'}",
+            "key_concepts": [],
+            "notes": [],
+            "summary": [
+                "Summary generation failed. Generated fallback from transcript chunks."
+            ],
+        }
+
+
+def _split_text_for_ollama(full_text: str, max_chars: int = 28000):
+    """Split a long transcript text into manageable chunks for Ollama."""
+    if not full_text:
+        return []
+    if len(full_text) <= max_chars:
+        return [full_text]
+
+    words = full_text.split()
+    chunks = []
+    current = []
+    current_len = 0
+
+    for word in words:
+        if current_len + len(word) + 1 > max_chars and current:
+            chunks.append(" ".join(current))
+            current = [word]
+            current_len = len(word) + 1
+        else:
+            current.append(word)
+            current_len += len(word) + 1
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
+
+
+def _summarize_text_multipass(full_text: str) -> dict:
+    """Summarize long transcript text in chunks and merge them safely."""
+    from summarizer.summarizer import summarize_cornell, summarize_cornell_remote
+
+    chunks = _split_text_for_ollama(full_text)
+    if not chunks:
+        raise ValueError("No transcript text to summarize")
+
+    def _local_or_remote_summarize(text_to_summarize):
+        try:
+            # prefer remote GPU for longer inputs
+            return summarize_cornell_remote(text_to_summarize)
+        except Exception as e:
+            print(f"[SUMMARIZER] Remote Cornell summarization failed: {e}. Falling back to local model.")
+            return summarize_cornell(text_to_summarize)
+
+    if len(chunks) == 1:
+        return _local_or_remote_summarize(full_text)
+
+    partial_summaries = []
+    for idx, chunk in enumerate(chunks, start=1):
+        print(f"[SUMMARIZER] multipass chunk {idx}/{len(chunks)} (len={len(chunk)} chars)")
+        short = _local_or_remote_summarize(chunk)
+        partial_summaries.append(" ".join(short.get("summary", [])))
+
+    combined = " \n\n".join(partial_summaries)
+    print("[SUMMARIZER] generating final summary from chunk partials")
+    return _local_or_remote_summarize(combined)

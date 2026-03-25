@@ -139,6 +139,15 @@ def summarize_cornell(text, model=None):
     return validate_cornell_schema(result)
 
 
+def summarize_cornell_remote(text, model=None):
+    """Cornell Notes using remote GPU-powered Ollama backend."""
+    model = model or OLLAMA_CORNELL_MODEL
+    result = extract_json(
+        generate_response_remote(model, build_cornell_prompt(text), profile="extended")
+    )
+    return validate_cornell_schema(result)
+
+
 def summarize_cornell_from_summaries(summaries_text, model=None):
     """Cornell Notes from pre-formatted summaries text (no topic context)."""
     model = model or OLLAMA_MODEL
