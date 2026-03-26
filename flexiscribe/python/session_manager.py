@@ -27,15 +27,15 @@ class TranscriptionSession:
         self.transcription_id: Optional[str] = None  # DB record ID (set by stop endpoint)
 
         # Lock for thread-safe minute_summaries / transcript_chunks writes
-        # (multiple summary threads may append concurrently)
         self.summary_lock = threading.Lock()
 
         # Live data accumulation
-        # live_chunks: every ~10s Whisper fragment for real-time display
-        self.live_chunks: list = []
+        self.live_chunks: list = []                # every ~3s for real-time display
         self.live_chunk_counter = 0
         # transcript_chunks: aggregated 60s text for per-minute summarization
         self.transcript_chunks: list = []
+        # final_transcript_chunks: 10‑second chunks for final JSON output
+        self.final_transcript_chunks: list = []    # <-- NEW
         self.minute_summaries: list = []
         self.final_summary: Optional[dict] = None
         self.current_minute = 0
@@ -55,7 +55,7 @@ class TranscriptionSession:
             f"final_cornell_{self.run_id}.json"
         )
 
-        # File status tracking: pending | uploaded | to_delete
+        # File status tracking
         self.file_status = {
             "transcript": "pending",
             "minute_summary": "pending",
@@ -92,7 +92,7 @@ class TranscriptionSession:
         return f"{mins:02d}:{secs:02d}"
 
     def get_transcript_json(self) -> dict:
-        """Return the full transcript data in JSON format with timestamps."""
+        """Return the full transcript data (10‑second chunks) in JSON format."""
         return {
             "metadata": {
                 "session_id": self.session_id,
@@ -105,11 +105,11 @@ class TranscriptionSession:
                 ),
                 "duration": self.duration_formatted,
             },
-            "chunks": self.transcript_chunks,
+            "chunks": self.final_transcript_chunks,   # <-- now uses 10‑second chunks
         }
 
     def get_live_transcript_json(self) -> dict:
-        """Return the live (10s) transcript data for real-time display."""
+        """Return the live (3‑second) transcript data for real-time display."""
         return {
             "metadata": {
                 "session_id": self.session_id,
@@ -148,17 +148,14 @@ class TranscriptionSession:
         return None
 
     def mark_uploaded(self, file_type: str):
-        """Mark a file as uploaded to the database."""
         if file_type in self.file_status:
             self.file_status[file_type] = "uploaded"
 
     def mark_for_deletion(self, file_type: str):
-        """Mark a file for deletion after successful DB upload."""
         if file_type in self.file_status:
             self.file_status[file_type] = "to_delete"
 
     def cleanup_files(self):
-        """Delete local files that have been uploaded to the database."""
         file_map = {
             "transcript": self.transcript_path,
             "minute_summary": self.minute_summary_path,
@@ -197,12 +194,6 @@ class SessionManager:
     def get_active_session_for_educator(
         self, educator_id: str
     ) -> Optional[TranscriptionSession]:
-        """Get the currently running or stopping session for an educator.
-
-        Also returns sessions in 'stopping' state because the old whisper
-        worker / audio stream may still be active.  Starting a new session
-        before the old one fully stops causes stale-audio bleed.
-        """
         with self._lock:
             for session in self._sessions.values():
                 if (
@@ -225,13 +216,12 @@ class SessionManager:
                     "educator_id": s.educator_id,
                     "status": s.status,
                     "duration": s.duration_formatted,
-                    "chunks": len(s.transcript_chunks),
+                    "chunks": len(s.final_transcript_chunks),
                 }
                 for s in self._sessions.values()
             ]
 
     def get_pending_files(self) -> list[dict]:
-        """Get list of files that are pending upload."""
         pending = []
         with self._lock:
             for s in self._sessions.values():
