@@ -15,6 +15,7 @@ html, body {
 }
 
 .prototype-content {
+  position: relative;
   overflow: hidden;
   max-height: calc(100vh - 2rem);
 }
@@ -964,9 +965,6 @@ html, body {
   .guide-button      { padding: 1rem; font-size: 1.1rem; }
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   Course Selector Bar — base: full-width column on mobile
-   ═══════════════════════════════════════════════════════════════════════ */
 .course-selector-bar {
   display: flex;
   flex-direction: column;
@@ -1013,9 +1011,6 @@ html, body {
   border-color: rgba(197, 166, 249, 0.5);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   Session Type Toggle (Lecture / Meeting)
-   ═══════════════════════════════════════════════════════════════════════ */
 .session-type-toggle {
   display: flex;
   gap: 0;
@@ -1031,7 +1026,6 @@ html, body {
   gap: 0.4rem;
   padding: 0.5rem 1rem;
   border: none;
-  background: transparent;
   color: rgba(255, 255, 255, 0.6);
   font-size: 0.85rem;
   font-weight: 600;
@@ -1058,9 +1052,6 @@ html, body {
   cursor: not-allowed;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   Session Type Badge
-   ═══════════════════════════════════════════════════════════════════════ */
 .session-type-badge {
   display: inline-flex;
   align-items: center;
@@ -1075,9 +1066,6 @@ html, body {
   white-space: nowrap;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   Session Type Selection Modal
-   ═══════════════════════════════════════════════════════════════════════ */
 .session-type-modal {
   max-width: 480px;
   background: linear-gradient(135deg, #1e1b3a 0%, #2d2756 100%);
@@ -1104,9 +1092,10 @@ html, body {
   align-items: center;
   gap: 1rem;
   padding: 1rem 1.25rem;
-  border-radius: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--brand-tertiary);
+  border: 1px solid var(--brand-tertiary);
   cursor: pointer;
   transition: all 0.3s ease;
   text-align: left;
@@ -1114,15 +1103,15 @@ html, body {
 }
 
 .session-type-option:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(197, 166, 249, 0.4);
-  transform: translateY(-2px);
+  background: white;
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .session-type-option.selected {
-  background: rgba(197, 166, 249, 0.2);
+  background: var(--brand-tertiary);
+  color: white;
   border-color: var(--accent-secondary);
-  box-shadow: 0 0 20px rgba(197, 166, 249, 0.2);
 }
 
 .session-type-icon {
@@ -1136,13 +1125,8 @@ html, body {
   flex-shrink: 0;
 }
 
-.session-type-icon.lecture-icon {
-  background: linear-gradient(135deg, #7c3aed, #5b21b6);
-  color: white;
-}
-
-.session-type-icon.meeting-icon {
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+.session-type-option .session-type-icon {
+  background: linear-gradient(135deg, #c5a6f9, #7c3aed); /* keep gradient but ensure contrast */
   color: white;
 }
 
@@ -1151,20 +1135,32 @@ html, body {
 }
 
 .session-type-name {
+  color: var(--brand-tertiary);
   font-size: 1rem;
   font-weight: 700;
-  color: white;
   margin-bottom: 0.25rem;
+}
+
+.session-type-option.selected .session-type-name {
+  color: white;
 }
 
 .session-type-desc {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--brand-tertiary);
   line-height: 1.4;
 }
 
+.session-type-option.selected .session-type-desc{
+  color: white;
+}
+
+.session-type-option.selected .session-type-desc strong{
+  color: white;
+}
+
 .session-type-desc strong {
-  color: var(--accent-secondary);
+  color: var(--brand-tertiary);
 }
 
 .course-ready-label {
@@ -1284,17 +1280,24 @@ html, body {
   color: var(--brand-tertiary);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   Live Transcript Panel — base: compact mobile
-   ═══════════════════════════════════════════════════════════════════════ */
 .live-transcript-panel {
-  margin-top: 1rem;
-  width: 100%;
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;                 
+  max-width: 600px;          
+  z-index: 100;
   border-radius: 16px;
   background: linear-gradient(135deg, #7c6bc4 0%, #4c4172 100%);
   border: 1px solid rgba(255, 255, 255, 0.18);
-  overflow: hidden;
   backdrop-filter: blur(10px);
+  padding: 0.75rem 1.5rem;    
+  text-align: center;
+  color: white;
+  font-size: 1.25rem;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
 .live-transcript-header {
@@ -1482,7 +1485,7 @@ html, body {
 }
 
 .consent-checkbox-text {
-  color: #c5a6f966;
+  color: #7c3aed;
 }
 
 /* Summary modal loading container */

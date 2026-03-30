@@ -46,8 +46,6 @@ export default function PrototypeDashboard() {
   const startTimeRef = useRef(null);
   const summaryPollRef = useRef(null);
   const summaryPollStartRef = useRef(null);
-  const captionTimerRef = useRef(null);
-  const liveCaptionQueueRef = useRef([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -69,7 +67,6 @@ export default function PrototypeDashboard() {
             if (statusData.status === "running") {
               setIsRecording(true);
               startLiveStream(savedSessionId);
-              startLiveCaptionScheduler();
               setStatusMessage("Resuming active recording session...");
             } else if (statusData.status === "stopping" || statusData.status === "SUMMARIZING" || statusData.status === "summarizing") {
               setIsRecording(false);
@@ -103,7 +100,6 @@ export default function PrototypeDashboard() {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
       if (durationRef.current) clearInterval(durationRef.current);
-      stopLiveCaptionScheduler();
       clearSummaryPoll();
     };
   }, []);
@@ -210,27 +206,6 @@ export default function PrototypeDashboard() {
     }
   };
 
-  const startLiveCaptionScheduler = () => {
-    if (captionTimerRef.current) clearInterval(captionTimerRef.current);
-    captionTimerRef.current = setInterval(() => {
-      const queue = liveCaptionQueueRef.current;
-      if (queue.length > 0) {
-        const nextText = queue.shift();
-        setLiveCaption(nextText);
-        setFullTranscript((prev) => (prev ? `${prev} ${nextText}` : nextText));
-      } else {
-        setLiveCaption("");
-      }
-    }, 5000);
-  };
-
-  const stopLiveCaptionScheduler = () => {
-    if (captionTimerRef.current) {
-      clearInterval(captionTimerRef.current);
-      captionTimerRef.current = null;
-    }
-  };
-
   const handleStartRecording = async () => {
     if (!micConnected) {
       setStatusMessage("Please connect your microphone first!");
@@ -271,14 +246,14 @@ export default function PrototypeDashboard() {
       setIsRecording(true);
       setLiveChunks([]);
       setFullTranscript("");
+      setLiveCaption("");
       setStatusMessage("Recording in progress...");
       startDurationTimer();
 
       startLiveStream(data.session_id);
-      startLiveCaptionScheduler();
     } catch (error) {
       console.error("Error starting transcription:", error);
-      setStatusMessage("Failed to start transcription. Is the backend running?");
+      setStatusMessage("Failed to start transcription.");
     }
   };
 
@@ -335,6 +310,11 @@ export default function PrototypeDashboard() {
           const data = await res.json();
           if (data.live_transcript?.chunks) {
             setLiveChunks(data.live_transcript.chunks);
+            // Update live caption from the latest chunk
+            const lastChunk = data.live_transcript.chunks[data.live_transcript.chunks.length - 1];
+            if (lastChunk?.text) {
+              setLiveCaption(lastChunk.text);
+            }
           }
           if (data.status !== "running") {
             clearInterval(pollingRef.current);
@@ -433,7 +413,6 @@ export default function PrototypeDashboard() {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-    stopLiveCaptionScheduler();
 
     try {
       const res = await fetch("/api/transcribe/stop", {
@@ -566,7 +545,7 @@ export default function PrototypeDashboard() {
 
   return (
     <div className="prototype-container">
-      {/* User Guide Modal */}
+      {/* User Guide Modal (unchanged) */}
       {showGuide && (
         <div className="guide-overlay" onClick={() => setShowGuide(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
@@ -632,7 +611,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Class & Session Selection Modal */}
+      {/* Class & Session Selection Modal (unchanged) */}
       {showClassSessionModal && (
         <div className="guide-overlay" onClick={() => setShowClassSessionModal(false)}>
           <div className="guide-modal course-select-modal" onClick={(e) => e.stopPropagation()}>
@@ -724,7 +703,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Consent Modal */}
+      {/* Consent Modal (unchanged) */}
       {showConsentModal && (
         <div className="guide-overlay" onClick={() => setShowConsentModal(false)}>
           <div className="guide-modal consent-modal" onClick={(e) => e.stopPropagation()}>
@@ -768,7 +747,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Summary status modal */}
+      {/* Summary status modal (unchanged) */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
           <div className="guide-modal summary-modal" onClick={(e) => e.stopPropagation()}>
@@ -787,7 +766,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Error Modal */}
+      {/* Error Modal (unchanged) */}
       {errorModalOpen && (
         <div className="guide-overlay" onClick={() => setErrorModalOpen(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
@@ -821,15 +800,12 @@ export default function PrototypeDashboard() {
         <div className="action-buttons">
           <button className="action-btn class-btn" onClick={openClassSessionModal} aria-label="Select class and session">
             <FaBook />
-            <span>Class</span>
           </button>
           <button className="action-btn help-btn" onClick={toggleGuide} aria-label="Open guide">
             <FaQuestionCircle />
-            <span>Guide</span>
           </button>
           <button className="action-btn logout-btn" onClick={handleLogout} aria-label="Logout">
             <FaSignOutAlt />
-      
           </button>
         </div>
 
@@ -922,7 +898,7 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Live Caption Display - No header */}
+        {/* Live Caption Display - Updated in real time */}
         {(liveCaption || isRecording) && (
           <div className="live-transcript-panel">
             <div className="live-transcript-content" style={{ minHeight: "5.2rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
