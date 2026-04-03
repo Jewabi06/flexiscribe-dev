@@ -52,79 +52,47 @@ export default function StudentDashboard() {
   const xpProgress = ((currentRank.xp - currentRank.xpMin) / (currentRank.xpMax - currentRank.xpMin)) * 100;
 
   useEffect(() => {
-    // Set initial time on mount
     setMounted(true);
     setCurrentTime(new Date());
-    
+
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
 
-    // Check for saved theme preference
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') {
       setDarkMode(true);
       document.documentElement.classList.add('dark-mode');
     }
 
-    // Initialize streak data (don't record activity on load, only when user does something)
-    const loadStreak = async () => {
-      const currentStreak = await calculateStreak();
-      setStreakData(currentStreak);
-    };
-    loadStreak();
-
-    // Fetch student profile from database
-    const fetchStudentProfile = async () => {
+    const fetchStudentDashboard = async () => {
+      setLoading(true);
       try {
-        const response = await fetch('/api/students/profile');
-        if (response.ok) {
-          const data = await response.json();
+        const response = await fetch('/api/students/dashboard');
+        if (!response.ok) {
+          const err = await response.text();
+          console.error('Failed to fetch dashboard data:', err);
+          return;
+        }
+
+        const data = await response.json();
+
+        if (data.profile) {
           setStudentProfile(data.profile);
-          
-          // Set XP and calculate rank
-          const studentXP = data.profile.xp || 0;
-          const rank = calculateRank(studentXP);
-          setCurrentRank(rank);
-        } else {
-          console.error('Failed to fetch student profile');
+          setCurrentRank(calculateRank(data.profile.xp || 0));
         }
-      } catch (error) {
-        console.error('Error fetching student profile:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
 
-    // Fetch leaderboard from database
-    const fetchLeaderboard = async () => {
-      try {
-        const response = await fetch('/api/students/leaderboard');
-        if (response.ok) {
-          const data = await response.json();
+        if (data.streak) {
+          setStreakData(data.streak);
+        }
+
+        if (data.leaderboard) {
           setLeaderboard(data.leaderboard);
-        } else {
-          console.error('Failed to fetch leaderboard');
         }
-      } catch (error) {
-        console.error('Error fetching leaderboard:', error);
-      }
-    };
 
-    fetchStudentProfile();
-    fetchLeaderboard();
-
-    // Fetch quizzes that have no attempt yet (Jump Back In)
-    // Also include quizzes with saved local progress
-    const fetchInProgressQuizzes = async () => {
-      try {
-        const response = await fetch('/api/students/quizzes');
-        if (response.ok) {
-          const data = await response.json();
-          // Quizzes without an attempt are "in progress" (student hasn't submitted yet)
+        if (data.quizzes) {
           const pending = (data.quizzes || []).filter((q) => !q.hasAttempt);
-          
-          // Merge with localStorage progress data
+
           const withProgress = pending.map((q) => {
             const savedProgress = localStorage.getItem(`quiz-progress-${q.id}`);
             if (savedProgress) {
@@ -137,17 +105,23 @@ export default function StudentDashboard() {
             }
             return { ...q, answeredCount: 0, progressPercent: 0 };
           });
-          
-          // Sort: quizzes with progress first, then by last updated
+
           withProgress.sort((a, b) => b.progressPercent - a.progressPercent);
           setInProgressQuizzes(withProgress.slice(0, 3));
         }
+
+        if (data.recentReviewers) {
+          setRecentReviewers(data.recentReviewers);
+        }
       } catch (error) {
-        console.error('Error fetching quizzes for jump back in:', error);
+        console.error('Error fetching dashboard data:', error);
+      } finally {
+        setLoading(false);
       }
     };
 
-    // Re-read localStorage progress when user switches back to this tab
+    fetchStudentDashboard();
+
     const refreshProgressFromStorage = () => {
       setInProgressQuizzes((prev) => {
         if (prev.length === 0) return prev;
@@ -173,30 +147,9 @@ export default function StudentDashboard() {
         refreshProgressFromStorage();
       }
     };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    // Also refresh on window focus (covers same-window tab navigation)
     window.addEventListener('focus', refreshProgressFromStorage);
-
-    // Fetch recently added reviewers (transcriptions created within 24 hours)
-    const fetchRecentReviewers = async () => {
-      try {
-        const response = await fetch('/api/students/transcriptions');
-        if (response.ok) {
-          const data = await response.json();
-          const now = new Date();
-          const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          const recent = (data.transcriptions || []).filter(
-            (t) => new Date(t.createdAt) >= oneDayAgo
-          ).slice(0, 3);
-          setRecentReviewers(recent);
-        }
-      } catch (error) {
-        console.error('Error fetching recent reviewers:', error);
-      }
-    };
-
-    fetchInProgressQuizzes();
-    fetchRecentReviewers();
 
     return () => {
       clearInterval(timer);
@@ -607,36 +560,6 @@ export default function StudentDashboard() {
                       See More
                     </button>
 
-                    {/* View All Button at bottom for mobile */}
-                    {leaderboard.length > 5 && (
-                      <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
-                        <button 
-                          onClick={() => router.push('/student/leaderboard')}
-                          style={{
-                            padding: '0.75rem 2rem',
-                            borderRadius: '8px',
-                            background: 'linear-gradient(135deg, var(--accent-secondary) 0%, var(--brand-secondary) 100%)',
-                            border: 'none',
-                            color: 'white',
-                            fontSize: '0.9rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            width: '100%'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.target.style.transform = 'scale(1.02)';
-                            e.target.style.boxShadow = '0 4px 15px rgba(41, 182, 246, 0.3)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.style.transform = 'scale(1)';
-                            e.target.style.boxShadow = 'none';
-                          }}
-                        >
-                          View Full Leaderboard
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

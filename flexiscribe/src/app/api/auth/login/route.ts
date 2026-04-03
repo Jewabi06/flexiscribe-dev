@@ -133,12 +133,11 @@ export async function POST(request: Request) {
       console.error("Audit log error:", e);
     }
 
-    // Create response
+    // Create response (token is set via HTTP-only cookie only; don't expose it in JSON body)
     const response = NextResponse.json(
       {
         message: "Login successful",
         user: userData,
-        token,
       },
       { status: 200 }
     );
