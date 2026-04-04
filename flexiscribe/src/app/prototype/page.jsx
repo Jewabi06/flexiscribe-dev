@@ -64,20 +64,32 @@ export default function PrototypeDashboard() {
           const statusRes = await fetch(`/api/transcribe/status?sessionId=${savedSessionId}`);
           if (statusRes.ok) {
             const statusData = await statusRes.json();
-            if (statusData.status === "running") {
+            const normalizedStatus = statusData.status?.toLowerCase();
+
+            if (normalizedStatus === "running") {
               setIsRecording(true);
               startLiveStream(savedSessionId);
               setStatusMessage("Resuming active recording session...");
-            } else if (statusData.status === "stopping" || statusData.status === "SUMMARIZING" || statusData.status === "summarizing") {
+            } else if (normalizedStatus === "stopping" || normalizedStatus === "summarizing") {
               setIsRecording(false);
               setIsFinalizing(true);
               setShowStatusModal(true);
               setStatusMessage("Summary is being generated. Resuming status watcher...");
               pollSummaryStatus(savedSessionId);
-            } else if (statusData.status === "COMPLETED" || statusData.status === "completed") {
+            } else if (normalizedStatus === "completed") {
               setStatusMessage("Previous session has already finished.");
               localStorage.removeItem("flexiSession");
+            } else if (normalizedStatus === "interrupted") {
+              setStatusMessage("Previous session was interrupted. Please start a new recording.");
+              localStorage.removeItem("flexiSession");
+              setSessionId(null);
+              setTranscriptionId(null);
             }
+          } else {
+            setStatusMessage("Previous recording session could not be resumed. Please start a new recording.");
+            localStorage.removeItem("flexiSession");
+            setSessionId(null);
+            setTranscriptionId(null);
           }
         }
       } catch (err) {
@@ -362,7 +374,8 @@ export default function PrototypeDashboard() {
       }
 
       const data = await res.json();
-      if (data.status?.toLowerCase() === "completed") {
+      const normalizedStatus = data.status?.toLowerCase();
+      if (normalizedStatus === "completed") {
         setIsFinalizing(false);
         setShowStatusModal(false);
         setStatusMessage("Summary generation complete.");
@@ -377,7 +390,19 @@ export default function PrototypeDashboard() {
         return;
       }
 
-      if (data.status?.toLowerCase() === "error") {
+      if (normalizedStatus === "interrupted") {
+        setIsFinalizing(false);
+        setShowStatusModal(false);
+        setStatusMessage("Session was interrupted and cannot be resumed. Please start again.");
+        setIsStopping(false);
+        clearSummaryPoll();
+        localStorage.removeItem("flexiSession");
+        setSessionId(null);
+        setTranscriptionId(null);
+        return;
+      }
+
+      if (normalizedStatus === "error") {
         setIsFinalizing(false);
         setShowStatusModal(false);
         setStatusMessage("Summary generation failed. Please retry.");

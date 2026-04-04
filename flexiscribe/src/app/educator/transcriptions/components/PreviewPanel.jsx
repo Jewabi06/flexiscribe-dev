@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export default function PreviewPanel({ transcript }) {
+export default function PreviewPanel({ transcript, onUpdate }) {
   const pdfRef = useRef(null);
   const [zoom, setZoom] = useState(1);
   const [activeTab, setActiveTab] = useState("summary"); // "summary" | "transcript" | "minutes"
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedText, setEditedText] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const download = async () => {
     if (!pdfRef.current || !transcript) return;
@@ -49,6 +52,120 @@ export default function PreviewPanel({ transcript }) {
 
   // Determine if we have JSON-format data
   const hasJsonData = !!(summaryData || transcriptData);
+
+  const getEditableText = () => {
+    if (!transcript) return "";
+
+    if (activeTab === "transcript") {
+      if (Array.isArray(transcriptData?.chunks) && transcriptData.chunks.length > 0) {
+        return transcriptData.chunks
+          .map((chunk) => chunk.text || "")
+          .join("\n\n");
+      }
+      return transcript.rawText || transcript.content || "";
+    }
+
+    if (typeof summaryData === "string") {
+      return summaryData;
+    }
+
+    if (summaryData) {
+      if (isMOTM) {
+        const lines = [motmTitle];
+        if (motmDate) lines.push(`Date: ${motmDate}`);
+        if (motmTime) lines.push(`Time: ${motmTime}`);
+
+        motmAgendas.forEach((agenda, index) => {
+          lines.push(`${index + 1}. ${agenda.title || "Agenda"}`);
+          if (Array.isArray(agenda.key_points) && agenda.key_points.length > 0) {
+            lines.push("Key Points:");
+            lines.push(...agenda.key_points.map((point) => `- ${point}`));
+          }
+          if (Array.isArray(agenda.important_clarifications) && agenda.important_clarifications.length > 0) {
+            lines.push("Important Clarifications:");
+            lines.push(...agenda.important_clarifications.map((item) => `- ${item}`));
+          }
+        });
+
+        if (motmNextMeeting) lines.push(`Next meeting: ${motmNextMeeting}`);
+        if (motmPreparedBy) lines.push(`Prepared by: ${motmPreparedBy}`);
+
+        return lines.join("\n\n");
+      }
+
+      if (Array.isArray(summaryData.summary)) {
+        return summaryData.summary.join("\n\n");
+      }
+      if (summaryData.summary) {
+        return summaryData.summary;
+      }
+
+      if (Array.isArray(summaryData.notes) && summaryData.notes.length > 0) {
+        return summaryData.notes
+          .map((note) =>
+            typeof note === "object" && note !== null
+              ? `${note.term || ""}\n${note.definition || ""}`
+              : note
+          )
+          .join("\n\n");
+      }
+    }
+
+    return transcript.content || "";
+  };
+
+  useEffect(() => {
+    if (!transcript) {
+      setEditedText("");
+      setIsEditing(false);
+      return;
+    }
+
+    setEditedText(getEditableText());
+  }, [transcript, activeTab]);
+
+  const saveChanges = async () => {
+    if (!transcript) return;
+
+    setIsSaving(true);
+
+    const payload = {};
+    if (activeTab === "transcript") {
+      payload.transcriptJson = {
+        chunks: [{ text: editedText }],
+      };
+      payload.rawText = editedText;
+      payload.content = editedText;
+    } else {
+      payload.summaryJson = { summary: editedText };
+      payload.content = editedText;
+    }
+
+    try {
+      const response = await fetch(`/api/educator/transcriptions/${transcript.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save changes");
+      }
+
+      const data = await response.json();
+      setIsEditing(false);
+      if (onUpdate) {
+        onUpdate(data.transcription);
+      }
+    } catch (error) {
+      console.error("Error saving transcript edits:", error);
+      alert("Unable to save changes. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="h-full rounded-[20px] sm:rounded-[28px] lg:rounded-[42px] bg-gradient-to-br from-[#9d8adb] to-[#7d6ac4] p-4 sm:p-6 flex flex-col transition-all duration-300">
@@ -98,6 +215,34 @@ export default function PreviewPanel({ transcript }) {
                 Pending
               </span>
             )}
+            {!isEditing ? (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="self-start sm:self-auto text-white text-xs bg-white/20 px-4 py-1.5 rounded-full hover:bg-white/30 hover:scale-105 active:scale-95 transition-all duration-200"
+              >
+                Edit document
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={saveChanges}
+                  disabled={isSaving}
+                  className="self-start sm:self-auto text-white text-xs bg-emerald-500/20 px-4 py-1.5 rounded-full hover:bg-emerald-500/30 hover:scale-105 active:scale-95 transition-all duration-200"
+                >
+                  {isSaving ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditedText(getEditableText());
+                  }}
+                  disabled={isSaving}
+                  className="self-start sm:self-auto text-white text-xs bg-white/20 px-4 py-1.5 rounded-full hover:bg-white/30 hover:scale-105 active:scale-95 transition-all duration-200"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
             <button
               onClick={download}
               className="self-start sm:self-auto text-white text-xs bg-white/20 px-4 py-1.5 rounded-full hover:bg-white/30 hover:scale-105 active:scale-95 transition-all duration-200"
@@ -140,8 +285,18 @@ export default function PreviewPanel({ transcript }) {
                   }}
                   className="w-full sm:w-[560px]"
                 >
-                  {/* ═══════ SUMMARY VIEW ═══════ */}
-                  {activeTab === "summary" && (
+                  {isEditing ? (
+                    <div className="p-6">
+                      <textarea
+                        value={editedText}
+                        onChange={(event) => setEditedText(event.target.value)}
+                        className="w-full min-h-[480px] resize-none rounded-[18px] border border-solid border-slate-300 bg-slate-50 p-4 text-sm leading-6 text-slate-900 shadow-inner focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {/* ═══════ SUMMARY VIEW ═══════ */}
+                      {activeTab === "summary" && (
                     <>
                       {isMOTM ? (
                         /* ─── MOTM Layout (sequential) ─── */
