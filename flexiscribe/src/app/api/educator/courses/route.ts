@@ -34,13 +34,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const transcriptions = await prisma.transcription.findMany({
+    const classCourses = await prisma.class.findMany({
       where: { educatorId: educator.id },
-      select: { course: true },
-      distinct: ["course"],
+      select: { subject: true },
+      distinct: ["subject"],
+      orderBy: { subject: "asc" },
     });
 
-    const courses = transcriptions.map(t => t.course);
+    const courses = classCourses.map((cls) => cls.subject);
 
     return NextResponse.json({ courses }, { status: 200 });
   } catch (error) {
