@@ -8,6 +8,7 @@ import os
 import json
 from typing import Optional
 from config import OUTPUT_DIR
+from session_persistence import save_session_metadata, delete_session_metadata
 
 
 class TranscriptionSession:
@@ -23,19 +24,19 @@ class TranscriptionSession:
         self.whisper_done = threading.Event()  # Set when whisper finishes
         self.minutes_done = threading.Event()  # Set when minute summaries are complete (before Cornell)
         self.started_at = time.time()
-        self.status = "running"  # running | stopping | completed | error
+        self.status = "running"  # running | stopping | completed | error | interrupted
         self.transcription_id: Optional[str] = None  # DB record ID (set by stop endpoint)
 
         # Lock for thread-safe minute_summaries / transcript_chunks writes
         self.summary_lock = threading.Lock()
 
         # Live data accumulation
-        self.live_chunks: list = []                # every ~3s for real-time display
+        self.live_chunks: list = []                # every ~2s for real-time display
         self.live_chunk_counter = 0
         # transcript_chunks: aggregated 60s text for per-minute summarization
         self.transcript_chunks: list = []
         # final_transcript_chunks: 10‑second chunks for final JSON output
-        self.final_transcript_chunks: list = []    # <-- NEW
+        self.final_transcript_chunks: list = []
         self.minute_summaries: list = []
         self.final_summary: Optional[dict] = None
         self.current_minute = 0
@@ -54,6 +55,11 @@ class TranscriptionSession:
             self.output_dir, "final_summaries",
             f"final_cornell_{self.run_id}.json"
         )
+        # NEW: aggregated 60‑second chunks for recovery
+        self.aggregated_transcript_path = os.path.join(
+            self.output_dir, "aggregated",
+            f"aggregated_{self.run_id}.json"
+        )
 
         # File status tracking
         self.file_status = {
@@ -66,6 +72,8 @@ class TranscriptionSession:
         self.whisper_thread: Optional[threading.Thread] = None
         self.summarizer_thread: Optional[threading.Thread] = None
         self.summary_callback_thread: Optional[threading.Thread] = None
+
+        self._persisted = False
 
     @property
     def duration_seconds(self) -> float:
@@ -105,11 +113,11 @@ class TranscriptionSession:
                 ),
                 "duration": self.duration_formatted,
             },
-            "chunks": self.final_transcript_chunks,   # <-- now uses 10‑second chunks
+            "chunks": self.final_transcript_chunks,
         }
 
     def get_live_transcript_json(self) -> dict:
-        """Return the live (3‑second) transcript data for real-time display."""
+        """Return the live (2‑second) transcript data for real-time display."""
         return {
             "metadata": {
                 "session_id": self.session_id,
@@ -185,6 +193,20 @@ class SessionManager:
                 raise ValueError(f"Session {session_id} already exists")
             session = TranscriptionSession(session_id, course_code, educator_id, session_type)
             self._sessions[session_id] = session
+            # Persist metadata (including aggregated path)
+            save_session_metadata(session_id, {
+                "session_id": session.session_id,
+                "course_code": session.course_code,
+                "educator_id": session.educator_id,
+                "session_type": session.session_type,
+                "run_id": session.run_id,
+                "status": session.status,
+                "started_at": session.started_at,
+                "transcript_path": session.transcript_path,
+                "minute_summary_path": session.minute_summary_path,
+                "final_summary_path": session.final_summary_path,
+                "aggregated_transcript_path": session.aggregated_transcript_path,
+            })
             return session
 
     def get_session(self, session_id: str) -> Optional[TranscriptionSession]:
@@ -206,6 +228,7 @@ class SessionManager:
     def remove_session(self, session_id: str):
         with self._lock:
             self._sessions.pop(session_id, None)
+            delete_session_metadata(session_id)
 
     def list_sessions(self) -> list[dict]:
         with self._lock:
@@ -239,5 +262,25 @@ class SessionManager:
                             "course_code": s.course_code,
                         })
         return pending
+
+    def update_session_status(self, session_id: str, new_status: str):
+        """Update status and persist the change."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session:
+                session.status = new_status
+                save_session_metadata(session_id, {
+                    "session_id": session.session_id,
+                    "course_code": session.course_code,
+                    "educator_id": session.educator_id,
+                    "session_type": session.session_type,
+                    "run_id": session.run_id,
+                    "status": session.status,
+                    "started_at": session.started_at,
+                    "transcript_path": session.transcript_path,
+                    "minute_summary_path": session.minute_summary_path,
+                    "final_summary_path": session.final_summary_path,
+                    "aggregated_transcript_path": session.aggregated_transcript_path,
+                })
 
 session_manager = SessionManager()  # Global singleton

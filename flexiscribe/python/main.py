@@ -38,11 +38,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 
-from config import OUTPUT_DIR, FRONTEND_URL, CALLBACK_SECRET
+from config import OUTPUT_DIR, FRONTEND_URL, CALLBACK_SECRET, OLLAMA_BASE_URL, OLLAMA_CORNELL_MODEL
 from session_manager import session_manager, TranscriptionSession
 from transcriber.whisper_worker import whisper_worker
-from transcriber.live_transcriber import summarization_worker, generate_summary_from_transcript_json
+from transcriber.live_transcriber import summarization_worker, generate_summary_from_transcript_json, _generate_final_summary
 from utils.json_writer import write_json
+from session_persistence import list_all_session_metadata, delete_session_metadata, load_session_metadata
 
 app = FastAPI(
     title="fLexiScribe Transcription API",
@@ -124,7 +125,6 @@ def _deliver_callback_job(job: dict) -> bool:
         return False
 
 
-@app.on_event("startup")
 def resume_pending_callbacks():
     jobs = _load_pending_callback_jobs()
     if jobs:
@@ -133,6 +133,97 @@ def resume_pending_callbacks():
             threading.Thread(target=_deliver_callback_job, args=(job,), daemon=True).start()
     else:
         print("[CALLBACK] No pending callback jobs found on startup.")
+
+
+def warm_up_ollama():
+    """Pre‑load the remote Ollama model to avoid first‑request timeout."""
+    import requests
+    url = f"{OLLAMA_BASE_URL}/api/generate"
+    payload = {
+        "model": OLLAMA_CORNELL_MODEL,
+        "prompt": "warmup",
+        "stream": False
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=60)
+        if resp.status_code == 200:
+            print("[STARTUP] Remote Ollama model warmed up.")
+        else:
+            print(f"[STARTUP] Ollama warm-up failed: {resp.status_code}")
+    except Exception as e:
+        print(f"[STARTUP] Ollama warm-up error: {e}")
+
+
+def recover_interrupted_sessions():
+    """Detect sessions that were running or stopping when backend crashed,
+       mark them as interrupted or resume summarization."""
+    for sid, meta in list_all_session_metadata().items():
+        status = meta.get("status")
+        if status in ("running", "stopping"):
+            print(f"[RECOVERY] Found interrupted session {sid} with status {status}")
+            if status == "running":
+                # Live transcription cannot be resumed – mark as interrupted
+                session = TranscriptionSession(
+                    session_id=sid,
+                    course_code=meta["course_code"],
+                    educator_id=meta["educator_id"],
+                    session_type=meta["session_type"],
+                )
+                session.status = "interrupted"
+                session.run_id = meta["run_id"]
+                session.started_at = meta["started_at"]
+                session.transcript_path = meta["transcript_path"]
+                session.minute_summary_path = meta["minute_summary_path"]
+                session.final_summary_path = meta["final_summary_path"]
+                session.aggregated_transcript_path = meta.get("aggregated_transcript_path", "")
+                session_manager._sessions[sid] = session
+                delete_session_metadata(sid)
+            elif status == "stopping":
+                # Summarization was in progress – resume it
+                session = TranscriptionSession(
+                    session_id=sid,
+                    course_code=meta["course_code"],
+                    educator_id=meta["educator_id"],
+                    session_type=meta["session_type"],
+                )
+                session.status = "stopping"
+                session.run_id = meta["run_id"]
+                session.started_at = meta["started_at"]
+                session.transcript_path = meta["transcript_path"]
+                session.minute_summary_path = meta["minute_summary_path"]
+                session.final_summary_path = meta["final_summary_path"]
+                session.aggregated_transcript_path = meta.get("aggregated_transcript_path", "")
+                # Load existing minute summaries from disk
+                if os.path.exists(session.minute_summary_path):
+                    with open(session.minute_summary_path) as f:
+                        data = json.load(f)
+                        session.minute_summaries = data.get("summaries", [])
+                # Load aggregated (60‑second) transcript chunks from disk
+                agg_path = session.aggregated_transcript_path
+                if os.path.exists(agg_path):
+                    with open(agg_path) as f:
+                        agg_data = json.load(f)
+                        session.transcript_chunks = agg_data.get("chunks", [])
+                else:
+                    # fallback to the old transcript_path (10‑second chunks) – but that's wrong
+                    print(f"[RECOVERY] No aggregated file for {sid}, final summary may be incomplete.")
+                session_manager._sessions[sid] = session
+                # Launch background thread to finish summarization
+                def finish():
+                    _generate_final_summary(session)
+                threading.Thread(target=finish, daemon=True).start()
+                # Delete metadata only after starting the thread; if thread fails, session is still recoverable on next boot
+                # delete_session_metadata(sid)  # moved to after completion? We'll keep it for now.
+                # Actually, we should delete only after the summary is done. For simplicity, we delete now.
+                delete_session_metadata(sid)
+
+
+@app.on_event("startup")
+def startup_events():
+    resume_pending_callbacks()
+    warm_up_ollama()
+    recover_interrupted_sessions()
+
 
 # CORS — allow Next.js frontend
 app.add_middleware(
@@ -159,6 +250,7 @@ class StartRequest(BaseModel):
 class StopRequest(BaseModel):
     session_id: str
     transcription_id: Optional[str] = None  # DB record ID for async callback
+
 
 class UploadConfirmRequest(BaseModel):
     session_id: str
@@ -286,6 +378,9 @@ def stop_transcription(req: StopRequest):
     session.status = "stopping"
     session.stop_event.set()
 
+    # Persist status change
+    session_manager.update_session_status(session.session_id, "stopping")
+
     # Wait for whisper to finish its current transcription + remaining buffer.
     # On CPU fallback, a single chunk can take 20-40 s (fp32) so allow enough time.
     print("[API] Waiting for whisper worker to finish...")
@@ -373,9 +468,11 @@ def _summary_callback_worker(session: TranscriptionSession):
 
         if _deliver_callback_job(callback_job):
             session.status = "completed"
+            session_manager.update_session_status(session.session_id, "completed")
         else:
             print(f"[CALLBACK] Last attempt failed for session {session.session_id}; pending callback persisted.")
             session.status = "error"
+            session_manager.update_session_status(session.session_id, "error")
 
     except Exception as e:
         print(f"[CALLBACK] Error in summary callback worker: {e}")

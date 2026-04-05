@@ -108,6 +108,15 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     }
     session.transcript_chunks.append(chunk)
     write_json(session.get_transcript_json(), session.transcript_path)
+    # NEW: persist aggregated (60‑second) chunks for recovery
+    aggregated_data = {
+        "metadata": {
+            "session_id": session.session_id,
+            "run_id": session.run_id,
+        },
+        "chunks": session.transcript_chunks,
+    }
+    write_json(aggregated_data, session.aggregated_transcript_path)
     print(f"[TRANSCRIPT] Minute {minute_counter} at {timestamp}: {combined_text[:80]}...")
 
     # ── Submit summary to thread pool (non-blocking) ─────────────
@@ -118,6 +127,90 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     print(f"[SUMMARY] Minute {minute_counter} queued for background summarization.")
 
     return new_idx, minute_counter
+
+
+def _generate_final_summary(session):
+    """Generate final Cornell/MOTM from existing minute summaries and transcript chunks.
+       This can be called either by the summarization worker or during recovery."""
+    successful_final_summary = False
+
+    if session.minute_summaries:
+        summaries_text = _format_minute_summaries(session.minute_summaries)
+
+        if getattr(session, "session_type", "lecture") == "meeting":
+            print("[INFO] Generating Minutes of the Meeting (MOTM)...")
+            full_text = "\n".join(c["text"] for c in session.transcript_chunks)
+            try:
+                motm = summarize_motm(full_text)
+                session.final_summary = motm
+                write_json(session.get_final_summary_json(), session.final_summary_path)
+                print("[INFO] MOTM generated successfully.")
+                successful_final_summary = True
+            except Exception as e:
+                print(f"[ERROR] MOTM generation failed: {e}")
+                session.final_summary = {
+                    "meeting_title": f"Meeting - {session.course_code}",
+                    "date": "Not specified",
+                    "time": "Not specified",
+                    "speaker": "",
+                    "agendas": [],
+                    "next_meeting": {"date": "To be announced", "time": "To be announced"},
+                    "prepared_by": "To be determined",
+                }
+                successful_final_summary = False
+        else:
+            print("[INFO] Generating context-aware Cornell summary...")
+            try:
+                cornell = summarize_cornell_context_aware(
+                    session.transcript_chunks,
+                    session.minute_summaries,
+                )
+                session.final_summary = cornell
+                write_json(session.get_final_summary_json(), session.final_summary_path)
+                print("[INFO] Final Cornell summary generated.")
+                successful_final_summary = True
+            except Exception as e:
+                print(f"[ERROR] Final Cornell summary failed: {e}")
+                session.final_summary = {
+                    "title": f"Lecture - {session.course_code}",
+                    "key_concepts": [],
+                    "notes": [],
+                    "summary": ["Summary generation failed. Minute summaries available."],
+                }
+                successful_final_summary = False
+    else:
+        print("[INFO] No minute summaries available; generating fallback final summary.")
+        transcript_text = "\n".join(c.get("text", "") for c in session.transcript_chunks)
+        if transcript_text.strip():
+            try:
+                fallback_cornell = summarize_cornell(transcript_text)
+                session.final_summary = fallback_cornell
+                write_json(session.get_final_summary_json(), session.final_summary_path)
+                print("[INFO] Fallback Cornell summary generated from transcript chunks.")
+                successful_final_summary = True
+            except Exception as e:
+                print(f"[ERROR] Fallback Cornell summary failed: {e}")
+                session.final_summary = {
+                    "title": f"Lecture - {session.course_code}",
+                    "key_concepts": [],
+                    "notes": [],
+                    "summary": ["No minute summaries available, and fallback generation failed."],
+                }
+                successful_final_summary = False
+        else:
+            session.final_summary = {
+                "title": f"Lecture - {session.course_code}",
+                "key_concepts": [],
+                "notes": [],
+                "summary": ["No transcript text available to summarize."],
+            }
+            successful_final_summary = False
+
+    session.status = "completed" if successful_final_summary else "error"
+    # Persist status change
+    from session_manager import session_manager
+    session_manager.update_session_status(session.session_id, session.status)
+    print(f"[INFO] Session {session.session_id} final status={session.status}.")
 
 
 def summarization_worker(stop_event: threading.Event, session):
@@ -180,94 +273,14 @@ def summarization_worker(stop_event: threading.Event, session):
         session.minutes_done.set()
         print(f"[INFO] minutes_done signalled — {len(session.minute_summaries)} summaries ready.")
 
-        successful_final_summary = False
+        # ── Generate final summary ────────────────────────────────────
+        _generate_final_summary(session)
 
-        # ── Generate final summary from minute summaries ─────────────
-        if session.minute_summaries:
-            summaries_text = _format_minute_summaries(session.minute_summaries)
-
-            if getattr(session, "session_type", "lecture") == "meeting":
-                print("[INFO] Generating Minutes of the Meeting (MOTM)...")
-                full_text = "\n".join(c["text"] for c in session.transcript_chunks)
-                try:
-                    motm = summarize_motm(full_text)
-                    session.final_summary = motm
-                    write_json(
-                        session.get_final_summary_json(),
-                        session.final_summary_path,
-                    )
-                    print("[INFO] MOTM generated successfully.")
-                    successful_final_summary = True
-                except Exception as e:
-                    print(f"[ERROR] MOTM generation failed: {e}")
-                    session.final_summary = {
-                        "meeting_title": f"Meeting - {session.course_code}",
-                        "date": "Not specified",
-                        "time": "Not specified",
-                        "speaker": "",
-                        "agendas": [],
-                        "next_meeting": {"date": "To be announced", "time": "To be announced"},
-                        "prepared_by": "To be determined",
-                    }
-                    successful_final_summary = False
-            else:
-                print("[INFO] Generating context-aware Cornell summary...")
-                try:
-                    cornell = summarize_cornell_context_aware(
-                        session.transcript_chunks,
-                        session.minute_summaries,
-                    )
-                    session.final_summary = cornell
-                    write_json(
-                        session.get_final_summary_json(),
-                        session.final_summary_path,
-                    )
-                    print("[INFO] Final Cornell summary generated.")
-                    successful_final_summary = True
-                except Exception as e:
-                    print(f"[ERROR] Final Cornell summary failed: {e}")
-                    session.final_summary = {
-                        "title": f"Lecture - {session.course_code}",
-                        "key_concepts": [],
-                        "notes": [],
-                        "summary": ["Summary generation failed. Minute summaries available."],
-                    }
-                    successful_final_summary = False
-        else:
-            print("[INFO] No minute summaries available; generating fallback final summary.")
-            transcript_text = "\n".join(c.get("text", "") for c in session.transcript_chunks)
-            if transcript_text.strip():
-                try:
-                    fallback_cornell = summarize_cornell(transcript_text)
-                    session.final_summary = fallback_cornell
-                    write_json(
-                        session.get_final_summary_json(),
-                        session.final_summary_path,
-                    )
-                    print("[INFO] Fallback Cornell summary generated from transcript chunks.")
-                    successful_final_summary = True
-                except Exception as e:
-                    print(f"[ERROR] Fallback Cornell summary failed: {e}")
-                    session.final_summary = {
-                        "title": f"Lecture - {session.course_code}",
-                        "key_concepts": [],
-                        "notes": [],
-                        "summary": ["No minute summaries available, and fallback generation failed."],
-                    }
-                    successful_final_summary = False
-            else:
-                session.final_summary = {
-                    "title": f"Lecture - {session.course_code}",
-                    "key_concepts": [],
-                    "notes": [],
-                    "summary": ["No transcript text available to summarize."],
-                }
-                successful_final_summary = False
-
-        session.status = "completed" if successful_final_summary else "error"
-        print(f"[INFO] Session {session.session_id} final status={session.status}.")
     except Exception as e:
         session.status = "error"
+        # Import inside exception to avoid circular import at top
+        from session_manager import session_manager
+        session_manager.update_session_status(session.session_id, "error")
         print(f"[ERROR] Summarization worker error: {e}")
         import traceback
         traceback.print_exc()
@@ -303,16 +316,8 @@ def generate_summary_from_transcript_json(
         return _summarize_text_multipass(full_text)
 
     except Exception as e:
-        # Fail-safe fallback summary (avoids crashing when Ollama is unavailable)
-        print(f"[WARN] Summary provider failed: {e}")
-        return {
-            "title": f"Fallback summary for {course_code or 'transcript'}",
-            "key_concepts": [],
-            "notes": [],
-            "summary": [
-                "Summary generation failed. Generated fallback from transcript chunks."
-            ],
-        }
+        print(f"[ERROR] Summary generation failed after all retries: {e}")
+        raise RuntimeError(f"Summarization failed: {e}") from e
 
 
 def _split_text_for_ollama(full_text: str, max_chars: int = 28000):
