@@ -214,29 +214,34 @@ def whisper_worker(stop_event: threading.Event, session):
             print(f"[INFO] Recording audio from device {AUDIO_DEVICE}...")
 
             while not stop_event.is_set():
+                loop_start = time.time()
                 stop_event.wait(timeout=CHUNK_DURATION)
 
                 audio_data = _drain_buffer()
-                if audio_data is None:
-                    continue
+                if audio_data is not None:
+                    text = _transcribe_chunk(model, audio_data, needs_resample, use_fp16)
+                    if text:
+                        _append_live_chunk(text)
 
-                text = _transcribe_chunk(model, audio_data, needs_resample, use_fp16)
-                if text:
-                    _append_live_chunk(text)
+                        # Build 10‑second final transcript chunks
+                        ten_sec_buffer.append(text)
+                        now = time.time()
+                        if now - ten_sec_start >= 10.0:
+                            combined = " ".join(ten_sec_buffer)
+                            timestamp = session.get_elapsed_timestamp(now)
+                            session.final_transcript_chunks.append({
+                                "timestamp": timestamp,
+                                "text": combined,
+                            })
+                            print(f"[FINAL] 10s chunk at {timestamp}: {combined[:80]}...")
+                            ten_sec_buffer.clear()
+                            ten_sec_start = now
 
-                    # Build 10‑second final transcript chunks
-                    ten_sec_buffer.append(text)
-                    now = time.time()
-                    if now - ten_sec_start >= 10.0:
-                        combined = " ".join(ten_sec_buffer)
-                        timestamp = session.get_elapsed_timestamp(now)
-                        session.final_transcript_chunks.append({
-                            "timestamp": timestamp,
-                            "text": combined,
-                        })
-                        print(f"[FINAL] 10s chunk at {timestamp}: {combined[:80]}...")
-                        ten_sec_buffer.clear()
-                        ten_sec_start = now
+                # Sleep only the remaining time to keep the cadence
+                elapsed = time.time() - loop_start
+                sleep_time = max(0, CHUNK_DURATION - elapsed)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
             # Process remaining audio after stop
             time.sleep(0.3)

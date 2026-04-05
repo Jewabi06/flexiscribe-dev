@@ -27,10 +27,14 @@ export default function NotificationMenu() {
     }
   }, []);
 
-  // Fetch notifications on mount and poll every 30 seconds
+  // Fetch notifications on mount and poll every 30 seconds (reduced frequency for UX and lower server load).
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 5000);
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchNotifications();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 

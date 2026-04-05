@@ -13,17 +13,15 @@ function getAppOrigin(): string {
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
-  // ── Turbopack ──────────────────────────────────────────────────────────────
-  // Explicitly set root to this project directory so Turbopack doesn't pick
-  // up the stray lockfile at C:\Users\Acer\package-lock.json
+  // Turbopack 
   turbopack: {
     root: __dirname,
   },
 
-  // ── Source maps: full in dev, no-op in prod (Vercel handles it) ───────────
+  // Source maps: full in dev, no-op in prod (Vercel handles it) 
   productionBrowserSourceMaps: false,
 
-  // ── Image domains ─────────────────────────────────────────────────────────
+  // Image domains
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.vercel.app" },
@@ -31,7 +29,7 @@ const nextConfig: NextConfig = {
     ],
   },
 
-  // ── HTTP headers ──────────────────────────────────────────────────────────
+  // HTTP headers
   async headers() {
     const allowedOrigins = getAppOrigin();
 

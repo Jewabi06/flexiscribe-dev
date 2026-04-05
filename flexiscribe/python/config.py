@@ -62,7 +62,7 @@ AUDIO_DEVICE, AUDIO_NATIVE_RATE = _detect_audio_device()
 
 # ─── Whisper settings ────────────────────────────────────────────────────
 WHISPER_SAMPLE_RATE = 16000
-CHUNK_DURATION = 3            # seconds per audio chunk → live caption updates every 3s
+CHUNK_DURATION = 2            # seconds per audio chunk → faster updates (was 3)
 CHANNELS = 1
 
 WHISPER_MODEL = "small"       # best balance of accuracy/speed for Taglish
