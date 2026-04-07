@@ -180,7 +180,8 @@ def _generate_final_summary(session):
                 successful_final_summary = False
     else:
         print("[INFO] No minute summaries available; generating fallback final summary.")
-        transcript_text = "\n".join(c.get("text", "") for c in session.transcript_chunks)
+        transcript_chunks = session.transcript_chunks or session.final_transcript_chunks
+        transcript_text = "\n".join(c.get("text", "") for c in transcript_chunks)
         if transcript_text.strip():
             try:
                 fallback_cornell = summarize_cornell(transcript_text)
