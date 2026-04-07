@@ -89,7 +89,7 @@ def _detect_whisper_device():
 WHISPER_DEVICE = _detect_whisper_device()
 WHISPER_FP16 = WHISPER_DEVICE == "cuda"          # FP16 only on GPU
 
-WHISPER_LANGUAGE = "en"                         # works well with Taglish
+WHISPER_LANGUAGE = "tl"                         # works well with Taglish
 WHISPER_INITIAL_PROMPT = (" ")                  # empty prompt reduces hallucinations
 
 WHISPER_VAD_FILTER = True
