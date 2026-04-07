@@ -145,7 +145,7 @@ def warm_up_ollama():
         "stream": False
     }
     try:
-        resp = requests.post(url, json=payload, timeout=60)
+        resp = requests.post(url, json=payload, timeout=120)
         if resp.status_code == 200:
             print("[STARTUP] Remote Ollama model warmed up.")
         else:
