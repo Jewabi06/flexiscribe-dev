@@ -153,28 +153,7 @@ export default function AdminLogin() {
                 )}
               </button>
             </div>
-
-            {/* Password strength */}
-            {strength.label && (
-              <div className="mt-3">
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-[#4c4172]">{strength.label}</span>
-                </div>
-                <div className="w-full h-2 bg-gray-200 rounded-full">
-                  <div
-                    className={`h-2 rounded-full ${strength.color}`}
-                    style={{
-                      width:
-                        strength.label === "Weak"
-                          ? "33%"
-                          : strength.label === "Medium"
-                          ? "66%"
-                          : "100%",
-                    }}
-                  ></div>
-                </div>
-              </div>
-            )}
+            
           </div>
 
           {/* Submit */}

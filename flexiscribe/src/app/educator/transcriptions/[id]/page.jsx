@@ -11,8 +11,14 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   if (!summaryJson) return "<p>No summary data available.</p>";
 
   const s = typeof summaryJson === "string" ? JSON.parse(summaryJson) : summaryJson;
-  const pageStyle = `max-width:210mm; margin:0 auto; padding:20mm 18mm; text-align:justify;`;
+  const pageStyle = `max-width:210mm; margin:0 auto; padding:12mm 15mm; text-align:justify;`;
   const isMOTM = !!(s.meeting_title || s.agendas);
+
+  // Simplified wrap – only for empty cells
+  const wrapIfEmpty = (content) => {
+    if (!content || content.trim() === '') return '<div style="min-height:1.2em;">&nbsp;</div>';
+    return content;
+  };
 
   if (isMOTM) {
     const meetingTitle = s.meeting_title || s.title || "Untitled Meeting";
@@ -23,45 +29,54 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
     const preparedBy = s.prepared_by || "To be determined";
 
     let html = `<div style="${pageStyle}">`;
-    html += `<table style="width:100%; border-collapse:collapse; border:1px solid var(--border-color);">`;
-    html += `<tr><td colspan="2" style="background:#7c3aed; color:#ffffff; text-align:center; padding:16px; border:1px solid var(--border-color);"><h1 style="margin:0 0 8px 0; font-size:18pt; font-weight:700; color:#ffffff;">${meetingTitle}</h1><p style="margin:3px 0; font-size:11pt; color:#f0e6ff;">Date: ${date} &nbsp;|&nbsp; Time: ${time}</p></td></tr>`;
+    html += `<div style="border:1px solid var(--border-color);">`;
 
+    // Header – no extra wrap divs
+    html += `<div style="background:#7c3aed; color:#ffffff; text-align:center; padding:16px;">`;
+    html += `<h1 style="margin:0 0 8px 0; font-size:18pt; font-weight:700;">${meetingTitle}</h1>`;
+    html += `<p style="margin:0; font-size:11pt;">Date: ${date} &nbsp;|&nbsp; Time: ${time}</p>`;
+    html += `</div>`;
+
+    // Agendas
     agendas.forEach((agenda, idx) => {
       const agendaTitle = agenda.title || `Agenda ${idx + 1}`;
       const keyPoints = agenda.key_points || [];
       const clarifications = agenda.important_clarifications || [];
 
-      html += `<tr><td colspan="2" style="padding:16px; border:1px solid var(--border-color); text-align:justify;"><h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:var(--accent-color);">${idx + 1}. ${agendaTitle}</h2>`;
+      html += `<div style="padding:16px; border-bottom:1px solid var(--border-color);">`;
+      html += `<h2 style="margin:0 0 10px 0; font-size:13pt; font-weight:700; color:var(--accent-color);">${idx + 1}. ${agendaTitle}</h2>`;
 
-      if (keyPoints.length > 0) {
-        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Key Points:</p><ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
-        keyPoints.forEach((pt) => {
-          html += `<li style="margin-bottom:5px; font-size:11pt; text-align:justify;">${pt}</li>`;
-        });
+      if (keyPoints.length) {
+        html += `<p style="margin:8px 0 4px 0; font-weight:600;">Key Points:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px;">`;
+        keyPoints.forEach(pt => html += `<li>${pt}</li>`);
         html += `</ul>`;
       }
 
-      if (clarifications.length > 0) {
-        html += `<p style="margin:8px 0 4px 0; font-weight:600; font-size:11pt; color:var(--text-main);">Important Clarifications:</p><ul style="margin:4px 0 12px 24px; padding:0; color:var(--text-main);">`;
-        clarifications.forEach((c) => {
-          html += `<li style="margin-bottom:5px; font-size:11pt; text-align:justify;">${c}</li>`;
-        });
+      if (clarifications.length) {
+        html += `<p style="margin:8px 0 4px 0; font-weight:600;">Important Clarifications:</p>`;
+        html += `<ul style="margin:4px 0 12px 24px;">`;
+        clarifications.forEach(c => html += `<li>${c}</li>`);
         html += `</ul>`;
       }
-
-      html += `</td></tr>`;
+      html += `</div>`;
     });
 
     if (nextMeeting) {
-      html += `<tr><td colspan="2" style="padding:12px 16px; border:1px solid var(--border-color); text-align:justify;"><p style="font-size:11pt; margin:0; color:var(--text-main);"><strong>Next Meeting:</strong> ${typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting))}</p></td></tr>`;
+      const nextText = typeof nextMeeting === "string" ? nextMeeting : (nextMeeting.date ? nextMeeting.date + (nextMeeting.time ? " at " + nextMeeting.time : "") : JSON.stringify(nextMeeting));
+      html += `<div style="padding:12px 16px; border-bottom:1px solid var(--border-color);">`;
+      html += `<p><strong>Next Meeting:</strong> ${nextText}</p>`;
+      html += `</div>`;
     }
 
-    html += `<tr><td colspan="2" style="padding:12px 16px; border:1px solid var(--border-color); text-align:right;"><p style="font-size:11pt; margin:0; color:var(--text-main);"><strong>Prepared by:</strong> ${preparedBy}</p></td></tr>`;
-    html += `</table>`;
+    html += `<div style="padding:12px 16px; text-align:right;">`;
+    html += `<p><strong>Prepared by:</strong> ${preparedBy}</p>`;
     html += `</div>`;
+    html += `</div></div>`;
     return html;
   }
 
+  // Standard summary (non‑MOTM)
   const topicTitle = s.title || "Untitled";
   const dateObj = meta.date ? new Date(meta.date) : (meta.createdAt ? new Date(meta.createdAt) : new Date());
   const recordDate = dateObj.toLocaleDateString();
@@ -70,51 +85,57 @@ function summaryJsonToHtml(summaryJson, meta = {}) {
   const summaryArr = Array.isArray(s.summary) ? s.summary : (s.summary ? [s.summary] : (Array.isArray(s.takeaways) ? s.takeaways : (s.takeaways ? [s.takeaways] : [])));
 
   let html = `<div style="${pageStyle}">`;
-  html += `<table style="width:100%; border-collapse:collapse; border:1px solid var(--border-color);">`;
-  html += `<tr><td style="padding:14px 16px; width:35%; text-align:left; vertical-align:middle; font-size:11pt; color:#ffffff; background:#7c3aed; border:1px solid var(--border-color);"><strong>Date:</strong> ${recordDate}</td><td style="padding:14px 16px; width:65%; text-align:right; vertical-align:middle; font-size:16pt; font-weight:700; color:#ffffff; background:#7c3aed; border:1px solid var(--border-color);">${topicTitle}</td></tr>`;
-  html += `</table>`;
-  html += `<table style="width:100%; border-collapse:collapse; border:1px solid var(--border-color); margin-top:12px;">`;
-  html += `<tr><td style="width:35%; vertical-align:top; padding:16px; border:1px solid var(--border-color);"><p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Key Concepts</p>`;
+  html += `<div style="display:grid; grid-template-columns:1fr 2fr; border:1px solid var(--border-color);">`;
 
-  if (keyConcepts.length > 0) {
-    html += `<ul style="margin:0; padding:0 0 0 18px; list-style-type:disc; color:var(--text-main);">`;
-    keyConcepts.forEach((concept) => {
-      html += `<li style="margin-bottom:8px; font-size:11pt;">${concept}</li>`;
-    });
-    html += `</ul>`;
-  }
+  // Header row – spans both columns, no bottom border gap
+  html += `<div style="grid-column:1/3; display:grid; grid-template-columns:1fr 2fr; background:#7c3aed; color:#ffffff;">`;
+  html += `<div style="padding:12px 16px; text-align:left; font-size:11pt;"><strong>Date:</strong> ${recordDate}</div>`;
+  html += `<div style="padding:12px 16px; text-align:right; font-size:16pt; font-weight:700;">${topicTitle}</div>`;
+  html += `</div>`;
 
-  html += `</td><td style="width:65%; vertical-align:top; padding:16px; border:1px solid var(--border-color);"><p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0; text-transform:uppercase; letter-spacing:0.5px;">Notes</p>`;
-
-  if (Array.isArray(notes) && notes.length > 0) {
-    notes.forEach((note) => {
-      if (typeof note === "object" && note !== null) {
-        if (note.term) html += `<div style="margin-bottom:16px;"><p style="margin:0 0 3px 0; font-weight:700; font-size:11pt; color:var(--text-main);">${note.term}</p>`;
-        if (note.definition) html += `<p style="margin:0 0 3px 0; font-size:11pt; color:var(--text-main);">${note.definition}</p>`;
-        if (note.example) html += `<p style="margin:0; font-size:10pt; color:var(--text-muted); font-style:italic;">Example: ${note.example}</p>`;
-        html += `</div>`;
-      } else {
-        html += `<p style="margin:0 0 10px 0; font-size:11pt; color:var(--text-main);">${note}</p>`;
-      }
-    });
-  }
-
-  html += `</td></tr>`;
-  html += `<tr><td colspan="2" style="padding:16px; border:1px solid var(--border-color);"><p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 10px 0; text-transform:uppercase; letter-spacing:0.5px;">Summary</p>`;
-
-  if (summaryArr.length > 0) {
-    html += `<ul style="margin:0; padding:0 0 0 18px; color:var(--text-main);">`;
-    summaryArr.forEach((point) => {
-      html += `<li style="margin-bottom:6px; font-size:11pt;">${point}</li>`;
-    });
+  // Key Concepts column
+  html += `<div style="padding:16px; border-right:1px solid var(--border-color);">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0;">Key Concepts</p>`;
+  if (keyConcepts.length) {
+    html += `<ul style="margin:0; padding-left:18px;">`;
+    keyConcepts.forEach(c => html += `<li style="margin-bottom:6px;">${c}</li>`);
     html += `</ul>`;
   } else {
-    html += `<p style="font-size:11pt; color:var(--text-muted); font-style:italic;">Summary pending — will appear once fully generated.</p>`;
+    html += `<p style="color:var(--text-muted); font-style:italic;">No key concepts added.</p>`;
   }
-
-  html += `</td></tr>`;
-  html += `</table>`;
   html += `</div>`;
+
+  // Notes column
+  html += `<div style="padding:16px;">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 12px 0;">Notes</p>`;
+  if (Array.isArray(notes) && notes.length) {
+    notes.forEach(note => {
+      if (typeof note === "object" && note !== null) {
+        if (note.term) html += `<p style="margin:0 0 3px 0; font-weight:700;">${note.term}</p>`;
+        if (note.definition) html += `<p style="margin:0 0 3px 0;">${note.definition}</p>`;
+        if (note.example) html += `<p style="margin:0 0 10px 0; font-size:10pt; font-style:italic;">Example: ${note.example}</p>`;
+      } else {
+        html += `<p style="margin:0 0 10px 0;">${note}</p>`;
+      }
+    });
+  } else {
+    html += `<p style="color:var(--text-muted); font-style:italic;">No notes available.</p>`;
+  }
+  html += `</div>`;
+
+  // Summary row (spans both columns)
+  html += `<div style="grid-column:1/3; padding:16px; border-top:1px solid var(--border-color);">`;
+  html += `<p style="font-weight:700; font-size:11pt; color:var(--accent-color); margin:0 0 10px 0;">Summary</p>`;
+  if (summaryArr.length) {
+    html += `<ul style="margin:0; padding-left:18px;">`;
+    summaryArr.forEach(s => html += `<li style="margin-bottom:6px;">${s}</li>`);
+    html += `</ul>`;
+  } else {
+    html += `<p style="color:var(--text-muted); font-style:italic;">Summary pending — will appear once fully generated.</p>`;
+  }
+  html += `</div>`;
+
+  html += `</div></div>`;
   return html;
 }
 
@@ -154,7 +175,8 @@ function transcriptJsonToHtml(transcriptJson, isDark = false) {
     if (timestamp) {
       html += `<div style="font-size:12px; font-weight:700; color:${headingColor}; margin-bottom:4px;">[${timestamp}]</div>`;
     }
-    html += `<div style="font-size:15px; line-height:1.7; color:${textColor};">${text}</div>`;
+    // Wrap text in a full‑width div
+    html += `<div style="width:100%; font-size:15px; line-height:1.7; color:${textColor};">${text}</div>`;
     html += `</div>`;
   });
 
@@ -292,12 +314,22 @@ export default function EducatorTranscriptionEditorPage() {
       const contentHtml = editorRef.current?.getContent() || currentContentRef.current || "";
       const printStyles = `
         <style>
+          * { margin:0; padding:0; box-sizing:border-box; }
           .pdf-export-wrapper {
             --text-main: #1a1a1a;
             --text-muted: #666666;
             --border-color: #333333;
             --accent-color: #5b21b6;
             background-color: #ffffff;
+            width: 100%;
+          }
+          .pdf-export-wrapper div, .pdf-export-wrapper p, .pdf-export-wrapper h1, .pdf-export-wrapper h2, .pdf-export-wrapper ul {
+            margin: 0;
+            padding: 0;
+          }
+          .pdf-export-wrapper ul, .pdf-export-wrapper ol {
+            padding-left: 1.5em;
+            margin: 0.5em 0;
           }
           .pdf-export-wrapper table {
             border-collapse: collapse;
@@ -305,14 +337,18 @@ export default function EducatorTranscriptionEditorPage() {
             table-layout: fixed;
           }
           .pdf-export-wrapper table td, .pdf-export-wrapper table th {
-            padding: 14px 16px;
+            padding: 8px 12px;
             border: 1px solid var(--border-color);
+            vertical-align: top;
           }
           .pdf-export-wrapper table tr { page-break-inside: avoid; }
         </style>
       `;
 
-      container.innerHTML = printStyles + `<div class="pdf-export-wrapper">${contentHtml}</div>`;
+      container.innerHTML = printStyles + `<div class="pdf-export-wrapper" style="margin:0; padding:0;">${contentHtml}</div>`;
+      container.style.margin = "0";
+      container.style.padding = "0";
+      container.style.backgroundColor = "#ffffff";
       container.style.fontFamily = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
       container.style.fontSize = "12pt";
       container.style.lineHeight = "1.7";
