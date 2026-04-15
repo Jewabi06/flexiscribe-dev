@@ -62,7 +62,7 @@ AUDIO_DEVICE, AUDIO_NATIVE_RATE = _detect_audio_device()
 
 # ─── Whisper settings ────────────────────────────────────────────────────
 WHISPER_SAMPLE_RATE = 16000
-CHUNK_DURATION = 3            # seconds per audio chunk → live caption updates every 3s
+CHUNK_DURATION = 2            # seconds per audio chunk → faster updates (was 3)
 CHANNELS = 1
 
 WHISPER_MODEL = "small"       # best balance of accuracy/speed for Taglish
@@ -89,7 +89,7 @@ def _detect_whisper_device():
 WHISPER_DEVICE = _detect_whisper_device()
 WHISPER_FP16 = WHISPER_DEVICE == "cuda"          # FP16 only on GPU
 
-WHISPER_LANGUAGE = "en"                         # works well with Taglish
+WHISPER_LANGUAGE = "tl"                         # works well with Taglish
 WHISPER_INITIAL_PROMPT = (" ")                  # empty prompt reduces hallucinations
 
 WHISPER_VAD_FILTER = True
@@ -102,7 +102,7 @@ OLLAMA_MODEL = "gemma3:1b"
 OLLAMA_GPU_LAYERS = 99
 
 # Remote GPU-powered Ollama for final summaries
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://34.21.130.162:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://104.199.157.165:11434")
 OLLAMA_CORNELL_MODEL = os.environ.get("OLLAMA_CORNELL_MODEL", "gemma3:4b-it-q4_K_M")
 
 BUFFER_INTERVAL = 60

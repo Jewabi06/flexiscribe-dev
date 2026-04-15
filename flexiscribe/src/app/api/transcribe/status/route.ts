@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
@@ -27,9 +28,27 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json().catch(() => null);
+
+      if (response.status === 404) {
+        const transcription = await prisma.transcription.findFirst({
+          where: { sessionId },
+          orderBy: { createdAt: "desc" },
+        });
+
+        return NextResponse.json(
+          {
+            status: "interrupted",
+            message: "Previous transcription session was interrupted. Please start a new recording.",
+            transcriptionId: transcription?.id,
+            dbStatus: transcription?.status,
+          },
+          { status: 200 }
+        );
+      }
+
       return NextResponse.json(
-        { error: error.detail || "Failed to get status" },
+        { error: error?.detail || "Failed to get status" },
         { status: response.status }
       );
     }

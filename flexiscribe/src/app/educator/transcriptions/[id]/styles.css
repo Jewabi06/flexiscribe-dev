@@ -1,0 +1,252 @@
+.reviewer-editor-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f5f7fa;
+  overflow: hidden;
+}
+
+.reviewer-editor-container.dark-mode {
+  background: #1a1a1a;
+}
+
+.editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, #9d8adb 0%, #4c4172 100%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-btn.back-btn {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-btn.icon-only {
+  padding: 10px;
+}
+
+.document-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.document-title h2 {
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-info {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-status {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.editor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 24px;
+  min-height: 0;
+}
+
+.tinymce-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: visible;
+  width: 100%;
+  margin: 0 auto;
+  min-height: 600px;
+}
+
+.dark-mode .tinymce-wrapper {
+  background: #2a2a2a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.tinymce-wrapper .tox-tinymce {
+  border: none;
+  height: 100%;
+  min-height: 600px;
+}
+
+.tinymce-wrapper .tox-editor-container {
+  height: 100%;
+}
+
+.tinymce-wrapper .tox-edit-area {
+  height: 100%;
+}
+
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  gap: 20px;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #7c3aed;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-spinner p {
+  color: #666;
+  font-size: 16px;
+}
+
+.dark-mode .loading-spinner p {
+  color: #aaa;
+}
+
+.error-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 20px;
+}
+
+.error-message h2 {
+  color: #333;
+  font-size: 24px;
+}
+
+.dark-mode .error-message h2 {
+  color: #e0e0e0;
+}
+
+.error-message button {
+  padding: 12px 24px;
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.error-message button:hover {
+  background: #6d28d9;
+}
+
+@media (max-width: 768px) {
+  .editor-toolbar {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .toolbar-left {
+    flex: 1 1 100%;
+    gap: 12px;
+    order: 1;
+  }
+
+  .toolbar-right {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    gap: 8px;
+    order: 2;
+  }
+
+  .toolbar-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .toolbar-btn.back-btn {
+    flex: 0 0 auto;
+  }
+
+  .toolbar-btn.icon-only {
+    flex: 0 0 auto;
+    padding: 8px;
+  }
+
+  .toolbar-btn span {
+    display: none;
+  }
+
+  .toolbar-btn.back-btn span {
+    display: inline;
+  }
+}

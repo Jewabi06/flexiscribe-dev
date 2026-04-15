@@ -90,7 +90,8 @@ def generate_response_remote(
     prompt: str,
     profile: str = "extended",
     system: str = "json_api",
-    max_retries: int = 3,
+    max_retries: int = 5,
+    initial_delay: float = 5.0,
 ) -> str:
     """
     Send prompt to the remote GPU-powered Ollama instance with retry logic.
@@ -105,6 +106,7 @@ def generate_response_remote(
         profile: 'short' (1024 tokens) | 'extended' (4096 tokens)
         system:  Key from SYSTEM_PROMPTS
         max_retries: Number of retry attempts on failure
+        initial_delay: Base delay for exponential backoff (seconds)
     """
     options = PROFILES.get(profile, PROFILES["extended"])
     system_prompt = SYSTEM_PROMPTS.get(system, SYSTEM_PROMPTS["json_api"])
@@ -125,7 +127,7 @@ def generate_response_remote(
         except Exception as e:
             print(f"[OLLAMA] Remote call attempt {attempt+1}/{max_retries} failed: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # exponential backoff
+                time.sleep(initial_delay * (2 ** attempt))  # exponential backoff
             else:
                 print("[OLLAMA] All remote attempts failed, falling back to local model")
                 # Fallback to local Ollama (if available)

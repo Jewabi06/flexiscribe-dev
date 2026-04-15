@@ -26,7 +26,7 @@ export default function PrototypeDashboard() {
   const [isStopping, setIsStopping] = useState(false);
   const [duration, setDuration] = useState("0m 0s");
   const [showClassSessionModal, setShowClassSessionModal] = useState(false);
-  const [sessionType, setSessionType] = useState("lecture"); // "lecture" | "meeting"
+  const [sessionType, setSessionType] = useState("lecture");
 
   // Consent modal state
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -35,6 +35,10 @@ export default function PrototypeDashboard() {
   // Error modal state
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  // Retry modal state (new)
+  const [showRetryModal, setShowRetryModal] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -64,20 +68,32 @@ export default function PrototypeDashboard() {
           const statusRes = await fetch(`/api/transcribe/status?sessionId=${savedSessionId}`);
           if (statusRes.ok) {
             const statusData = await statusRes.json();
-            if (statusData.status === "running") {
+            const normalizedStatus = statusData.status?.toLowerCase();
+
+            if (normalizedStatus === "running") {
               setIsRecording(true);
               startLiveStream(savedSessionId);
               setStatusMessage("Resuming active recording session...");
-            } else if (statusData.status === "stopping" || statusData.status === "SUMMARIZING" || statusData.status === "summarizing") {
+            } else if (normalizedStatus === "stopping" || normalizedStatus === "summarizing") {
               setIsRecording(false);
               setIsFinalizing(true);
               setShowStatusModal(true);
               setStatusMessage("Summary is being generated. Resuming status watcher...");
               pollSummaryStatus(savedSessionId);
-            } else if (statusData.status === "COMPLETED" || statusData.status === "completed") {
+            } else if (normalizedStatus === "completed") {
               setStatusMessage("Previous session has already finished.");
               localStorage.removeItem("flexiSession");
+            } else if (normalizedStatus === "interrupted") {
+              setStatusMessage("Previous session was interrupted. Please start a new recording.");
+              localStorage.removeItem("flexiSession");
+              setSessionId(null);
+              setTranscriptionId(null);
             }
+          } else {
+            setStatusMessage("Previous recording session could not be resumed. Please start a new recording.");
+            localStorage.removeItem("flexiSession");
+            setSessionId(null);
+            setTranscriptionId(null);
           }
         }
       } catch (err) {
@@ -310,7 +326,6 @@ export default function PrototypeDashboard() {
           const data = await res.json();
           if (data.live_transcript?.chunks) {
             setLiveChunks(data.live_transcript.chunks);
-            // Update live caption from the latest chunk
             const lastChunk = data.live_transcript.chunks[data.live_transcript.chunks.length - 1];
             if (lastChunk?.text) {
               setLiveCaption(lastChunk.text);
@@ -362,13 +377,18 @@ export default function PrototypeDashboard() {
       }
 
       const data = await res.json();
-      if (data.status?.toLowerCase() === "completed") {
+      const normalizedStatus = data.status?.toLowerCase();
+      if (normalizedStatus === "completed") {
         setIsFinalizing(false);
         setShowStatusModal(false);
         setStatusMessage("Summary generation complete.");
         setIsStopping(false);
         clearSummaryPoll();
         localStorage.removeItem("flexiSession");
+
+        setLiveCaption("");
+        setFullTranscript("");
+        setLiveChunks([]);
 
         if (data.live_transcript?.chunks) {
           setLiveChunks(data.live_transcript.chunks);
@@ -377,12 +397,26 @@ export default function PrototypeDashboard() {
         return;
       }
 
-      if (data.status?.toLowerCase() === "error") {
+      if (normalizedStatus === "interrupted") {
         setIsFinalizing(false);
         setShowStatusModal(false);
-        setStatusMessage("Summary generation failed. Please retry.");
+        setStatusMessage("Session was interrupted and cannot be resumed. Please start again.");
         setIsStopping(false);
         clearSummaryPoll();
+        localStorage.removeItem("flexiSession");
+        setSessionId(null);
+        setTranscriptionId(null);
+        return;
+      }
+
+      if (normalizedStatus === "error") {
+        setIsFinalizing(false);
+        setShowStatusModal(false);
+        setStatusMessage("Summary generation failed. You can retry.");
+        setIsStopping(false);
+        clearSummaryPoll();
+        // Show retry modal
+        setShowRetryModal(true);
         return;
       }
 
@@ -396,6 +430,45 @@ export default function PrototypeDashboard() {
 
     clearSummaryPoll();
     summaryPollRef.current = setTimeout(() => pollSummaryStatus(sid), 5000);
+  };
+
+  const regenerateSummary = async () => {
+    if (!transcriptionId) return;
+    setIsRegenerating(true);
+    setShowRetryModal(false);
+    setShowStatusModal(true);
+    setStatusMessage("Regenerating summary, please wait...");
+    setIsFinalizing(true);
+
+    try {
+      const res = await fetch("/api/transcribe/summary/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcriptionId }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Regeneration failed");
+      }
+
+      const data = await res.json();
+      setStatusMessage("Summary regenerated successfully!");
+      setIsFinalizing(false);
+      setShowStatusModal(false);
+      localStorage.removeItem("flexiSession");
+      setSessionId(null);
+      setTranscriptionId(null);
+      // Optionally refresh the page or navigate
+    } catch (err) {
+      console.error("Regenerate error:", err);
+      setErrorMessage(err.message);
+      setErrorModalOpen(true);
+      setIsFinalizing(false);
+      setShowStatusModal(false);
+    } finally {
+      setIsRegenerating(false);
+    }
   };
 
   const handleStopRecording = async () => {
@@ -452,6 +525,10 @@ export default function PrototypeDashboard() {
       } else {
         setIsFinalizing(false);
         setShowStatusModal(false);
+
+        setLiveCaption("");
+        setFullTranscript("");
+        setLiveChunks([]);
 
         let msg = "Recording saved! ";
         if (data.lesson_created) msg += "AI notes and transcripts are ready.";
@@ -545,7 +622,7 @@ export default function PrototypeDashboard() {
 
   return (
     <div className="prototype-container">
-      {/* User Guide Modal (unchanged) */}
+      {/* User Guide Modal */}
       {showGuide && (
         <div className="guide-overlay" onClick={() => setShowGuide(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
@@ -611,7 +688,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Class & Session Selection Modal (unchanged) */}
+      {/* Class & Session Selection Modal */}
       {showClassSessionModal && (
         <div className="guide-overlay" onClick={() => setShowClassSessionModal(false)}>
           <div className="guide-modal course-select-modal" onClick={(e) => e.stopPropagation()}>
@@ -703,7 +780,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Consent Modal (unchanged) */}
+      {/* Consent Modal */}
       {showConsentModal && (
         <div className="guide-overlay" onClick={() => setShowConsentModal(false)}>
           <div className="guide-modal consent-modal" onClick={(e) => e.stopPropagation()}>
@@ -747,7 +824,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Summary status modal (unchanged) */}
+      {/* Summary status modal */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
           <div className="guide-modal summary-modal" onClick={(e) => e.stopPropagation()}>
@@ -766,7 +843,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Error Modal (unchanged) */}
+      {/* Error Modal */}
       {errorModalOpen && (
         <div className="guide-overlay" onClick={() => setErrorModalOpen(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
@@ -790,6 +867,45 @@ export default function PrototypeDashboard() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Retry Modal (new) */}
+      {showRetryModal && (
+        <div className="guide-overlay" onClick={() => setShowRetryModal(false)}>
+          <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="guide-header">
+              <div className="guide-step-icon" style={{ backgroundColor: "#eab308" }}>
+                <FaExclamationTriangle />
+              </div>
+              <div>
+                <h2 className="guide-title">Summary Generation Failed</h2>
+                <p className="guide-subtitle">The automatic summary could not be created.</p>
+              </div>
+            </div>
+            <div style={{ textAlign: "center", marginTop: "1rem" }}>
+              <p style={{ marginBottom: "1.5rem" }}>
+                You can try regenerating the summary from the transcript.
+              </p>
+              <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>
+                <button
+                  className="guide-button"
+                  onClick={() => setShowRetryModal(false)}
+                  style={{ backgroundColor: "#6b7280" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="guide-button"
+                  onClick={regenerateSummary}
+                  disabled={isRegenerating}
+                  style={{ backgroundColor: "#8b5cf6" }}
+                >
+                  {isRegenerating ? "Regenerating..." : "Regenerate Summary"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -898,7 +1014,7 @@ export default function PrototypeDashboard() {
           </div>
         </div>
 
-        {/* Live Caption Display - Updated in real time */}
+        {/* Live Caption Display */}
         {(liveCaption || isRecording) && (
           <div className="live-transcript-panel">
             <div className="live-transcript-content" style={{ minHeight: "5.2rem", display: "flex", alignItems: "center", justifyContent: "center" }}>

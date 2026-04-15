@@ -18,29 +18,35 @@ export default function TranscriptionsPage() {
   const [activeCourse, setActiveCourse] = useState("");
   const [selected, setSelected] = useState(null);
 
-  // Fetch all transcriptions
+  // Fetch educator-owned transcriptions and courses
   useEffect(() => {
     async function fetchTranscriptions() {
       try {
-        const res = await fetch("/api/educator/transcriptions");
-        if (res.ok) {
-          const data = await res.json();
+        const [transRes, coursesRes] = await Promise.all([
+          fetch("/api/educator/transcriptions"),
+          fetch("/api/educator/courses"),
+        ]);
+
+        if (transRes.ok) {
+          const data = await transRes.json();
           setTranscripts(data.transcriptions);
-          
-          // Extract unique courses
-          const uniqueCourses = [...new Set(data.transcriptions.map(t => t.course))];
-          setCourses(uniqueCourses);
-          
-          if (uniqueCourses.length > 0 && !activeCourse) {
-            setActiveCourse(uniqueCourses[0]);
+        }
+
+        if (coursesRes.ok) {
+          const courseData = await coursesRes.json();
+          setCourses(courseData.courses || []);
+
+          if (!activeCourse && Array.isArray(courseData.courses) && courseData.courses.length > 0) {
+            setActiveCourse(courseData.courses[0]);
           }
         }
       } catch (error) {
-        console.error("Failed to fetch transcriptions:", error);
+        console.error("Failed to fetch transcriptions or courses:", error);
       } finally {
         setLoading(false);
       }
     }
+
     fetchTranscriptions();
   }, []);
 
@@ -54,16 +60,23 @@ export default function TranscriptionsPage() {
     }
 
     if (id) {
-      const found = transcripts.find(
-        (t) => t.id === id
-      );
+      const found = transcripts.find((t) => t.id === id);
       setSelected(found || null);
     }
   }, [searchParams, courses, transcripts]);
 
-  const filtered = transcripts.filter(
-    (t) => t.course === activeCourse
-  );
+  const filtered = transcripts.filter((t) => t.course === activeCourse);
+
+  const handleTranscriptUpdate = (updatedTranscript) => {
+    setSelected(updatedTranscript);
+    setTranscripts((prev) =>
+      prev.map((transcript) =>
+        transcript.id === updatedTranscript.id
+          ? updatedTranscript
+          : transcript
+      )
+    );
+  };
 
   if (loading) {
     return <LoadingScreen />;
@@ -124,7 +137,7 @@ export default function TranscriptionsPage() {
           h-full
           min-h-0
         ">
-          <PreviewPanel transcript={selected} />
+          <PreviewPanel transcript={selected} onUpdate={handleTranscriptUpdate} />
         </main>
 
       </div>

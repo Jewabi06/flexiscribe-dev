@@ -108,14 +108,14 @@ export default function PasswordRequestsPage() {
             placeholder="Search by name or email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border-2 border-[rgba(157,138,219,0.3)] outline-none focus:border-[#9d8adb] transition-colors text-sm"
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl text-[#9d8adb] border-2 border-[rgba(157,138,219,0.3)] outline-none focus:border-[#9d8adb] transition-colors text-sm"
           />
         </div>
         <div className="relative">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="appearance-none px-4 py-2.5 pr-10 rounded-xl border-2 border-[rgba(157,138,219,0.3)] outline-none focus:border-[#9d8adb] transition-colors text-sm bg-white cursor-pointer"
+            className="appearance-none px-4 py-2.5 pr-10 rounded-xl text-[#9d8adb] border-2 border-[rgba(157,138,219,0.3)] outline-none focus:border-[#9d8adb] transition-colors text-sm cursor-pointer"
           >
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
