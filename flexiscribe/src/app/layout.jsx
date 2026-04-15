@@ -9,6 +9,7 @@ const inter = Inter({
 
 export const metadata = {
   title: "fLexiScribe",
+  description: "Struggling to keep up with lectures? fLexiScribe captures every word, generates smart reviewers, and creates interactive quizzes so you can focus on listening and learning.",
   icons: {
     icon: "/fLexiScribe-logo.ico",
   },
