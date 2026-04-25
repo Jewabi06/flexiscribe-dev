@@ -5,7 +5,7 @@ import { verifyToken } from "./lib/auth";
 // Secret key required to reach the admin login/landing pages.
 // Change this value or move it to an env var (ADMIN_ACCESS_KEY) for production.
 const ADMIN_ACCESS_KEY =
-  process.env.ADMIN_ACCESS_KEY || "fls-ctrl-7x9k2";
+  process.env.ADMIN_ACCESS_KEY || "fls-ctrl-1p2s7";
 
 export async function proxy(request: NextRequest) {
   const token = request.cookies.get("auth-token")?.value;

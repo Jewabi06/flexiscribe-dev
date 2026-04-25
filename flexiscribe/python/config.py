@@ -110,4 +110,4 @@ SUMMARY_MAX_WORKERS = 1
 
 NGROK_URL = os.environ.get("NGROK_URL", "")
 FRONTEND_URL = NGROK_URL if NGROK_URL else os.environ.get("FRONTEND_URL", "https://flexiscribe.vercel.app")
-CALLBACK_SECRET = os.environ.get("FLEXISCRIBE_CALLBACK_SECRET", "fls-cb-s3cr3t-k7m9x2")
+CALLBACK_SECRET = os.environ.get("FLEXISCRIBE_CALLBACK_SECRET", "fls-cb-s3cr3t-p1s2u7")
