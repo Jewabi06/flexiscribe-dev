@@ -152,7 +152,9 @@ def _generate_final_summary(session):
                 else:
                     raise ValueError("Empty Cornell result")
             except Exception as e:
-                print(f"[ERROR] Final Cornell summary failed: {e}")
+                error_msg = f"Final Cornell summary failed: {str(e)}"
+                print(f"[ERROR] {error_msg}")
+                session.final_summary_error = error_msg
                 # Fallback Cornell (simplified)
                 fallback_notes = []
                 fallback_concepts = set()

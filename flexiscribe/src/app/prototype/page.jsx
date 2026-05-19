@@ -35,6 +35,7 @@ export default function PrototypeDashboard() {
   // Error modal state
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [summaryError, setSummaryError] = useState(null);
 
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -44,7 +45,7 @@ export default function PrototypeDashboard() {
   const transcriptEndRef = useRef(null);
   const durationRef = useRef(null);
   const startTimeRef = useRef(null);
-  const summaryPollIntervalRef = useRef(null); // NEW: for polling final summary
+  const summaryPollIntervalRef = useRef(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -74,7 +75,6 @@ export default function PrototypeDashboard() {
               setIsFinalizing(true);
               setShowStatusModal(true);
               setStatusMessage("Session is finalizing. Please wait...");
-              // Start polling for final summary
               startSummaryPolling(savedSessionId, savedTranscriptionId);
             } else if (normalizedStatus === "completed") {
               setStatusMessage("Previous session has already finished.");
@@ -220,14 +220,26 @@ export default function PrototypeDashboard() {
 
   const startSummaryPolling = (sid, tid) => {
     if (summaryPollIntervalRef.current) clearInterval(summaryPollIntervalRef.current);
+    let pollCount = 0;
+    const MAX_POLLS = 40; // 40 * 3s = 120 seconds (2 minutes)
+
     summaryPollIntervalRef.current = setInterval(async () => {
+      pollCount++;
+      if (pollCount >= MAX_POLLS) {
+        clearInterval(summaryPollIntervalRef.current);
+        summaryPollIntervalRef.current = null;
+        setIsFinalizing(false);
+        setShowStatusModal(false);
+        setSummaryError("Summary generation timed out after 2 minutes. Please try regenerating manually.");
+        setErrorModalOpen(true);
+        return;
+      }
+
       try {
-        // First try to get the transcription from DB via API
         const res = await fetch(`/api/transcribe/summary/${sid}`);
         if (res.ok) {
           const data = await res.json();
           if (data.status === "ready" && data.final_summary) {
-            // Summary is ready
             clearInterval(summaryPollIntervalRef.current);
             summaryPollIntervalRef.current = null;
             setIsFinalizing(false);
@@ -236,31 +248,20 @@ export default function PrototypeDashboard() {
             localStorage.removeItem("flexiSession");
             setSessionId(null);
             setTranscriptionId(null);
-            // Optionally reload page to refresh dashboard
             window.location.reload();
-          }
-        } else {
-          // Fallback: poll the status endpoint
-          const statusRes = await fetch(`/api/transcribe/status?sessionId=${sid}`);
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            if (statusData.has_final_summary) {
-              clearInterval(summaryPollIntervalRef.current);
-              summaryPollIntervalRef.current = null;
-              setIsFinalizing(false);
-              setShowStatusModal(false);
-              setStatusMessage("Recording saved and summary ready!");
-              localStorage.removeItem("flexiSession");
-              setSessionId(null);
-              setTranscriptionId(null);
-              window.location.reload();
-            }
+          } else if (data.status === "error") {
+            clearInterval(summaryPollIntervalRef.current);
+            summaryPollIntervalRef.current = null;
+            setIsFinalizing(false);
+            setShowStatusModal(false);
+            setSummaryError(data.error || "Unknown error generating summary.");
+            setErrorModalOpen(true);
           }
         }
       } catch (err) {
         console.error("Summary polling error:", err);
       }
-    }, 3000); // poll every 3 seconds
+    }, 3000);
   };
 
   const handleStartRecording = async () => {
@@ -431,12 +432,10 @@ export default function PrototypeDashboard() {
       setFullTranscript("");
       setLiveCaption("");
 
-      // If summary is pending, start polling
       if (data.summary_pending) {
         setStatusMessage("Transcript saved. Generating AI summary – please wait...");
         startSummaryPolling(sessionId, transcriptionId);
       } else if (data.final_summary) {
-        // Immediate summary (fallback)
         setStatusMessage("Recording saved and summary ready!");
         setIsFinalizing(false);
         setShowStatusModal(false);
@@ -444,7 +443,6 @@ export default function PrototypeDashboard() {
         setSessionId(null);
         setTranscriptionId(null);
       } else {
-        // Something went wrong
         setStatusMessage("Recording saved, but summary generation may have failed.");
         setIsFinalizing(false);
         setShowStatusModal(false);
@@ -524,6 +522,30 @@ export default function PrototypeDashboard() {
     }
   };
 
+  const handleRegenerateSummary = async () => {
+    setErrorModalOpen(false);
+    setStatusMessage("Retrying summary generation...");
+    setShowStatusModal(true);
+    setIsFinalizing(true);
+    try {
+      const res = await fetch("/api/transcribe/summary/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcriptionId: transcriptionId }),
+      });
+      if (res.ok) {
+        startSummaryPolling(sessionId, transcriptionId);
+      } else {
+        const err = await res.json();
+        setSummaryError(err.error || "Regeneration failed");
+        setErrorModalOpen(true);
+      }
+    } catch (err) {
+      setSummaryError(err.message);
+      setErrorModalOpen(true);
+    }
+  };
+
   const toggleGuide = () => {
     setShowGuide(!showGuide);
   };
@@ -536,7 +558,7 @@ export default function PrototypeDashboard() {
 
   return (
     <div className="prototype-container">
-      {/* User Guide Modal (unchanged) */}
+      {/* User Guide Modal */}
       {showGuide && (
         <div className="guide-overlay" onClick={() => setShowGuide(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
@@ -549,7 +571,6 @@ export default function PrototypeDashboard() {
               </div>
             </div>
             <div className="guide-content">
-              {/* steps unchanged */}
               <div className="guide-step">
                 <div className="guide-step-number">1</div>
                 <div className="guide-step-icon"><FaPowerOff /></div>
@@ -596,7 +617,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Class & Session Selection Modal (unchanged) */}
+      {/* Class & Session Selection Modal */}
       {showClassSessionModal && (
         <div className="guide-overlay" onClick={() => setShowClassSessionModal(false)}>
           <div className="guide-modal course-select-modal" onClick={(e) => e.stopPropagation()}>
@@ -673,7 +694,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Consent Modal (unchanged) */}
+      {/* Consent Modal */}
       {showConsentModal && (
         <div className="guide-overlay" onClick={() => setShowConsentModal(false)}>
           <div className="guide-modal consent-modal" onClick={(e) => e.stopPropagation()}>
@@ -703,7 +724,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Summary generation modal – restored with spinner and status message */}
+      {/* Summary generation modal (loading) */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
           <div className="guide-modal summary-modal" onClick={(e) => e.stopPropagation()}>
@@ -720,24 +741,39 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Error Modal (unchanged) */}
+      {/* Error Modal with Retry button */}
       {errorModalOpen && (
         <div className="guide-overlay" onClick={() => setErrorModalOpen(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
             <div className="guide-header">
-              <div className="guide-step-icon" style={{ backgroundColor: "#dc2626" }}><FaExclamationTriangle /></div>
+              <div className="guide-step-icon" style={{ backgroundColor: "#dc2626" }}>
+                <FaExclamationTriangle />
+              </div>
               <div>
-                <h2 className="guide-title">Error</h2>
-                <p className="guide-subtitle">An error occurred during transcription stop</p>
+                <h2 className="guide-title">Summary Generation Failed</h2>
+                <p className="guide-subtitle">The AI could not generate the summary</p>
               </div>
             </div>
             <div style={{ textAlign: "center", marginTop: "1rem" }}>
-              <p style={{ color: "#991b1b", backgroundColor: "#fee2e2", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem" }}>
-                {errorMessage}
+              <p style={{ color: "#991b1b", backgroundColor: "#fee2e2", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {summaryError || errorMessage}
               </p>
-              <button className="guide-button" onClick={() => setErrorModalOpen(false)} style={{ backgroundColor: "#dc2626" }}>
-                Close
-              </button>
+              <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>
+                <button
+                  className="guide-button"
+                  onClick={handleRegenerateSummary}
+                  style={{ backgroundColor: "#6366f1" }}
+                >
+                  Retry Summary
+                </button>
+                <button
+                  className="guide-button"
+                  onClick={() => setErrorModalOpen(false)}
+                  style={{ backgroundColor: "#6b7280" }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

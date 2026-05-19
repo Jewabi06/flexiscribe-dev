@@ -321,7 +321,7 @@ def start_transcription(req: StartRequest):
         "message": "Transcription started successfully",
     }
 
-# ─── Stop transcription (sync for transcript/minutes, async for final summary) ──────
+# ─── Stop transcription (async final summary) ─────────────────────────────
 
 @app.post("/transcribe/stop")
 def stop_transcription(req: StopRequest):
@@ -356,28 +356,23 @@ def stop_transcription(req: StopRequest):
     print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
 
     # --- Prepare response data (transcript + minute summaries) ---
-    transcript_data = session.get_transcript_json()           # 10‑second chunks
-    live_transcript_data = session.get_live_transcript_json() # 2‑second chunks
-    minute_summaries_data = session.get_summary_json()        # per‑minute summaries
+    transcript_data = session.get_transcript_json()
+    live_transcript_data = session.get_live_transcript_json()
+    minute_summaries_data = session.get_summary_json()
 
     # --- Start background thread for final summary + callback ---
     def background_finalize():
         print("[API] Background finalisation thread started.")
-        # Wait for summarizer thread (if still running) to finish its minute summaries
         if session.summarizer_thread and session.summarizer_thread.is_alive():
             session.summarizer_thread.join(timeout=120)
-        # Generate final summary if not already set
         if not session.final_summary:
             _generate_final_summary(session)
-        # Trigger callback if transcription_id exists
         if session.transcription_id and session.final_summary:
-            from main import _deliver_callback_job   # import inside to avoid circular
             job = {
                 "session_id": session.session_id,
                 "transcription_id": session.transcription_id,
                 "final_summary": session.final_summary,
             }
-            # Save job to disk and attempt delivery
             _save_pending_callback_job(job)
             _deliver_callback_job(job)
         session.status = "completed" if session.final_summary else "error"
@@ -399,17 +394,23 @@ def stop_transcription(req: StopRequest):
         "file_status": session.file_status,
     }
 
-# ─── Poll summary status (kept for backward compatibility) ─────────────────
+# ─── Poll summary status (includes error details) ─────────────────────────
 
 @app.get("/transcribe/summary/{session_id}")
 def get_summary_status(session_id: str):
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    
     if session.final_summary:
         return {
             "status": "ready",
             "final_summary": session.get_final_summary_json(),
+        }
+    elif session.final_summary_error:
+        return {
+            "status": "error",
+            "error": session.final_summary_error,
         }
     else:
         return {
@@ -436,7 +437,7 @@ def regenerate_summary(req: RegenerateSummaryRequest):
         "transcription_id": req.transcription_id,
     }
 
-# ─── Session status / live data ──────────────────────────────────────────
+# ─── Session status / live data (includes error field) ────────────────────
 
 @app.get("/transcribe/status/{session_id}")
 def get_session_status(session_id: str):
@@ -453,6 +454,7 @@ def get_session_status(session_id: str):
         "chunks_count": len(session.transcript_chunks),
         "summaries_count": len(session.minute_summaries),
         "has_final_summary": session.final_summary is not None,
+        "final_summary_error": session.final_summary_error,
         "live_transcript": session.get_live_transcript_json(),
         "transcript": session.get_transcript_json(),
         "minute_summaries": session.get_summary_json(),

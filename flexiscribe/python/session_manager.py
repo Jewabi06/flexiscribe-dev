@@ -39,6 +39,7 @@ class TranscriptionSession:
         self.final_transcript_chunks: list = []
         self.minute_summaries: list = []
         self.final_summary: Optional[dict] = None
+        self.final_summary_error: Optional[str] = None
         self.current_minute = 0
 
         # File paths (under output/{course_code}/)
