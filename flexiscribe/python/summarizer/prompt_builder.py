@@ -92,8 +92,7 @@ RULES = {
     ],
 }
 
-# ─── Internal helpers ─────────────────────────────────────────────────────
-
+# Internal helpers 
 def _format_rules(rule_keys: list, **kwargs) -> str:
     """Assemble selected rule-sets into a numbered list."""
     lines = []
@@ -121,10 +120,7 @@ def _build_topic_block(main_topic: str, subtopics: list) -> str:
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
 # Stage 1 — Topic Extraction
-# ═══════════════════════════════════════════════════════════════════════════
-
 def build_topic_extraction_prompt(transcript_sample: str) -> str:
     """
     Phase 1: Extract main topic and ordered subtopics.
@@ -142,10 +138,7 @@ def build_topic_extraction_prompt(transcript_sample: str) -> str:
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
 # Stage 2 — Per-Minute Summary (context-aware)
-# ═══════════════════════════════════════════════════════════════════════════
-
 def build_minute_summary_prompt(
     text: str,
     main_topic: str = "",
@@ -177,40 +170,38 @@ def build_minute_summary_prompt(
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
 # Stage 3 — Cornell Notes Assembly (from minute summaries)
-# ═══════════════════════════════════════════════════════════════════════════
-
 def build_cornell_from_summaries_prompt(
     summaries_text: str,
     main_topic: str = "",
     subtopics: list = None,
 ) -> str:
-    """
-    Phase 3: Assemble comprehensive Cornell Notes.
-    Uses the topic map from Phase 1 to guarantee completeness.
-    """
     topic_block = _build_topic_block(main_topic, subtopics)
     rules = _format_rules(["completeness", "accuracy", "output_format"])
     schema = _format_schema("cornell_notes")
+    
+    # Add a very strict prefix
+    strict_prefix = (
+        "CRITICAL INSTRUCTION:\n"
+        "You must output ONLY a single JSON object. No other text, no markdown, no commentary.\n"
+        "The JSON must follow this exact structure (do not add or remove fields):\n"
+        f"{SCHEMAS['cornell_notes']}\n\n"
+        "Every note object MUST contain all three keys: 'term', 'definition', 'example'.\n"
+        "The 'summary' field MUST be an array of strings (even if only one sentence).\n"
+    )
+    
     return (
         f"{topic_block}"
+        f"{strict_prefix}"
         "Create comprehensive Cornell Notes from these per-minute lecture summaries.\n\n"
         f"Critical requirements:\n{rules}\n\n"
-        "Formatting:\n"
-        "- Group notes by subtopic, in the order they were taught.\n"
-        "- Each note MUST have term, definition, and example.\n"
-        "- key_concepts: list ALL important terms/concepts from the lecture.\n"
-        "- summary: list sequential takeaway points covering the entire lecture.\n\n"
+        "Now produce the JSON:\n"
         f"{schema}\n\n"
         f"Per-minute summaries:\n{summaries_text}"
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
 # Fallback — Cornell Notes directly from full transcript
-# ═══════════════════════════════════════════════════════════════════════════
-
 def build_cornell_prompt(
     text: str,
     main_topic: str = "",

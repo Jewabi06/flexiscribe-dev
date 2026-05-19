@@ -72,42 +72,33 @@ def summarize_cornell_context_aware(
     transcript_chunks: list,
     minute_summaries: list,
     model=None,
+    max_retries=2,
 ) -> dict:
-    """
-    Multi-stage context-aware Cornell Notes generation.
-
-    Uses the remote GPU-powered Ollama instance (OLLAMA_BASE_URL) with
-    gemma3:4b for faster, higher-quality output — mirroring the approach
-    used in quiz generation.
-
-    Pipeline:
-      1. Extract topics from the full transcript  (remote GPU)
-      2. Format summaries text with topic context
-      3. Generate Cornell Notes with completeness guarantees  (remote GPU)
-      4. Validate and normalise output schema
-    """
     model = model or OLLAMA_CORNELL_MODEL
-
-    print(f"[SUMMARIZER] Using remote OLLAMA_BASE_URL with model {model}")
-
-    # Stage 1 — topic extraction (remote GPU)
     topics = extract_topics(transcript_chunks, model, remote=True)
     main_topic = topics["main_topic"]
     subtopics = topics["subtopics"]
-    print(f"[SUMMARIZER] Topic: {main_topic}")
-    print(f"[SUMMARIZER] Subtopics: {subtopics}")
-
-    # Stage 2 — build structured summaries text
     summaries_text = _format_summaries_for_cornell(minute_summaries)
 
-    # Stage 3 — generate Cornell Notes with topic awareness (remote GPU)
-    prompt = build_cornell_from_summaries_prompt(summaries_text, main_topic, subtopics)
-    result = extract_json(
-        generate_response_remote(model, prompt, profile="extended")
-    )
-
-    # Stage 4 — validate schema
-    return validate_cornell_schema(result, main_topic)
+    for attempt in range(max_retries):
+        prompt = build_cornell_from_summaries_prompt(summaries_text, main_topic, subtopics)
+        raw = generate_response_remote(model, prompt, profile="extended")
+        data = extract_json(raw)  # this now includes repair
+        
+        # Validate schema
+        validated = validate_cornell_schema(data, main_topic)
+        
+        # Check if validation produced empty notes/summary (likely failure)
+        if validated.get("notes") or validated.get("summary"):
+            return validated
+        
+        print(f"[SUMMARIZER] Validation failed, retry {attempt+1}/{max_retries}")
+        # Optionally append a note to the prompt to correct the error
+        if attempt < max_retries - 1:
+            summaries_text += "\n\n[NOTE: Previous output was invalid JSON. Please ensure the output is valid JSON matching the schema exactly.]"
+    
+    # Final fallback: return a minimal valid structure
+    return validate_cornell_schema({}, main_topic)
 
 
 def _format_summaries_for_cornell(minute_summaries: list) -> str:

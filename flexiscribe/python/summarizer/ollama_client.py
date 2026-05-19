@@ -15,7 +15,7 @@ PROFILES = {
         "num_gpu": OLLAMA_GPU_LAYERS,
     },
     "extended": {               # Full Cornell notes, MOTM (long lectures)
-        "temperature": 0.3,
+        "temperature": 0.1,
         "num_predict": 4096,
         "num_gpu": OLLAMA_GPU_LAYERS,
     },
@@ -24,11 +24,18 @@ PROFILES = {
 # ─── System prompts per task type ─────────────────────────────────────────
 SYSTEM_PROMPTS = {
     "json_api": (
-        "You are a JSON-only API that processes bilingual "
-        "Filipino/Tagalog and English (Taglish) lecture content. "
-        "You must return ONLY valid JSON. "
-        "No explanations. No markdown code fences. No extra text. "
-        "Output raw JSON only."
+        "You are a JSON-only API that processes bilingual Filipino/Tagalog and English (Taglish) lecture content.\n"
+        "You must return ONLY valid JSON – no markdown, no code fences, no extra text, no explanations.\n"
+        "The output must conform EXACTLY to this schema:\n"
+        "{\n"
+        '  "title": "string",\n'
+        '  "key_concepts": ["string"],\n'
+        '  "notes": [\n'
+        '    {"term": "string", "definition": "string", "example": "string"}\n'
+        '  ],\n'
+        '  "summary": ["string"]\n'
+        "}\n"
+        "Do not add, remove, or rename any fields. Output raw JSON only."
     ),
     "topic_analyst": (
         "You are a curriculum analyst. Identify topics from "

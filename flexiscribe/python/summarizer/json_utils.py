@@ -1,6 +1,20 @@
 import json
 import re
 
+def repair_json(text: str) -> str:
+    """Attempt to fix common JSON syntax errors."""
+    # Remove markdown fences
+    text = re.sub(r"```json\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"```", "", text)
+    # Replace single quotes with double quotes (except inside strings)
+    # This is a simple heuristic – works for most LLM outputs
+    text = re.sub(r"(?<!\\)'([^']*?)'(?!\\)", r'"\1"', text)
+    # Remove trailing commas before } or ]
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+    # Ensure keys are double-quoted
+    text = re.sub(r"([{,])\s*([a-zA-Z0-9_]+)\s*:", r'\1"\2":', text)
+    return text
+
 
 def extract_json(model_output: str):
     """
@@ -21,8 +35,10 @@ def extract_json(model_output: str):
 
     text = text.strip()
 
+    repaired = repair_json(text)
+
     try:
-        return json.loads(text)
+        return json.loads(repaired)
     except json.JSONDecodeError:
         # Try to locate the outermost JSON object in the text
         match = re.search(r"\{[\s\S]*\}", text)
@@ -49,6 +65,9 @@ def validate_cornell_schema(data: dict, fallback_title: str = "Lecture Notes") -
     Any deviation (wrong types, missing fields, flat strings) is coerced
     so downstream consumers always receive a consistent shape.
     """
+    if not isinstance(data, dict):
+        data = {}
+
     result = {}
 
     # title
