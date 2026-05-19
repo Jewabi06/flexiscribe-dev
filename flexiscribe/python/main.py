@@ -423,7 +423,12 @@ def regenerate_summary(req: RegenerateSummaryRequest):
     if not req.transcript_json:
         raise HTTPException(status_code=400, detail="transcript_json is required")
     try:
-        final_summary = generate_summary_from_transcript_json(...)
+        final_summary = generate_summary_from_transcript_json(
+            req.transcript_json,
+            req.minute_summaries,
+            req.session_type or "lecture",
+            req.course_code or "",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summarization failed: {e}")
     return {"status": "success", "final_summary": final_summary, "transcription_id": req.transcription_id}
