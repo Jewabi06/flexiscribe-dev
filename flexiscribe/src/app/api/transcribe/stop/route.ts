@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000); // Longer timeout for summary generation
+    const timeout = setTimeout(() => controller.abort(), 120_000); // 2 minutes timeout
 
     const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
       method: "POST",
@@ -76,10 +76,9 @@ export async function POST(request: NextRequest) {
           content: contentHtml,
           rawText: rawText,
           duration: data.duration || "0m 0s",
-          status: "COMPLETED",                               // ✅ immediately completed
+          status: "COMPLETED",
           transcriptJson: data.transcript || null,
-          summaryJson: data.minute_summaries || null,
-          finalSummaryJson: data.final_summary || null,      // ✅ store final summary
+          summaryJson: data.final_summary || null,   // ✅ final summary stored here
         },
         include: {
           class: {
