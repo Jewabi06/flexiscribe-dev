@@ -349,13 +349,13 @@ def stop_transcription(req: StopRequest):
     # --- Wait for whisper to finish processing remaining audio ---
     print("[API] Waiting for whisper worker to finish...")
     if session.whisper_thread:
-        session.whisper_thread.join(timeout=90)
-    session.whisper_done.wait(timeout=30)
+        session.whisper_thread.join(timeout=20)
+    session.whisper_done.wait(timeout=15)
     print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
 
     # --- Wait for minute summaries to complete (fast, no final summary) ---
     print("[API] Waiting for minute summaries to complete...")
-    session.minutes_done.wait(timeout=60)
+    session.minutes_done.wait(timeout=25)
     print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
 
     # --- Prepare response data (transcript + minute summaries) ---

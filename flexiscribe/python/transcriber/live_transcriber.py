@@ -224,11 +224,11 @@ def summarization_worker(stop_event: threading.Event, session):
             )
 
         print("[INFO] Summarizer waiting for whisper_done...")
-        got_it = session.whisper_done.wait(timeout=60)
+        got_it = session.whisper_done.wait(timeout=15)
         if got_it:
             print("[INFO] Whisper done — processing remaining chunks.")
         else:
-            print("[WARN] whisper_done timed out after 60 s — processing what we have.")
+            print("[WARN] whisper_done timed out after 15 s — processing what we have.")
 
         last_processed_idx, minute_counter = _collect_and_submit(
             session, last_processed_idx, minute_counter, executor, futures,

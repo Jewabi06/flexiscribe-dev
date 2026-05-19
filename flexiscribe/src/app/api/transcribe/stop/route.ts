@@ -16,7 +16,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Educator access only" }, { status: 403 });
     }
 
-    const { sessionId, transcriptionId } = await request.json();
+    let body: { sessionId?: string; transcriptionId?: string } = {};
+    try {
+      body = await request.json();
+    } catch (err) {
+      return NextResponse.json({ error: "Invalid JSON request body" }, { status: 400 });
+    }
+
+    const { sessionId, transcriptionId } = body;
 
     if (!sessionId) {
       return NextResponse.json({ error: "Session ID is required" }, { status: 400 });
@@ -27,7 +34,10 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify({
         session_id: sessionId,
         transcription_id: transcriptionId || null,
@@ -37,22 +47,44 @@ export async function POST(request: NextRequest) {
 
     clearTimeout(timeout);
 
+    const rawResponse = await response.text().catch(() => "");
+    let data: any = null;
+    try {
+      data = rawResponse ? JSON.parse(rawResponse) : null;
+    } catch {
+      data = null;
+    }
+
     if (!response.ok) {
       let errorMsg = "Failed to stop transcription";
-      try {
-        const error = await response.json();
-        errorMsg = error.detail || errorMsg;
-      } catch {
-        const text = await response.text().catch(() => "");
-        errorMsg = text.slice(0, 200) || `FastAPI returned status ${response.status}`;
+      if (data?.error) {
+        errorMsg = data.error;
+      } else if (data?.detail) {
+        errorMsg = data.detail;
+      } else if (rawResponse) {
+        errorMsg = rawResponse.slice(0, 200);
+      } else {
+        errorMsg = `FastAPI returned status ${response.status}`;
       }
       return NextResponse.json({ error: errorMsg }, { status: response.status });
     }
 
-    const data = await response.json();
+    if (!data) {
+      return NextResponse.json(
+        {
+          error: `Transcription backend returned invalid JSON: ${rawResponse.slice(0, 200)}`,
+        },
+        { status: 502 }
+      );
+    }
+
+    const duration = typeof data.duration === "string" ? data.duration : "0m 0s";
+    const transcript = data.transcript && typeof data.transcript === "object" ? data.transcript : {};
+    const liveTranscript = data.live_transcript && typeof data.live_transcript === "object" ? data.live_transcript : null;
+    const minuteSummaries = Array.isArray(data.minute_summaries) ? data.minute_summaries : null;
 
     // Build content HTML from transcript chunks
-    const chunks = data.transcript?.chunks || [];
+    const chunks = Array.isArray(transcript.chunks) ? transcript.chunks : [];
     const contentHtml = chunks
       .map(
         (c: { minute: number; timestamp: string; text: string }) =>
@@ -69,9 +101,9 @@ export async function POST(request: NextRequest) {
         data: {
           content: contentHtml,
           rawText: rawText,
-          duration: data.duration || "0m 0s",
+          duration: duration,
           status: "PROCESSING",     // waiting for final summary callback
-          transcriptJson: data.transcript || null,
+          transcriptJson: transcript,
           // summaryJson will be updated later via callback
         },
       });
@@ -99,12 +131,12 @@ export async function POST(request: NextRequest) {
         session_id: sessionId,
         transcription_id: transcriptionId,
         status: "PROCESSING",
-        duration: data.duration,
+        duration,
         chunks_count: chunks.length,
-        summary_pending: data.summary_pending || false,
-        transcript: data.transcript,
-        live_transcript: data.live_transcript || null,
-        minute_summaries: data.minute_summaries || null,
+        summary_pending: Boolean(data.summary_pending),
+        transcript,
+        live_transcript: liveTranscript,
+        minute_summaries: minuteSummaries,
       },
       { status: 200 }
     );

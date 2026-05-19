@@ -103,7 +103,7 @@ OLLAMA_GPU_LAYERS = 99
 
 # Remote GPU-powered Ollama for final summaries
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://34.21.130.162:11434")
-OLLAMA_CORNELL_MODEL = os.environ.get("OLLAMA_CORNELL_MODEL", "gemma3:4b-it-q4_K_M")
+OLLAMA_CORNELL_MODEL = os.environ.get("OLLAMA_CORNELL_MODEL", "gemma3:4b")
 
 BUFFER_INTERVAL = 60
 SUMMARY_MAX_WORKERS = 1
