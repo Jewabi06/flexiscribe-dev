@@ -1,28 +1,7 @@
 """
 Timer-based summarisation worker — fully decoupled from Whisper and
 non-blocking for per-minute summaries.
-
-Architecture (optimised for Jetson Orin Nano — 7.4 GB shared VRAM):
-
-1. **Chunk collection** runs on a strict BUFFER_INTERVAL (60 s) timer.
-   It snapshots all new live_chunks and saves the aggregated transcript.
-   This NEVER blocks — no Ollama call on this path.
-
-2. **Per-minute summaries** are submitted to a ThreadPoolExecutor
-   (SUMMARY_MAX_WORKERS threads, default 2).  Ollama runs CPU-only
-   (num_gpu=0) so the GPU stays 100 % free for Whisper.  Having 2
-   workers lets the next summary start while the previous one finishes.
-
-3. On stop, the worker waits for whisper_done (so no audio is lost),
-   collects final chunks, then waits for ALL in-flight summary futures
-   before signalling minutes_done.
-
-4. The final Cornell / MOTM generation happens after minutes_done.
-
-This eliminates the blocking-summary bottleneck that caused only 1 out
-of ~5 minute summaries to complete in the previous design.
 """
-
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
@@ -34,8 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from summarizer.summarizer import summarize_minute, summarize_cornell_context_aware, summarize_cornell, summarize_motm
 from utils.json_writer import write_json
-from config import BUFFER_INTERVAL, SUMMARY_MAX_WORKERS
-
+from config import BUFFER_INTERVAL, SUMMARY_MAX_WORKERS, OLLAMA_CORNELL_MODEL
 
 def _format_minute_summaries(minute_summaries):
     """Format minute summary dicts into a structured text block for the Cornell prompt."""
@@ -50,7 +28,6 @@ def _format_minute_summaries(minute_summaries):
             block += "\nKey points:\n" + "\n".join(f"- {kp}" for kp in key_points)
         parts.append(block)
     return "\n\n".join(parts)
-
 
 # ── Thread-pool task: generate one minute summary (runs on CPU) ───────────
 
@@ -68,13 +45,11 @@ def _summarize_minute_task(session, combined_text: str, minute_num: int, timesta
         }
         with session.summary_lock:
             session.minute_summaries.append(minute_summary)
-            # Keep summaries sorted by minute number (threads may finish out-of-order)
             session.minute_summaries.sort(key=lambda x: x["minute"])
         write_json(session.get_summary_json(), session.minute_summary_path)
         print(f"[SUMMARY] Minute {minute_num} summarized.")
     except Exception as e:
         print(f"[ERROR] Minute summary failed for minute {minute_num}: {e}")
-
 
 # ── Collect new chunks + submit summary (non-blocking) ────────────────────
 
@@ -84,7 +59,6 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     Snapshot new live_chunks since *last_processed_idx*, save the
     aggregated transcript immediately, and submit a per-minute summary
     to the thread pool **without blocking**.
-
     Returns (new_last_processed_idx, new_minute_counter).
     """
     current_chunks = session.live_chunks[last_processed_idx:]
@@ -97,10 +71,8 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
         return new_idx, minute_counter
 
     minute_counter += 1
-    # Use 0-based elapsed time instead of wall clock time
     timestamp = session.get_elapsed_timestamp()
 
-    # ── Save transcript chunk immediately (fast, no Ollama) ───────
     chunk = {
         "minute": minute_counter,
         "timestamp": timestamp,
@@ -108,7 +80,6 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     }
     session.transcript_chunks.append(chunk)
     write_json(session.get_transcript_json(), session.transcript_path)
-    # NEW: persist aggregated (60‑second) chunks for recovery
     aggregated_data = {
         "metadata": {
             "session_id": session.session_id,
@@ -119,7 +90,6 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     write_json(aggregated_data, session.aggregated_transcript_path)
     print(f"[TRANSCRIPT] Minute {minute_counter} at {timestamp}: {combined_text[:80]}...")
 
-    # ── Submit summary to thread pool (non-blocking) ─────────────
     future = executor.submit(
         _summarize_minute_task, session, combined_text, minute_counter, timestamp,
     )
@@ -128,15 +98,12 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
 
     return new_idx, minute_counter
 
-
 def _generate_final_summary(session):
-    """Generate final Cornell/MOTM from existing minute summaries and transcript chunks.
-       Guarantees non-empty output even if summarization fails."""
+    """Generate final Cornell/MOTM from existing minute summaries and transcript chunks."""
+    print(f"[INFO] Generating final summary using remote model: {OLLAMA_CORNELL_MODEL}")
     successful_final_summary = False
 
-    # First, ensure we have minute summaries
     if not session.minute_summaries and session.transcript_chunks:
-        # No minute summaries? Build them from transcript chunks as a fallback
         print("[INFO] No minute summaries found; building from transcript chunks.")
         for idx, chunk in enumerate(session.transcript_chunks, 1):
             session.minute_summaries.append({
@@ -161,7 +128,6 @@ def _generate_final_summary(session):
                     raise ValueError("Empty MOTM result")
             except Exception as e:
                 print(f"[ERROR] MOTM generation failed: {e}")
-                # Fallback MOTM
                 session.final_summary = {
                     "meeting_title": f"Meeting - {session.course_code}",
                     "date": "Not specified",
@@ -178,7 +144,6 @@ def _generate_final_summary(session):
                     session.transcript_chunks,
                     session.minute_summaries,
                 )
-                # Validate that we got meaningful content
                 if cornell and (cornell.get("notes") or cornell.get("key_concepts")):
                     session.final_summary = cornell
                     successful_final_summary = True
@@ -186,7 +151,6 @@ def _generate_final_summary(session):
                     raise ValueError("Empty Cornell result")
             except Exception as e:
                 print(f"[ERROR] Final Cornell summary failed: {e}")
-                # Build fallback Cornell from minute summaries
                 fallback_notes = []
                 fallback_concepts = set()
                 for ms in session.minute_summaries:
@@ -212,7 +176,6 @@ def _generate_final_summary(session):
                 }
                 successful_final_summary = True
     else:
-        # No minute summaries and no transcript chunks? Give minimal
         print("[INFO] No minute summaries or transcript chunks available; creating minimal summary.")
         session.final_summary = {
             "title": f"Lecture - {session.course_code}",
@@ -227,17 +190,11 @@ def _generate_final_summary(session):
     session_manager.update_session_status(session.session_id, session.status)
     print(f"[INFO] Session {session.session_id} final status={session.status}.")
 
-
 def summarization_worker(stop_event: threading.Event, session):
     """
     Timer-based summarisation with non-blocking per-minute summaries.
-
-    Chunk collection runs every BUFFER_INTERVAL seconds on the main thread.
-    Ollama summaries run in a ThreadPoolExecutor so they never delay the
-    next collection cycle.  On Jetson Orin Nano the GPU stays free for
-    Whisper while Ollama uses CPU threads.
     """
-    last_processed_idx = 0  # index into session.live_chunks
+    last_processed_idx = 0
     minute_counter = 0
     futures: List[Future] = []
 
@@ -247,18 +204,14 @@ def summarization_worker(stop_event: threading.Event, session):
     )
 
     try:
-        # ── Main loop: collect chunks every BUFFER_INTERVAL ───────────
         while not stop_event.is_set():
             stopped = stop_event.wait(timeout=BUFFER_INTERVAL)
-
             if stopped:
-                break  # handle remaining chunks below
-
+                break
             last_processed_idx, minute_counter = _collect_and_submit(
                 session, last_processed_idx, minute_counter, executor, futures,
             )
 
-        # ── After stop: wait for whisper to finish final audio ────────
         print("[INFO] Summarizer waiting for whisper_done...")
         got_it = session.whisper_done.wait(timeout=60)
         if got_it:
@@ -266,34 +219,27 @@ def summarization_worker(stop_event: threading.Event, session):
         else:
             print("[WARN] whisper_done timed out after 60 s — processing what we have.")
 
-        # Collect any chunks added since the last cycle
         last_processed_idx, minute_counter = _collect_and_submit(
             session, last_processed_idx, minute_counter, executor, futures,
         )
 
-        # ── Wait for ALL in-flight minute summaries to finish ─────────
-        # On Jetson CPU this is the only blocking wait; summaries that
-        # were submitted during transcription should mostly be done already.
         pending = [f for f in futures if not f.done()]
         if pending:
             print(f"[INFO] Waiting for {len(pending)} in-flight minute summaries...")
         for f in as_completed(futures):
             try:
-                f.result()  # propagate any exceptions
+                f.result()
             except Exception as e:
                 print(f"[ERROR] Summary future raised: {e}")
         print(f"[INFO] All minute summaries complete: {len(session.minute_summaries)} summaries.")
 
-        # ── Signal that all minute summaries are done ────────────────
         session.minutes_done.set()
         print(f"[INFO] minutes_done signalled — {len(session.minute_summaries)} summaries ready.")
 
-        # ── Generate final summary ────────────────────────────────────
         _generate_final_summary(session)
 
     except Exception as e:
         session.status = "error"
-        # Import inside exception to avoid circular import at top
         from session_manager import session_manager
         session_manager.update_session_status(session.session_id, "error")
         print(f"[ERROR] Summarization worker error: {e}")
@@ -302,7 +248,6 @@ def summarization_worker(stop_event: threading.Event, session):
     finally:
         executor.shutdown(wait=False)
 
-
 def generate_summary_from_transcript_json(
     transcript_json: dict,
     minute_summaries: list | None = None,
@@ -310,30 +255,20 @@ def generate_summary_from_transcript_json(
     course_code: str = "",
 ) -> dict:
     """Generate a final Cornell/MOTM summary from transcriptJson and minute summaries."""
-    # The frontend must not mutate transcriptJson here.
-    # Use the existing summarization pipeline implementation.
     transcript_chunks = transcript_json.get("chunks") if isinstance(transcript_json, dict) else None
-
     if transcript_chunks is None or not isinstance(transcript_chunks, list):
         raise ValueError("Invalid transcript_json: expected an object with a chunks array")
-
     try:
         if minute_summaries and isinstance(minute_summaries, list) and len(minute_summaries) > 0:
             if session_type == "meeting":
-                # MOTM generation from full transcript
                 full_text = "\n".join(c.get("text", "") for c in transcript_chunks)
                 return summarize_motm(full_text)
-            # Lecture: context-aware Cornell using minute summaries and transcript chunks
             return summarize_cornell_context_aware(transcript_chunks, minute_summaries)
-
-        # No valid minute summaries available: fallback Cornell from full text (multipass for long transcripts)
         full_text = "\n".join(c.get("text", "") for c in transcript_chunks)
         return _summarize_text_multipass(full_text)
-
     except Exception as e:
         print(f"[ERROR] Summary generation failed after all retries: {e}")
         raise RuntimeError(f"Summarization failed: {e}") from e
-
 
 def _split_text_for_ollama(full_text: str, max_chars: int = 28000):
     """Split a long transcript text into manageable chunks for Ollama."""
@@ -341,12 +276,10 @@ def _split_text_for_ollama(full_text: str, max_chars: int = 28000):
         return []
     if len(full_text) <= max_chars:
         return [full_text]
-
     words = full_text.split()
     chunks = []
     current = []
     current_len = 0
-
     for word in words:
         if current_len + len(word) + 1 > max_chars and current:
             chunks.append(" ".join(current))
@@ -355,38 +288,29 @@ def _split_text_for_ollama(full_text: str, max_chars: int = 28000):
         else:
             current.append(word)
             current_len += len(word) + 1
-
     if current:
         chunks.append(" ".join(current))
-
     return chunks
-
 
 def _summarize_text_multipass(full_text: str) -> dict:
     """Summarize long transcript text in chunks and merge them safely."""
     from summarizer.summarizer import summarize_cornell, summarize_cornell_remote
-
     chunks = _split_text_for_ollama(full_text)
     if not chunks:
         raise ValueError("No transcript text to summarize")
-
     def _local_or_remote_summarize(text_to_summarize):
         try:
-            # prefer remote GPU for longer inputs
             return summarize_cornell_remote(text_to_summarize)
         except Exception as e:
             print(f"[SUMMARIZER] Remote Cornell summarization failed: {e}. Falling back to local model.")
             return summarize_cornell(text_to_summarize)
-
     if len(chunks) == 1:
         return _local_or_remote_summarize(full_text)
-
     partial_summaries = []
     for idx, chunk in enumerate(chunks, start=1):
         print(f"[SUMMARIZER] multipass chunk {idx}/{len(chunks)} (len={len(chunk)} chars)")
         short = _local_or_remote_summarize(chunk)
         partial_summaries.append(" ".join(short.get("summary", [])))
-
     combined = " \n\n".join(partial_summaries)
     print("[SUMMARIZER] generating final summary from chunk partials")
     return _local_or_remote_summarize(combined)

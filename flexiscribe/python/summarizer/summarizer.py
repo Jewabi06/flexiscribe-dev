@@ -23,7 +23,6 @@ from summarizer.prompt_builder import (
 from summarizer.json_utils import extract_json, validate_cornell_schema
 from config import OLLAMA_MODEL, OLLAMA_CORNELL_MODEL
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Stage 1 — Topic Extraction
 # ═══════════════════════════════════════════════════════════════════════════
@@ -52,7 +51,6 @@ def extract_topics(chunks: list, model=None, remote=False) -> dict:
         "subtopics": result.get("subtopics", []),
     }
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Stage 2 — Per-Minute Summary
 # ═══════════════════════════════════════════════════════════════════════════
@@ -63,10 +61,27 @@ def summarize_minute(text, model=None, main_topic="", subtopics=None):
     prompt = build_minute_summary_prompt(text, main_topic, subtopics)
     return extract_json(generate_response(model, prompt))
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Stage 3 — Context-Aware Cornell Notes (primary entry-point)
 # ═══════════════════════════════════════════════════════════════════════════
+
+def _format_summaries_for_cornell(minute_summaries: list, max_chars: int = 12000) -> str:
+    """Format minute summary dicts into a structured text block, truncated."""
+    parts = []
+    total = 0
+    for ms in minute_summaries:
+        minute_num = ms.get("minute", "?")
+        timestamp = ms.get("timestamp", "")
+        summary = ms.get("summary", "")[:300]          # cap each summary
+        key_points = ms.get("key_points", [])[:3]     # limit key points
+        block = f"Minute {minute_num} ({timestamp}):\nSummary: {summary}"
+        if key_points:
+            block += "\nKey points:\n" + "\n".join(f"- {kp[:100]}" for kp in key_points)
+        if total + len(block) > max_chars:
+            break
+        parts.append(block)
+        total += len(block)
+    return "\n\n".join(parts)
 
 def summarize_cornell_context_aware(
     transcript_chunks: list,
@@ -74,72 +89,45 @@ def summarize_cornell_context_aware(
     model=None,
     max_retries=3,
 ) -> dict:
+    """Generate final Cornell Notes using remote GPU model."""
     model = model or OLLAMA_CORNELL_MODEL
+    print(f"[SUMMARIZER] Generating final summary using remote model: {model}")
+
     topics = extract_topics(transcript_chunks, model, remote=True)
     main_topic = topics["main_topic"]
     subtopics = topics["subtopics"]
     summaries_text = _format_summaries_for_cornell(minute_summaries)
-    
+
     for attempt in range(max_retries):
         prompt = build_cornell_from_summaries_prompt(summaries_text, main_topic, subtopics)
-        raw = generate_response_remote(model, prompt, profile="extended")
-        data = extract_json(raw)
-        validated = validate_cornell_schema(data, main_topic)
-        
-        # Check if we got meaningful content (at least one note or key concept)
-        if validated.get("notes") or validated.get("key_concepts"):
-            return validated
-        
-        print(f"[SUMMARIZER] Attempt {attempt+1} failed – retrying with correction hint")
-        # Append a hint to the summaries text for next attempt
-        summaries_text += (
-            "\n\n[IMPORTANT] Previous output was invalid or empty. "
-            "Please ensure you return valid JSON matching the schema exactly. "
-            "Every note must have a term, definition, and example."
-        )
-    
-    # ── FALLBACK: Build Cornell notes directly from minute summaries ──
-    print("[SUMMARIZER] All retries failed – building fallback Cornell from minute summaries")
-    fallback_notes = []
-    fallback_concepts = set()
-    for ms in minute_summaries:
-        minute_num = ms.get("minute")
-        summary = ms.get("summary", "")
-        key_points = ms.get("key_points", [])
-        # Create a note from the minute summary
-        fallback_notes.append({
-            "term": f"Minute {minute_num}",
-            "definition": summary,
-            "example": " ".join(key_points[:2]) if key_points else ""
-        })
-        for kp in key_points:
-            # Simple keyword extraction (first 3-4 words)
-            words = kp.split()[:4]
-            concept = " ".join(words)
-            fallback_concepts.add(concept)
-    
+        try:
+            raw = generate_response_remote(model, prompt, profile="extended")
+            data = extract_json(raw)
+            validated = validate_cornell_schema(data, main_topic)
+            if validated.get("notes") or validated.get("key_concepts"):
+                return validated
+            print(f"[SUMMARIZER] Attempt {attempt+1} – empty result, retrying")
+        except RuntimeError as e:
+            print(f"[SUMMARIZER] Remote call failed: {e}")
+            if attempt == max_retries - 1:
+                # Return minimal structure instead of failing silently
+                return {
+                    "title": main_topic or "Lecture Notes",
+                    "key_concepts": [],
+                    "notes": [{"term": "Summarization error", "definition": str(e), "example": ""}],
+                    "summary": ["Remote summarization service unavailable. Please try again later."]
+                }
+            continue
+        # Add hint for retry
+        summaries_text += "\n\n[IMPORTANT] Previous output was invalid or empty. Please return valid JSON exactly as the schema requires."
+
+    # Fallback if all retries exhausted
     return {
-        "title": main_topic,
-        "key_concepts": list(fallback_concepts)[:20],
-        "notes": fallback_notes,
-        "summary": [f"Minute {ms.get('minute')}: {ms.get('summary', '')}" for ms in minute_summaries if ms.get('summary')]
+        "title": main_topic or "Lecture Notes",
+        "key_concepts": [],
+        "notes": [{"term": "No summary generated", "definition": "All attempts failed", "example": ""}],
+        "summary": ["Unable to generate final summary."]
     }
-
-def _format_summaries_for_cornell(minute_summaries: list) -> str:
-    """Format minute-summary dicts into a structured text block."""
-    parts = []
-    for ms in minute_summaries:
-        minute_num = ms.get("minute", "?")
-        timestamp = ms.get("timestamp", "")
-        summary = ms.get("summary", "")
-        key_points = ms.get("key_points", [])
-
-        block = f"Minute {minute_num} ({timestamp}):\nSummary: {summary}"
-        if key_points:
-            block += "\nKey points:\n" + "\n".join(f"- {kp}" for kp in key_points)
-        parts.append(block)
-    return "\n\n".join(parts)
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Legacy / fallback functions (backward compatible)
@@ -153,7 +141,6 @@ def summarize_cornell(text, model=None):
     )
     return validate_cornell_schema(result)
 
-
 def summarize_cornell_remote(text, model=None):
     """Cornell Notes using remote GPU-powered Ollama backend."""
     model = model or OLLAMA_CORNELL_MODEL
@@ -161,7 +148,6 @@ def summarize_cornell_remote(text, model=None):
         generate_response_remote(model, build_cornell_prompt(text), profile="extended")
     )
     return validate_cornell_schema(result)
-
 
 def summarize_cornell_from_summaries(summaries_text, model=None):
     """Cornell Notes from pre-formatted summaries text (no topic context)."""
@@ -173,10 +159,10 @@ def summarize_cornell_from_summaries(summaries_text, model=None):
     )
     return validate_cornell_schema(result)
 
-
 def summarize_motm(transcript, model=None):
+    """Generate Minutes of the Meeting using remote GPU model."""
     model = model or OLLAMA_CORNELL_MODEL
-    print(f"[SUMMARIZER] MOTM using remote OLLAMA_BASE_URL with model {model}")
+    print(f"[SUMMARIZER] MOTM using remote model {model}")
     return extract_json(
         generate_response_remote(model, build_motm_prompt(transcript), profile="extended")
     )

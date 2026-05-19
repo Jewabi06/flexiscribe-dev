@@ -6,8 +6,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL, OLLAMA_MODEL
 
 # ─── Generation Profiles ─────────────────────────────────────────────────
-# Different tasks need different token budgets.
-# Values are kept Jetson Orin Nano-friendly.
 PROFILES = {
     "short": {                  # Topic extraction, minute summaries
         "temperature": 0.2,
@@ -44,7 +42,6 @@ SYSTEM_PROMPTS = {
     ),
 }
 
-
 def generate_response(
     model: str,
     prompt: str,
@@ -53,12 +50,6 @@ def generate_response(
 ) -> str:
     """
     Send prompt to local Ollama with the specified generation profile.
-
-    Args:
-        model:   Ollama model name (e.g. 'gemma3:1b')
-        prompt:  User prompt text
-        profile: 'short' (1024 tokens) | 'extended' (4096 tokens)
-        system:  Key from SYSTEM_PROMPTS
     """
     options = PROFILES.get(profile, PROFILES["short"])
     system_prompt = SYSTEM_PROMPTS.get(system, SYSTEM_PROMPTS["json_api"])
@@ -71,26 +62,18 @@ def generate_response(
         ],
         options=options,
     )
-
     return response["message"]["content"].strip()
 
-
 # ─── Remote GPU-powered Ollama client ─────────────────────────────────────
-# Used for final Cornell Notes / MOTM generation after transcription stops.
-# Connects to OLLAMA_BASE_URL (e.g. Google Cloud VM with GPU) for faster
-# inference with gemma3:4b, mirroring the approach used in quiz generation.
-
 _remote_client = None
-
 
 def _get_remote_client():
     """Lazy-init a remote Ollama client pointing at OLLAMA_BASE_URL."""
     global _remote_client
     if _remote_client is None:
-        _remote_client = ollama.Client(host=OLLAMA_BASE_URL)
+        _remote_client = ollama.Client(host=OLLAMA_BASE_URL, timeout=120)  # increased timeout
         print(f"[OLLAMA] Remote client initialised → {OLLAMA_BASE_URL}")
     return _remote_client
-
 
 def generate_response_remote(
     model: str,
@@ -102,18 +85,7 @@ def generate_response_remote(
 ) -> str:
     """
     Send prompt to the remote GPU-powered Ollama instance with retry logic.
-
-    Used for final summary generation after transcription stops.
-    The remote server (OLLAMA_BASE_URL) runs a larger model (e.g.
-    gemma3:4b) on GPU for faster, higher-quality output.
-
-    Args:
-        model:   Ollama model name (e.g. 'gemma3:4b')
-        prompt:  User prompt text
-        profile: 'short' (1024 tokens) | 'extended' (4096 tokens)
-        system:  Key from SYSTEM_PROMPTS
-        max_retries: Number of retry attempts on failure
-        initial_delay: Base delay for exponential backoff (seconds)
+    Raises RuntimeError if all retries fail – NO FALLBACK TO LOCAL MODEL.
     """
     options = PROFILES.get(profile, PROFILES["extended"])
     system_prompt = SYSTEM_PROMPTS.get(system, SYSTEM_PROMPTS["json_api"])
@@ -134,17 +106,12 @@ def generate_response_remote(
         except Exception as e:
             print(f"[OLLAMA] Remote call attempt {attempt+1}/{max_retries} failed: {e}")
             if attempt < max_retries - 1:
-                delay = min(initial_delay * (2 ** attempt), 20.0)  # cap backoff at 20s
+                delay = min(initial_delay * (2 ** attempt), 20.0)
                 time.sleep(delay)
             else:
-                print("[OLLAMA] All remote attempts failed, falling back to local model")
-                # Fallback to local Ollama using the LOCAL small model, not the remote large one
-                local_model = OLLAMA_MODEL
-                try:
-                    print(f"[OLLAMA] Trying local fallback with model: {local_model}")
-                    return generate_response(local_model, prompt, profile, system)
-                except Exception as local_e:
-                    print(f"[OLLAMA] Local fallback also failed: {local_e}")
-                    return ""  # final fallback empty string
-
-    return ""  # should never reach here
+                print("[OLLAMA] Remote unavailable. Raising error – no fallback to local model.")
+                raise RuntimeError(
+                    f"Remote Ollama at {OLLAMA_BASE_URL} failed after {max_retries} attempts. "
+                    f"Check network and server status. Model: {model}"
+                )
+    return ""  # never reached
