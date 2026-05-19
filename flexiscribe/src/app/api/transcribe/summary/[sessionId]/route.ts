@@ -4,7 +4,7 @@ import prisma from "@/lib/db";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  context: { params: { sessionId: string } | Promise<{ sessionId: string }> }
 ) {
   try {
     const user = await getCurrentUser();
@@ -15,6 +15,7 @@ export async function GET(
       return NextResponse.json({ error: "Educator access only" }, { status: 403 });
     }
 
+    const params = await context.params;
     const { sessionId } = params;
     if (!sessionId) {
       return NextResponse.json({ error: "Session ID is required" }, { status: 400 });
