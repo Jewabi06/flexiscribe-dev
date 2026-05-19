@@ -95,6 +95,7 @@ def _deliver_callback_job(job: dict) -> bool:
     if CALLBACK_SECRET:
         headers["x-callback-secret"] = CALLBACK_SECRET
 
+    print(f"[CALLBACK] Delivering callback to {callback_url} (secret set={bool(CALLBACK_SECRET)})")
     with CALLBACK_JOB_LOCK:
         for attempt in range(3):
             try:
@@ -104,8 +105,9 @@ def _deliver_callback_job(job: dict) -> bool:
                     _remove_pending_callback_job(job["session_id"])
                     return True
                 else:
+                    body = resp.text[:200] if resp.text else "<empty response>"
                     print(
-                        f"[CALLBACK] Attempt {attempt + 1} failed ({resp.status_code}): {resp.text[:200]}"
+                        f"[CALLBACK] Attempt {attempt + 1} failed ({resp.status_code}): {body}"
                     )
             except Exception as e:
                 print(f"[CALLBACK] Attempt {attempt + 1} error: {e}")
@@ -213,6 +215,7 @@ def recover_interrupted_sessions():
 
 @app.on_event("startup")
 def startup_events():
+    print(f"[CALLBACK] FRONTEND_URL={FRONTEND_URL}, CALLBACK_SECRET_SET={bool(CALLBACK_SECRET)}")
     resume_pending_callbacks()
     warm_up_ollama()
     recover_interrupted_sessions()

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
+const FASTAPI_TIMEOUT_MS = 45_000;
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,18 +45,38 @@ export async function POST(request: NextRequest) {
       minuteSummaries = transcription.summaryJson;
     }
 
-    // Call FastAPI regenerate endpoint with all required fields
-    const resp = await fetch(`${FASTAPI_URL}/transcribe/summary/regenerate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        transcription_id: transcriptionId,
-        transcript_json: transcription.transcriptJson,
-        minute_summaries: minuteSummaries,
-        session_type: transcription.sessionType || "lecture",
-        course_code: transcription.course || "",
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FASTAPI_TIMEOUT_MS);
+
+    let resp: Response;
+    try {
+      resp = await fetch(`${FASTAPI_URL}/transcribe/summary/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcription_id: transcriptionId,
+          transcript_json: transcription.transcriptJson,
+          minute_summaries: minuteSummaries,
+          session_type: transcription.sessionType || "lecture",
+          course_code: transcription.course || "",
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchError) {
+      if (
+        fetchError instanceof Error &&
+        (fetchError.name === "AbortError" || String(fetchError.message).includes("aborted"))
+      ) {
+        return NextResponse.json(
+          { error: `FastAPI regeneration request timed out after ${FASTAPI_TIMEOUT_MS / 1000} seconds.` },
+          { status: 504 }
+        );
+      }
+      console.error("Regenerate summary fetch error:", fetchError);
+      return NextResponse.json({ error: "Unable to reach summarization backend." }, { status: 503 });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!resp.ok) {
       let errorText = "";
