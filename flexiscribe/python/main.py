@@ -1,9 +1,6 @@
 """
 fLexiScribe FastAPI Backend
 Handles live transcription sessions via Whisper + Ollama summarization.
-
-On Jetson Orin Nano, uses NVIDIA's Jetson-specific PyTorch build for
-GPU-accelerated Whisper inference (sm_87 compute capability).
 """
 import os
 import sys
@@ -29,7 +26,6 @@ if os.path.isdir(_cusparse_path):
     except OSError:
         pass
 
-# Jetson Orin NVML workaround — must be set before torch import
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:False")
 
 from fastapi import FastAPI, HTTPException
@@ -205,16 +201,12 @@ def recover_interrupted_sessions():
                         agg_data = json.load(f)
                         session.transcript_chunks = agg_data.get("chunks", [])
                 else:
-                    # fallback to the old transcript_path (10‑second chunks) – but that's wrong
                     print(f"[RECOVERY] No aggregated file for {sid}, final summary may be incomplete.")
                 session_manager._sessions[sid] = session
                 # Launch background thread to finish summarization
                 def finish():
                     _generate_final_summary(session)
                 threading.Thread(target=finish, daemon=True).start()
-                # Delete metadata only after starting the thread; if thread fails, session is still recoverable on next boot
-                # delete_session_metadata(sid)  # moved to after completion? We'll keep it for now.
-                # Actually, we should delete only after the summary is done. For simplicity, we delete now.
                 delete_session_metadata(sid)
 
 
@@ -348,19 +340,15 @@ def start_transcription(req: StartRequest):
     }
 
 
-# ─── Stop transcription ──────────────────────────────────────────────────
+# ─── Stop transcription (SYNCHRONOUS final summary) ──────────────────────
 
 @app.post("/transcribe/stop")
 def stop_transcription(req: StopRequest):
     """
     Stop a running transcription session.
-
-    Returns transcript + minute summaries immediately.  The final Cornell
-    summary is generated asynchronously — when it finishes, FastAPI posts
-    it to the Next.js callback endpoint so the reviewer (Lesson) is created
-    without blocking the educator's stop action.
+    Waits for whisper and minute summaries to finish, then generates the
+    final summary synchronously and returns it in the response.
     """
-
     session = session_manager.get_session(req.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -371,7 +359,7 @@ def stop_transcription(req: StopRequest):
             detail=f"Session is not running (status: {session.status})",
         )
 
-    # Store DB record ID for the async callback
+    # Store DB record ID for later use
     if req.transcription_id:
         session.transcription_id = req.transcription_id
 
@@ -382,7 +370,6 @@ def stop_transcription(req: StopRequest):
     session_manager.update_session_status(session.session_id, "stopping")
 
     # Wait for whisper to finish its current transcription + remaining buffer.
-    # On CPU fallback, a single chunk can take 20-40 s (fp32) so allow enough time.
     print("[API] Waiting for whisper worker to finish...")
     if session.whisper_thread:
         session.whisper_thread.join(timeout=90)
@@ -390,104 +377,54 @@ def stop_transcription(req: StopRequest):
     session.whisper_done.wait(timeout=30)
     print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
 
-    # Wait for minute summaries to complete (NOT the final Cornell summary).
-    # The summarizer processes remaining chunks then signals minutes_done
-    # before starting the slower Cornell generation.
+    # Wait for minute summaries to complete (NOT the final summary yet)
     print("[API] Waiting for minute summaries to complete...")
     session.minutes_done.wait(timeout=60)
     print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
 
-    # Build response with transcript + minute summaries (no final_summary yet)
+    # ─── Generate final summary synchronously (no callback) ───────────────
+    final_summary = None
+    if session.minute_summaries:
+        # Wait for summarizer thread (if still running) to finish final summary
+        if session.summarizer_thread and session.summarizer_thread.is_alive():
+            print("[API] Waiting for summarizer thread to finish generating final summary...")
+            session.summarizer_thread.join(timeout=300)  # 5 minutes max
+        final_summary = session.final_summary
+    else:
+        # Fallback: generate directly from transcript
+        from transcriber.live_transcriber import _generate_final_summary
+        print("[API] No minute summaries, generating fallback final summary...")
+        _generate_final_summary(session)
+        final_summary = session.final_summary
+
+    # Update session status
+    session.status = "completed" if final_summary else "error"
+    session_manager.update_session_status(session.session_id, session.status)
+
+    # Prepare response with all data
     transcript_data = session.get_transcript_json()
     live_transcript_data = session.get_live_transcript_json()
     summary_data = session.get_summary_json()
-
-    # Spawn background thread to wait for Cornell summary + post callback
-    cb_thread = threading.Thread(
-        target=_summary_callback_worker,
-        args=(session,),
-        daemon=True,
-    )
-    session.summary_callback_thread = cb_thread
-    cb_thread.start()
+    final_summary_data = session.get_final_summary_json()
 
     return {
         "session_id": session.session_id,
-        "status": "stopping",  # not "completed" yet — Cornell still generating
+        "status": session.status,
         "course_code": session.course_code,
         "duration": session.duration_formatted,
         "transcript": transcript_data,
         "live_transcript": live_transcript_data,
         "minute_summaries": summary_data,
-        "final_summary": None,  # will arrive asynchronously via callback
-        "summary_pending": True,
+        "final_summary": final_summary_data,
+        "summary_pending": False,
         "file_status": session.file_status,
     }
 
 
-# ─── Async summary callback worker ───────────────────────────────────────
-
-def _summary_callback_worker(session: TranscriptionSession):
-    """
-    Background thread: waits for the summarizer to finish generating the
-    final Cornell/MOTM summary, then POSTs it to the Next.js callback
-    endpoint with retry logic.
-    """
-    try:
-        # Wait for the summarizer thread to fully complete (Cornell generation)
-        if session.summarizer_thread:
-            session.summarizer_thread.join(timeout=600)  # generous for long lectures on CPU
-
-        if not session.final_summary:
-            if session.minute_summaries:
-                print(f"[CALLBACK] No final summary for session {session.session_id} — using minute summaries fallback.")
-                session.final_summary = {
-                    "title": f"Fallback summary for {session.course_code}",
-                    "key_concepts": [],
-                    "notes": [],
-                    "summary": [
-                        f"Minute {m.get('minute', '?')}: {m.get('summary', '').strip()}"
-                        for m in session.minute_summaries
-                        if m.get('summary')
-                    ],
-                }
-            else:
-                print(f"[CALLBACK] No final summary and no minute summaries for session {session.session_id} — skipping callback.")
-                return
-
-        if not session.transcription_id:
-            print(f"[CALLBACK] No transcription_id for session {session.session_id} — skipping callback.")
-            return
-
-        callback_job = {
-            "session_id": session.session_id,
-            "transcription_id": session.transcription_id,
-            "final_summary": session.get_final_summary_json(),
-        }
-        _save_pending_callback_job(callback_job)
-
-        if _deliver_callback_job(callback_job):
-            session.status = "completed"
-            session_manager.update_session_status(session.session_id, "completed")
-        else:
-            print(f"[CALLBACK] Last attempt failed for session {session.session_id}; pending callback persisted.")
-            session.status = "error"
-            session_manager.update_session_status(session.session_id, "error")
-
-    except Exception as e:
-        print(f"[CALLBACK] Error in summary callback worker: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-# ─── Poll summary status ─────────────────────────────────────────────────
+# ─── Poll summary status (kept for backward compatibility) ─────────────────
 
 @app.get("/transcribe/summary/{session_id}")
 def get_summary_status(session_id: str):
-    """
-    Poll endpoint: check if the final summary is ready for a session.
-    Returns the summary if available, or status 'pending'.
-    """
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -531,8 +468,6 @@ def regenerate_summary(req: RegenerateSummaryRequest):
 
 @app.get("/transcribe/status/{session_id}")
 def get_session_status(session_id: str):
-    """Get current status and live data for a session."""
-
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -557,7 +492,6 @@ def get_session_status(session_id: str):
 def get_live_transcript(session_id: str):
     """
     Server-Sent Events stream for live transcript updates.
-    The frontend can subscribe to this for real-time display.
     """
     session = session_manager.get_session(session_id)
     if not session:
@@ -567,13 +501,11 @@ def get_live_transcript(session_id: str):
         last_live_count = 0
         last_summary_count = 0
 
-        # Send an immediate keepalive so the client knows the connection is open
         yield ": connected\n\n"
 
         while session.status == "running":
             sent_data = False
 
-            # Stream new live chunks (every ~10s) for real-time display
             current_live = len(session.live_chunks)
             if current_live > last_live_count:
                 new_chunks = session.live_chunks[last_live_count:]
@@ -583,7 +515,6 @@ def get_live_transcript(session_id: str):
                 last_live_count = current_live
                 sent_data = True
 
-            # Stream new minute summaries as they complete
             current_summaries = len(session.minute_summaries)
             if current_summaries > last_summary_count:
                 new_summaries = session.minute_summaries[last_summary_count:]
@@ -593,14 +524,11 @@ def get_live_transcript(session_id: str):
                 last_summary_count = current_summaries
                 sent_data = True
 
-            # Send a keepalive comment if no real data was sent this tick,
-            # so proxies / browsers don't close the idle connection.
             if not sent_data:
                 yield ": keepalive\n\n"
 
             time.sleep(1)
 
-        # Send final event
         yield f"event: done\ndata: {json.dumps({'status': session.status, 'duration': session.duration_formatted})}\n\n"
 
     return StreamingResponse(
@@ -618,10 +546,6 @@ def get_live_transcript(session_id: str):
 
 @app.post("/transcribe/upload-confirm")
 def confirm_upload(req: UploadConfirmRequest):
-    """
-    Called by frontend after successfully saving JSON to database.
-    Marks local files for deletion.
-    """
     session = session_manager.get_session(req.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -634,7 +558,6 @@ def confirm_upload(req: UploadConfirmRequest):
         session.mark_uploaded(req.file_type)
         session.mark_for_deletion(req.file_type)
 
-    # Attempt cleanup
     session.cleanup_files()
 
     return {
@@ -645,21 +568,16 @@ def confirm_upload(req: UploadConfirmRequest):
 
 @app.get("/transcribe/pending-files")
 def get_pending_files():
-    """List files that haven't been uploaded to the database yet."""
     return {"pending": session_manager.get_pending_files()}
 
 
 @app.get("/transcribe/sessions")
 def list_sessions():
-    """List all transcription sessions."""
     return {"sessions": session_manager.list_sessions()}
 
 
-# ─── Cleanup completed sessions ──────────────────────────────────────────
-
 @app.delete("/transcribe/session/{session_id}")
 def delete_session(session_id: str):
-    """Remove a completed session from memory."""
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

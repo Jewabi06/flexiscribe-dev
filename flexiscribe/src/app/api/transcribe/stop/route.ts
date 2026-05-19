@@ -4,16 +4,12 @@ import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
-// The stop endpoint now returns quickly (transcript + minute summaries).
-// The final Cornell summary is generated asynchronously by FastAPI and
-// delivered via a separate callback endpoint.
 export const maxDuration = 60;
 
 /**
  * POST /api/transcribe/stop
  * Stop a running transcription session.
- * Receives final transcript + summary JSON from FastAPI, saves to database.
- * Marks local files for deletion.
+ * FastAPI now returns final summary synchronously.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -31,12 +27,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Session ID is required" }, { status: 400 });
     }
 
-    // Call FastAPI backend to stop transcription
-    // 60s timeout: Whisper finishes current chunk + remaining buffer,
-    // then summarizer processes remaining text into minute summaries.
-    // Final Cornell summary is generated asynchronously via callback.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
+    const timeout = setTimeout(() => controller.abort(), 120_000); // Longer timeout for summary generation
 
     const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
       method: "POST",
@@ -64,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json();
 
-    // Build content string from transcript chunks for backward compatibility
+    // Build content string from transcript chunks
     const chunks = data.transcript?.chunks || [];
     const contentHtml = chunks
       .map(
@@ -77,10 +69,6 @@ export async function POST(request: NextRequest) {
       .map((c: { text: string }) => c.text)
       .join("\n");
 
-    // Save transcript + minute summaries immediately.
-    // The final Cornell summary will arrive asynchronously via the
-    // /api/transcribe/summary/callback endpoint — at that point the
-    // Lesson (reviewer) is created and students are notified.
     if (transcriptionId) {
       const updatedTranscription = await prisma.transcription.update({
         where: { id: transcriptionId },
@@ -88,9 +76,10 @@ export async function POST(request: NextRequest) {
           content: contentHtml,
           rawText: rawText,
           duration: data.duration || "0m 0s",
-          status: data.summary_pending ? "SUMMARIZING" : "COMPLETED",
+          status: "COMPLETED",                               // ✅ immediately completed
           transcriptJson: data.transcript || null,
           summaryJson: data.minute_summaries || null,
+          finalSummaryJson: data.final_summary || null,      // ✅ store final summary
         },
         include: {
           class: {
@@ -99,37 +88,131 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // ── Lesson creation + full notifications happen later ──
-      // The final Cornell summary is generated asynchronously by FastAPI.
-      // When ready, it calls /api/transcribe/summary/callback which:
-      //   1. Updates this transcription with summaryJson
-      //   2. Creates the Lesson (reviewer)
-      //   3. Notifies enrolled students and the educator
+      // ─── Create Lesson (reviewer) from Cornell Notes ────────────────
+      if (data.final_summary && data.final_summary.title) {
+        try {
+          const summaryObj = data.final_summary;
+          const keyConcepts = summaryObj.key_concepts || [];
+          const notes = summaryObj.notes || [];
+          const summary = summaryObj.summary || "";
 
-      // Send a lightweight "transcript saved" notification to the educator
+          const reviewerContent = JSON.stringify({
+            type: "cornell",
+            title: summaryObj.title || updatedTranscription.title,
+            summary,
+            keyConcepts: Array.isArray(notes)
+              ? notes.map(
+                  (n: { term?: string; definition?: string; example?: string } | string, i: number) => {
+                    if (typeof n === "object" && n.term) {
+                      return { term: n.term, definition: n.definition || "", ...(n.example ? { example: n.example } : {}) };
+                    }
+                    return {
+                      term: keyConcepts[i] || `Concept ${i + 1}`,
+                      definition: typeof n === "string" ? n : "",
+                    };
+                  }
+                )
+              : [],
+            importantFacts: Array.isArray(notes)
+              ? notes.map((n: { term?: string; definition?: string; example?: string } | string) =>
+                  typeof n === "object"
+                    ? n.example
+                      ? `${n.term}: ${n.definition} (Example: ${n.example})`
+                      : `${n.term}: ${n.definition}`
+                    : n
+                )
+              : [],
+            detailedContent: `${keyConcepts.join("\n")}\n\n${
+              Array.isArray(notes)
+                ? notes
+                    .map((n: { term?: string; definition?: string; example?: string } | string) =>
+                      typeof n === "object"
+                        ? n.example
+                          ? `${n.term}: ${n.definition}. Example: ${n.example}`
+                          : `${n.term}: ${n.definition}`
+                        : n
+                    )
+                    .join("\n")
+                : ""
+            }\n\n${Array.isArray(summary) ? summary.join("\n") : summary}`,
+          });
+
+          if (reviewerContent.length >= 200) {
+            await prisma.lesson.create({
+              data: {
+                title: updatedTranscription.title,
+                subject: updatedTranscription.course,
+                content: reviewerContent,
+              },
+            });
+            console.log(`[STOP] Auto-created reviewer for transcription ${transcriptionId}`);
+          }
+        } catch (lessonErr) {
+          console.error("[STOP] Failed to auto-create reviewer:", lessonErr);
+        }
+      }
+
+      // ─── Notifications ─────────────────────────────────────────────
+      // Notify educator that everything is ready
       try {
         const eduClassSubject = updatedTranscription.class?.subject || updatedTranscription.course;
         const eduClassSection = updatedTranscription.class?.section || "";
-        let eduNotifMessage = `Your live transcription "${updatedTranscription.title}" has been saved`;
+        let eduNotifMessage = `Your transcription "${updatedTranscription.title}" is complete. Summary and reviewer are ready.`;
         if (eduClassSection) {
-          eduNotifMessage += ` for ${eduClassSubject} — Section ${eduClassSection}. Summary is being generated...`;
-        } else {
-          eduNotifMessage += `. Summary is being generated...`;
+          eduNotifMessage += ` (${eduClassSubject} — Section ${eduClassSection})`;
         }
         await prisma.notification.create({
           data: {
-            title: "Transcription Saved",
+            title: "Transcription Complete",
             message: eduNotifMessage,
-            type: "transcript",
+            type: "transcript_summary",
             educatorId: updatedTranscription.educatorId,
           },
         });
       } catch (eduNotifErr) {
         console.error("Failed to create educator notification:", eduNotifErr);
       }
+
+      // Notify enrolled students
+      if (updatedTranscription.classId) {
+        try {
+          const enrollments = await prisma.studentClass.findMany({
+            where: { classId: updatedTranscription.classId },
+            select: { studentId: true },
+          });
+
+          if (enrollments.length > 0) {
+            const classSubject = updatedTranscription.class?.subject || updatedTranscription.course;
+            const classSection = updatedTranscription.class?.section || "";
+            const educator = await prisma.educator.findUnique({
+              where: { id: updatedTranscription.educatorId },
+              select: { fullName: true },
+            });
+            const educatorDisplayName = educator?.fullName || "Your professor";
+
+            let notifMessage = `${educatorDisplayName} uploaded a new transcript and summary "${updatedTranscription.title}"`;
+            if (classSection) {
+              notifMessage += ` for ${classSubject} — Section ${classSection}.`;
+            } else {
+              notifMessage += ` for ${classSubject}.`;
+            }
+
+            await prisma.notification.createMany({
+              data: enrollments.map((e) => ({
+                title: "New Transcript & Summary Available",
+                message: notifMessage,
+                type: "transcript_summary",
+                studentId: e.studentId,
+              })),
+            });
+          }
+        } catch (notifError) {
+          console.error("Failed to create student notifications:", notifError);
+        }
+      }
     }
 
-    // Tell FastAPI to mark files for deletion since we saved to DB
+    // Tell FastAPI to mark files for deletion
     try {
       await fetch(`${FASTAPI_URL}/transcribe/upload-confirm`, {
         method: "POST",
@@ -148,13 +231,12 @@ export async function POST(request: NextRequest) {
         message: "Transcription saved successfully",
         session_id: sessionId,
         transcription_id: transcriptionId,
-        status: data.summary_pending ? "SUMMARIZING" : "COMPLETED",
+        status: "COMPLETED",
         duration: data.duration,
         chunks_count: chunks.length,
-        has_summary: false,
-        summary_pending: !!data.summary_pending,
-        lesson_created: false,
-        lesson_id: null,
+        has_summary: true,
+        summary_pending: false,
+        final_summary: data.final_summary,
         transcript: data.transcript,
         live_transcript: data.live_transcript || null,
         minute_summaries: data.minute_summaries || null,

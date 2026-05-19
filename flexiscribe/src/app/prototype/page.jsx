@@ -36,10 +36,6 @@ export default function PrototypeDashboard() {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  // Retry modal state (new)
-  const [showRetryModal, setShowRetryModal] = useState(false);
-  const [isRegenerating, setIsRegenerating] = useState(false);
-
   const animationFrameRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -48,8 +44,6 @@ export default function PrototypeDashboard() {
   const transcriptEndRef = useRef(null);
   const durationRef = useRef(null);
   const startTimeRef = useRef(null);
-  const summaryPollRef = useRef(null);
-  const summaryPollStartRef = useRef(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -75,11 +69,12 @@ export default function PrototypeDashboard() {
               startLiveStream(savedSessionId);
               setStatusMessage("Resuming active recording session...");
             } else if (normalizedStatus === "stopping" || normalizedStatus === "summarizing") {
+              // We no longer poll for summary because stop will generate it synchronously
+              // Just show a message that the session is finalizing
               setIsRecording(false);
               setIsFinalizing(true);
               setShowStatusModal(true);
-              setStatusMessage("Summary is being generated. Resuming status watcher...");
-              pollSummaryStatus(savedSessionId);
+              setStatusMessage("Session is finalizing. Please wait...");
             } else if (normalizedStatus === "completed") {
               setStatusMessage("Previous session has already finished.");
               localStorage.removeItem("flexiSession");
@@ -116,7 +111,6 @@ export default function PrototypeDashboard() {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
       if (durationRef.current) clearInterval(durationRef.current);
-      clearSummaryPoll();
     };
   }, []);
 
@@ -342,135 +336,6 @@ export default function PrototypeDashboard() {
     }, 5000);
   };
 
-  const clearSummaryPoll = () => {
-    if (summaryPollRef.current) {
-      clearTimeout(summaryPollRef.current);
-      summaryPollRef.current = null;
-    }
-    summaryPollStartRef.current = null;
-  };
-
-  const pollSummaryStatus = async (sid) => {
-    if (!sid) return;
-
-    if (!summaryPollStartRef.current) {
-      summaryPollStartRef.current = Date.now();
-    }
-
-    if (Date.now() - summaryPollStartRef.current > 300000) {
-      clearSummaryPoll();
-      setErrorMessage(
-        "Summary generation timed out. The backend may be overloaded or the summarization process failed. Please check the backend logs for details."
-      );
-      setErrorModalOpen(true);
-      setIsFinalizing(false);
-      setShowStatusModal(false);
-      setIsStopping(false);
-      localStorage.removeItem("flexiSession");
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/transcribe/status?sessionId=${sid}`);
-      if (!res.ok) {
-        throw new Error(`Status fetch failed (${res.status})`);
-      }
-
-      const data = await res.json();
-      const normalizedStatus = data.status?.toLowerCase();
-      if (normalizedStatus === "completed") {
-        setIsFinalizing(false);
-        setShowStatusModal(false);
-        setStatusMessage("Summary generation complete.");
-        setIsStopping(false);
-        clearSummaryPoll();
-        localStorage.removeItem("flexiSession");
-
-        setLiveCaption("");
-        setFullTranscript("");
-        setLiveChunks([]);
-
-        if (data.live_transcript?.chunks) {
-          setLiveChunks(data.live_transcript.chunks);
-        }
-
-        return;
-      }
-
-      if (normalizedStatus === "interrupted") {
-        setIsFinalizing(false);
-        setShowStatusModal(false);
-        setStatusMessage("Session was interrupted and cannot be resumed. Please start again.");
-        setIsStopping(false);
-        clearSummaryPoll();
-        localStorage.removeItem("flexiSession");
-        setSessionId(null);
-        setTranscriptionId(null);
-        return;
-      }
-
-      if (normalizedStatus === "error") {
-        setIsFinalizing(false);
-        setShowStatusModal(false);
-        setStatusMessage("Summary generation failed. You can retry.");
-        setIsStopping(false);
-        clearSummaryPoll();
-        // Show retry modal
-        setShowRetryModal(true);
-        return;
-      }
-
-      setIsFinalizing(true);
-      setShowStatusModal(true);
-      setStatusMessage("Summary is being generated, please wait...");
-    } catch (err) {
-      console.error("Summary status poll error:", err);
-      setStatusMessage("Unable to get summary status. Retrying...");
-    }
-
-    clearSummaryPoll();
-    summaryPollRef.current = setTimeout(() => pollSummaryStatus(sid), 5000);
-  };
-
-  const regenerateSummary = async () => {
-    if (!transcriptionId) return;
-    setIsRegenerating(true);
-    setShowRetryModal(false);
-    setShowStatusModal(true);
-    setStatusMessage("Regenerating summary, please wait...");
-    setIsFinalizing(true);
-
-    try {
-      const res = await fetch("/api/transcribe/summary/regenerate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcriptionId }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Regeneration failed");
-      }
-
-      const data = await res.json();
-      setStatusMessage("Summary regenerated successfully!");
-      setIsFinalizing(false);
-      setShowStatusModal(false);
-      localStorage.removeItem("flexiSession");
-      setSessionId(null);
-      setTranscriptionId(null);
-      // Optionally refresh the page or navigate
-    } catch (err) {
-      console.error("Regenerate error:", err);
-      setErrorMessage(err.message);
-      setErrorModalOpen(true);
-      setIsFinalizing(false);
-      setShowStatusModal(false);
-    } finally {
-      setIsRegenerating(false);
-    }
-  };
-
   const handleStopRecording = async () => {
     if (!sessionId) return;
 
@@ -508,34 +373,22 @@ export default function PrototypeDashboard() {
       const data = await res.json();
 
       setIsRecording(false);
+      setLiveChunks(data.live_transcript?.chunks || []);
+      setFullTranscript("");
+      setLiveCaption("");
 
-      if (data.live_transcript?.chunks) {
-        setLiveChunks(data.live_transcript.chunks);
-      }
-
-      if (data.summary_pending) {
-        setIsFinalizing(true);
-        setShowStatusModal(true);
-        setStatusMessage("Recording stopped. Final summary is being generated; this can take a few moments.");
-        localStorage.setItem(
-          "flexiSession",
-          JSON.stringify({ sessionId, transcriptionId })
-        );
-        pollSummaryStatus(sessionId);
-      } else {
+      if (data.final_summary) {
+        // Summary is ready immediately
+        setStatusMessage("Recording saved and summary ready!");
         setIsFinalizing(false);
         setShowStatusModal(false);
-
-        setLiveCaption("");
-        setFullTranscript("");
-        setLiveChunks([]);
-
-        let msg = "Recording saved! ";
-        if (data.lesson_created) msg += "AI notes and transcripts are ready.";
-        else if (data.has_summary) msg += "AI notes have been generated.";
-        else msg += "AI notes will be ready shortly.";
-        setStatusMessage(msg);
-
+        localStorage.removeItem("flexiSession");
+        setSessionId(null);
+        setTranscriptionId(null);
+      } else {
+        // Fallback (should not happen with new backend)
+        setStatusMessage("Recording saved, but summary is pending.");
+        setShowStatusModal(false);
         localStorage.removeItem("flexiSession");
         setSessionId(null);
         setTranscriptionId(null);
@@ -824,7 +677,7 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Summary status modal */}
+      {/* Summary status modal (kept for any pending state, but rarely shown) */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
           <div className="guide-modal summary-modal" onClick={(e) => e.stopPropagation()}>
@@ -872,47 +725,8 @@ export default function PrototypeDashboard() {
         </div>
       )}
 
-      {/* Retry Modal (new) */}
-      {showRetryModal && (
-        <div className="guide-overlay" onClick={() => setShowRetryModal(false)}>
-          <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="guide-header">
-              <div className="guide-step-icon" style={{ backgroundColor: "#eab308" }}>
-                <FaExclamationTriangle />
-              </div>
-              <div>
-                <h2 className="guide-title">Summary Generation Failed</h2>
-                <p className="guide-subtitle">The automatic summary could not be created.</p>
-              </div>
-            </div>
-            <div style={{ textAlign: "center", marginTop: "1rem" }}>
-              <p style={{ marginBottom: "1.5rem" }}>
-                You can try regenerating the summary from the transcript.
-              </p>
-              <div style={{ display: "flex", gap: "1rem", justifyContent: "center" }}>
-                <button
-                  className="guide-button"
-                  onClick={() => setShowRetryModal(false)}
-                  style={{ backgroundColor: "#6b7280" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="guide-button"
-                  onClick={regenerateSummary}
-                  disabled={isRegenerating}
-                  style={{ backgroundColor: "#8b5cf6" }}
-                >
-                  {isRegenerating ? "Regenerating..." : "Regenerate Summary"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="prototype-content">
-        {/* Action Buttons - Top Right - Icon Only */}
+        {/* Action Buttons - Top Right */}
         <div className="action-buttons">
           <button className="action-btn class-btn" onClick={openClassSessionModal} aria-label="Select class and session">
             <FaBook />
