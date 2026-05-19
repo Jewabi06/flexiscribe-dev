@@ -382,20 +382,19 @@ def stop_transcription(req: StopRequest):
     session.minutes_done.wait(timeout=60)
     print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
 
-    # ─── Generate final summary synchronously (no callback) ───────────────
-    final_summary = None
-    if session.minute_summaries:
-        # Wait for summarizer thread (if still running) to finish final summary
-        if session.summarizer_thread and session.summarizer_thread.is_alive():
-            print("[API] Waiting for summarizer thread to finish generating final summary...")
-            session.summarizer_thread.join(timeout=300)  # 5 minutes max
-        final_summary = session.final_summary
-    else:
-        # Fallback: generate directly from transcript
-        from transcriber.live_transcriber import _generate_final_summary
-        print("[API] No minute summaries, generating fallback final summary...")
+    # ─── Wait for summarizer thread to fully finish (incl. final summary) ─
+    # IMPORTANT: minutes_done fires BEFORE _generate_final_summary() is called
+    # inside the summarizer worker, so we must join the thread to get the result.
+    if session.summarizer_thread and session.summarizer_thread.is_alive():
+        print("[API] Waiting for summarizer thread to finish final summary generation...")
+        session.summarizer_thread.join(timeout=300)  # 5 minutes max
+
+    # If still no final_summary (thread died or skipped), generate it now
+    if not session.final_summary:
+        print("[API] Final summary not set after thread join — generating directly...")
         _generate_final_summary(session)
-        final_summary = session.final_summary
+
+    final_summary = session.final_summary
 
     # Update session status
     session.status = "completed" if final_summary else "error"

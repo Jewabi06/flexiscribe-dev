@@ -4,7 +4,7 @@ import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
-export const maxDuration = 60;
+export const maxDuration = 300; // 5 minutes — backend may wait for Ollama final summary
 
 /**
  * POST /api/transcribe/stop
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000); // 2 minutes timeout
+    const timeout = setTimeout(() => controller.abort(), 270_000); // 4.5 minutes timeout
 
     const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
       method: "POST",

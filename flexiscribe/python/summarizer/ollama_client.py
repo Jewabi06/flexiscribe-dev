@@ -3,7 +3,7 @@ import sys
 import os
 import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL
+from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL, OLLAMA_MODEL
 
 # ─── Generation Profiles ─────────────────────────────────────────────────
 # Different tasks need different token budgets.
@@ -97,8 +97,8 @@ def generate_response_remote(
     prompt: str,
     profile: str = "extended",
     system: str = "json_api",
-    max_retries: int = 5,
-    initial_delay: float = 5.0,
+    max_retries: int = 3,
+    initial_delay: float = 3.0,
 ) -> str:
     """
     Send prompt to the remote GPU-powered Ollama instance with retry logic.
@@ -134,12 +134,15 @@ def generate_response_remote(
         except Exception as e:
             print(f"[OLLAMA] Remote call attempt {attempt+1}/{max_retries} failed: {e}")
             if attempt < max_retries - 1:
-                time.sleep(initial_delay * (2 ** attempt))  # exponential backoff
+                delay = min(initial_delay * (2 ** attempt), 20.0)  # cap backoff at 20s
+                time.sleep(delay)
             else:
                 print("[OLLAMA] All remote attempts failed, falling back to local model")
-                # Fallback to local Ollama (if available)
+                # Fallback to local Ollama using the LOCAL small model, not the remote large one
+                local_model = OLLAMA_MODEL
                 try:
-                    return generate_response(model, prompt, profile, system)
+                    print(f"[OLLAMA] Trying local fallback with model: {local_model}")
+                    return generate_response(local_model, prompt, profile, system)
                 except Exception as local_e:
                     print(f"[OLLAMA] Local fallback also failed: {local_e}")
                     return ""  # final fallback empty string
