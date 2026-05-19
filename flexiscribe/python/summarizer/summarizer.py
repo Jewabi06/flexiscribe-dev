@@ -88,7 +88,7 @@ def summarize_cornell_context_aware(
     transcript_chunks: list,
     minute_summaries: list,
     model=None,
-    max_retries=3,
+    max_retries=5,
 ) -> dict:
     """Generate final Cornell Notes using remote GPU model with automatic retries."""
     model = model or OLLAMA_CORNELL_MODEL
@@ -123,10 +123,10 @@ def summarize_cornell_context_aware(
             last_error = str(e)
             print(f"[SUMMARIZER] Attempt {attempt+1} failed: {last_error}, retrying...")
         if attempt < max_retries - 1:
-            time.sleep(2 ** attempt)   # exponential backoff: 1s, 2s, 4s
+            time.sleep(2 ** attempt)   # exponential backoff: 1s, 2s, 4s, 8s, 16s
             summaries_text += "\n\n[CRITICAL] Previous output was invalid. Return ONLY valid JSON matching the exact schema."
 
-    # All retries exhausted – raise error (no fallback)
+    # If all retries fail, raise an error (caller will handle fallback)
     raise RuntimeError(
         f"Ollama summarization failed after {max_retries} attempts. "
         f"Last error: {last_error}"
@@ -136,7 +136,7 @@ def summarize_motm(transcript, model=None):
     """Generate Minutes of the Meeting using remote GPU model with automatic retries."""
     model = model or OLLAMA_CORNELL_MODEL
     print(f"[SUMMARIZER] MOTM using remote model {model}")
-    max_retries = 3
+    max_retries = 5
     last_error = None
     for attempt in range(max_retries):
         try:

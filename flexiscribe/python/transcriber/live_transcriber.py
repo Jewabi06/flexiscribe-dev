@@ -99,12 +99,44 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
 
     return new_idx, minute_counter
 
+def _reconstruct_minute_summaries_from_chunks(transcript_chunks: list) -> list:
+    """
+    Build approximate minute summaries from transcript chunks when real ones are missing.
+    Used by the regeneration endpoint.
+    """
+    import math
+    minute_map = {}
+    for chunk in transcript_chunks:
+        ts = chunk.get("timestamp", "00:00")
+        try:
+            parts = ts.split(":")
+            seconds = int(parts[0]) * 60 + int(parts[1])
+            minute_num = math.ceil(seconds / 60) or 1
+        except:
+            minute_num = len(minute_map) + 1
+        text = chunk.get("text", "")
+        if minute_num not in minute_map:
+            minute_map[minute_num] = {
+                "minute": minute_num,
+                "timestamp": ts,
+                "summary": text,
+                "key_points": []
+            }
+        else:
+            # Append text to existing minute
+            minute_map[minute_num]["summary"] += " " + text
+            minute_map[minute_num]["timestamp"] = min(minute_map[minute_num]["timestamp"], ts)
+    # Sort and return
+    summaries = list(minute_map.values())
+    summaries.sort(key=lambda x: x["minute"])
+    return summaries
+
 def _generate_final_summary(session):
-    """Generate final Cornell/MOTM using remote Ollama with automatic retries (no fallback)."""
+    """Generate final Cornell/MOTM using remote Ollama with automatic retries and fallback."""
     from config import OLLAMA_CORNELL_MODEL
     print(f"[INFO] Generating final summary using remote model: {OLLAMA_CORNELL_MODEL}")
 
-    max_attempts = 3
+    max_attempts = 5
     for attempt in range(max_attempts):
         try:
             if getattr(session, "session_type", "lecture") == "meeting":
@@ -126,21 +158,36 @@ def _generate_final_summary(session):
         except Exception as e:
             print(f"[ERROR] Final summary attempt {attempt+1} failed: {e}")
             if attempt == max_attempts - 1:
-                # All attempts failed – store error, no callback
-                session.final_summary_error = str(e)
-                session.status = "error"
-                from session_manager import session_manager
-                session_manager.update_session_status(session.session_id, "error")
-                print(f"[ERROR] Session {session.session_id} marked as error after {max_attempts} failed attempts.")
-                return
-            time.sleep(2 ** attempt)   # exponential backoff before retry
+                # Last resort: build a minimal summary from a shorter prompt
+                try:
+                    print("[INFO] Attempting fallback summarization with a shorter prompt...")
+                    # Use only first 3 minutes to reduce context
+                    short_summaries = session.minute_summaries[:3]
+                    short_text = _format_minute_summaries(short_summaries)
+                    from summarizer.prompt_builder import build_cornell_from_summaries_prompt
+                    from summarizer.ollama_client import generate_response_remote
+                    from summarizer.json_utils import extract_json, validate_cornell_schema
+                    prompt = build_cornell_from_summaries_prompt(short_text, "Lecture Notes", [])
+                    raw = generate_response_remote(OLLAMA_CORNELL_MODEL, prompt, profile="short")
+                    data = extract_json(raw)
+                    fallback_summary = validate_cornell_schema(data, "Lecture Notes")
+                    session.final_summary = fallback_summary
+                    print("[INFO] Fallback summary generated successfully.")
+                    break
+                except Exception as fallback_err:
+                    print(f"[ERROR] Fallback also failed: {fallback_err}")
+                    session.final_summary_error = str(e)
+                    session.status = "error"
+                    from session_manager import session_manager
+                    session_manager.update_session_status(session.session_id, "error")
+                    return
+            time.sleep(2 ** attempt)   # exponential backoff
 
     session.status = "completed"
     from session_manager import session_manager
     session_manager.update_session_status(session.session_id, "completed")
     print(f"[INFO] Session {session.session_id} final status=completed.")
 
-    # ─── Trigger callback if transcription_id exists ─────────────────
     if session.transcription_id and session.final_summary:
         try:
             from main import _save_pending_callback_job, _deliver_callback_job
@@ -218,7 +265,10 @@ def generate_summary_from_transcript_json(
     session_type: str = "lecture",
     course_code: str = "",
 ) -> dict:
-    """Generate a final Cornell/MOTM summary from transcriptJson and minute summaries (robust input handling)."""
+    """
+    Generate final summary from stored transcript and minute summaries.
+    Handles missing minute_summaries by reconstructing them from transcript chunks.
+    """
     # Normalize transcript_json to a list of chunks
     chunks = None
     if isinstance(transcript_json, dict):
@@ -236,17 +286,12 @@ def generate_summary_from_transcript_json(
             pass
 
     if not chunks or not isinstance(chunks, list):
-        # Last resort: try to reconstruct from minute_summaries
-        if minute_summaries:
-            full_text = " ".join(ms.get("summary", "") for ms in minute_summaries)
-            chunks = [{"text": full_text, "timestamp": ""}]
-        else:
-            raise ValueError(
-                "Invalid transcript_json: expected an object with a 'chunks' array, "
-                "a list of chunk objects, or a JSON string. No minute_summaries available."
-            )
+        raise ValueError(
+            "Invalid transcript_json: expected an object with a 'chunks' array, "
+            "a list of chunk objects, or a JSON string."
+        )
 
-    # Ensure each chunk has at least 'text'
+    # Ensure each chunk has text
     normalized_chunks = []
     for c in chunks:
         if isinstance(c, str):
@@ -263,8 +308,14 @@ def generate_summary_from_transcript_json(
     if not normalized_chunks:
         raise ValueError("No valid text chunks found in transcript_json")
 
+    # If minute_summaries is missing or empty, reconstruct from transcript chunks
+    if not minute_summaries or len(minute_summaries) == 0:
+        print("[REGENERATE] No minute summaries provided. Reconstructing from transcript chunks.")
+        minute_summaries = _reconstruct_minute_summaries_from_chunks(normalized_chunks)
+        print(f"[REGENERATE] Reconstructed {len(minute_summaries)} minute summaries.")
+
     if session_type == "meeting":
         full_text = "\n".join(c.get("text", "") for c in normalized_chunks)
         return summarize_motm(full_text)
     else:
-        return summarize_cornell_context_aware(normalized_chunks, minute_summaries or [])
+        return summarize_cornell_context_aware(normalized_chunks, minute_summaries)

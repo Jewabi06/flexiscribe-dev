@@ -8,13 +8,13 @@ from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL, OLLAMA_MODEL
 # ─── Generation Profiles ─────────────────────────────────────────────────
 PROFILES = {
     "short": {                  # Topic extraction, minute summaries
-        "temperature": 0.2,
+        "temperature": 0.3,
         "num_predict": 1024,
         "num_gpu": OLLAMA_GPU_LAYERS,
     },
     "extended": {               # Full Cornell notes, MOTM (long lectures)
-        "temperature": 0.1,
-        "num_predict": 6000,
+        "temperature": 0.3,
+        "num_predict": 4096,
         "num_gpu": OLLAMA_GPU_LAYERS,
     },
 }
