@@ -20,9 +20,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "transcriptionId is required" }, { status: 400 });
     }
 
+    // Fetch existing transcription data from database
     const transcription = await prisma.transcription.findUnique({
       where: { id: transcriptionId },
-      select: { transcriptJson: true, summaryJson: true, sessionType: true, course: true },
+      select: { 
+        transcriptJson: true, 
+        summaryJson: true, 
+        sessionType: true, 
+        course: true 
+      },
     });
 
     if (!transcription) {
@@ -31,13 +37,14 @@ export async function POST(request: NextRequest) {
 
     if (!transcription.transcriptJson) {
       return NextResponse.json({ error: "No transcriptJson available" }, { status: 400 });
-    }   
+    }
 
     let minuteSummaries: any = null;
     if (Array.isArray(transcription.summaryJson)) {
       minuteSummaries = transcription.summaryJson;
     }
 
+    // Call FastAPI regenerate endpoint with all required fields
     const resp = await fetch(`${FASTAPI_URL}/transcribe/summary/regenerate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -51,15 +58,28 @@ export async function POST(request: NextRequest) {
     });
 
     if (!resp.ok) {
-      const errorText = await resp.text();
-      return NextResponse.json({ error: `Failed to regenerate summary: ${errorText}` }, { status: resp.status });
+      let errorText = "";
+      try {
+        const errorJson = await resp.json();
+        errorText = errorJson.detail || JSON.stringify(errorJson);
+      } catch {
+        errorText = await resp.text();
+      }
+      return NextResponse.json(
+        { error: `FastAPI error: ${errorText}` },
+        { status: resp.status }
+      );
     }
 
     const data = await resp.json();
     if (!data?.final_summary) {
-      return NextResponse.json({ error: "Regenerated summary is missing" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Regenerated summary is missing" },
+        { status: 500 }
+      );
     }
 
+    // Update the database with the new summary
     const updated = await prisma.transcription.update({
       where: { id: transcriptionId },
       data: {

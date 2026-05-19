@@ -533,16 +533,32 @@ export default function PrototypeDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcriptionId: transcriptionId }),
       });
-      if (res.ok) {
+
+      let data;
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Server returned non-JSON: ${text.substring(0, 100)}`);
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || `Request failed with status ${res.status}`);
+      }
+
+      if (data.summaryJson) {
+        // Success – restart polling to get the new summary
         startSummaryPolling(sessionId, transcriptionId);
       } else {
-        const err = await res.json();
-        setSummaryError(err.error || "Regeneration failed");
-        setErrorModalOpen(true);
+        throw new Error("Regeneration did not return a valid summary");
       }
     } catch (err) {
+      console.error("Regeneration error:", err);
       setSummaryError(err.message);
       setErrorModalOpen(true);
+      setIsFinalizing(false);
+      setShowStatusModal(false);
     }
   };
 
