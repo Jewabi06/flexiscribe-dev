@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+const FASTAPI_TIMEOUT_MS = 55_000;
 
 export const maxDuration = 300; // 5 minutes
 
@@ -30,20 +31,46 @@ export async function POST(request: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 270_000); // 4.5 minutes
+    const timeout = setTimeout(() => controller.abort(), FASTAPI_TIMEOUT_MS);
 
-    const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        session_id: sessionId,
-        transcription_id: transcriptionId || null,
-      }),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          transcription_id: transcriptionId || null,
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      const errMessage =
+        fetchError instanceof Error
+          ? fetchError.message
+          : String(fetchError);
+      if (
+        (fetchError instanceof DOMException && fetchError.name === "AbortError") ||
+        (fetchError instanceof Error && fetchError.name === "AbortError")
+      ) {
+        return NextResponse.json(
+          {
+            error: `Transcription backend request timed out after ${FASTAPI_TIMEOUT_MS / 1000} seconds.`,
+          },
+          { status: 504 }
+        );
+      }
+      return NextResponse.json(
+        {
+          error: `Unable to reach transcription backend: ${errMessage}`,
+        },
+        { status: 503 }
+      );
+    }
 
     clearTimeout(timeout);
 

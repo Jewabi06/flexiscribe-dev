@@ -54,16 +54,16 @@ SCHEMAS = {
     ),
     "cornell_notes": (
         '{{\n'
-        '  "title": "Descriptive lecture title",\n'
-        '  "key_concepts": ["Concept 1", "Concept 2"],\n'
         '  "notes": [\n'
         '    {{\n'
         '      "term": "Term or concept name",\n'
-        '      "definition": "Clear definition based on the lecture",\n'
-        '      "example": "Example or application from the lecture"\n'
+        '      "example": "Example or application from the lecture",\n'
+        '      "definition": "Clear definition based on the lecture"\n'
         '    }}\n'
         '  ],\n'
-        '  "summary": ["Takeaway 1", "Takeaway 2", "Takeaway 3"]\n'
+        '  "title": "Descriptive lecture title",\n'
+        '  "summary": ["Takeaway 1", "Takeaway 2", "Takeaway 3"],\n'
+        '  "key_concepts": ["Concept 1", "Concept 2"]\n'
         '}}'
     ),
 }
@@ -88,6 +88,7 @@ RULES = {
     ],
     "output_format": [
         "Return ONLY valid JSON — no markdown, no code fences, no extra text.",
+        "The JSON must contain exactly these fields: notes, title, summary, key_concepts.",
         "Follow the schema exactly. Do not add or remove fields.",
     ],
 }
@@ -186,8 +187,10 @@ def build_cornell_from_summaries_prompt(
         "You must output ONLY a single JSON object. No other text, no markdown, no commentary.\n"
         "The JSON must follow this exact structure (do not add or remove fields):\n"
         f"{SCHEMAS['cornell_notes']}\n\n"
-        "Every note object MUST contain all three keys: 'term', 'definition', 'example'.\n"
+        "The top-level fields must be exactly: notes, title, summary, key_concepts.\n"
+        "Every note object MUST contain all three keys: 'term', 'example', 'definition'.\n"
         "The 'summary' field MUST be an array of strings (even if only one sentence).\n"
+        "Do not add any metadata fields or explanatory text.\n"
     )
     
     return (
@@ -213,11 +216,12 @@ def build_cornell_prompt(
     schema = _format_schema("cornell_notes")
     return (
         f"{topic_block}"
-        "Create comprehensive Cornell Notes from this lecture transcript.\n\n"
+        "CRITICAL INSTRUCTION:\n"
+        "Return ONLY a single valid JSON object. No markdown, no code fences, no extra text.\n\n"
         f"Critical requirements:\n{rules}\n\n"
         "Formatting:\n"
         "- Group notes by subtopic, in order of appearance.\n"
-        "- Each note: term, definition, example.\n"
+        "- Each note: term, example, definition.\n"
         "- key_concepts: ALL important terms.\n"
         "- summary: sequential takeaways covering the full lecture.\n\n"
         f"{schema}\n\n"
