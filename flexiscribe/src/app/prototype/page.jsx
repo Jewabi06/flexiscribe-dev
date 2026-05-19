@@ -44,6 +44,7 @@ export default function PrototypeDashboard() {
   const transcriptEndRef = useRef(null);
   const durationRef = useRef(null);
   const startTimeRef = useRef(null);
+  const summaryPollIntervalRef = useRef(null); // NEW: for polling final summary
   const router = useRouter();
 
   useEffect(() => {
@@ -69,12 +70,12 @@ export default function PrototypeDashboard() {
               startLiveStream(savedSessionId);
               setStatusMessage("Resuming active recording session...");
             } else if (normalizedStatus === "stopping" || normalizedStatus === "summarizing") {
-              // We no longer poll for summary because stop will generate it synchronously
-              // Just show a message that the session is finalizing
               setIsRecording(false);
               setIsFinalizing(true);
               setShowStatusModal(true);
               setStatusMessage("Session is finalizing. Please wait...");
+              // Start polling for final summary
+              startSummaryPolling(savedSessionId, savedTranscriptionId);
             } else if (normalizedStatus === "completed") {
               setStatusMessage("Previous session has already finished.");
               localStorage.removeItem("flexiSession");
@@ -111,6 +112,7 @@ export default function PrototypeDashboard() {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
       if (durationRef.current) clearInterval(durationRef.current);
+      if (summaryPollIntervalRef.current) clearInterval(summaryPollIntervalRef.current);
     };
   }, []);
 
@@ -214,6 +216,51 @@ export default function PrototypeDashboard() {
       clearInterval(durationRef.current);
       durationRef.current = null;
     }
+  };
+
+  const startSummaryPolling = (sid, tid) => {
+    if (summaryPollIntervalRef.current) clearInterval(summaryPollIntervalRef.current);
+    summaryPollIntervalRef.current = setInterval(async () => {
+      try {
+        // First try to get the transcription from DB via API
+        const res = await fetch(`/api/transcribe/summary/${sid}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === "ready" && data.final_summary) {
+            // Summary is ready
+            clearInterval(summaryPollIntervalRef.current);
+            summaryPollIntervalRef.current = null;
+            setIsFinalizing(false);
+            setShowStatusModal(false);
+            setStatusMessage("Recording saved and summary ready!");
+            localStorage.removeItem("flexiSession");
+            setSessionId(null);
+            setTranscriptionId(null);
+            // Optionally reload page to refresh dashboard
+            window.location.reload();
+          }
+        } else {
+          // Fallback: poll the status endpoint
+          const statusRes = await fetch(`/api/transcribe/status?sessionId=${sid}`);
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.has_final_summary) {
+              clearInterval(summaryPollIntervalRef.current);
+              summaryPollIntervalRef.current = null;
+              setIsFinalizing(false);
+              setShowStatusModal(false);
+              setStatusMessage("Recording saved and summary ready!");
+              localStorage.removeItem("flexiSession");
+              setSessionId(null);
+              setTranscriptionId(null);
+              window.location.reload();
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Summary polling error:", err);
+      }
+    }, 3000); // poll every 3 seconds
   };
 
   const handleStartRecording = async () => {
@@ -340,7 +387,7 @@ export default function PrototypeDashboard() {
     if (!sessionId) return;
 
     setIsStopping(true);
-    setStatusMessage("Saving your recording and generating notes...");
+    setStatusMessage("Stopping recording, saving transcript...");
     stopDurationTimer();
 
     if (eventSourceRef.current) {
@@ -351,6 +398,11 @@ export default function PrototypeDashboard() {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
+
+    // Show modal immediately to indicate summarization is starting
+    setIsFinalizing(true);
+    setShowStatusModal(true);
+    setStatusMessage("Saving transcript and generating summary...");
 
     try {
       const res = await fetch("/api/transcribe/stop", {
@@ -367,6 +419,8 @@ export default function PrototypeDashboard() {
         setErrorMessage(err.error || "Failed to stop transcription.");
         setErrorModalOpen(true);
         setIsStopping(false);
+        setIsFinalizing(false);
+        setShowStatusModal(false);
         return;
       }
 
@@ -377,8 +431,12 @@ export default function PrototypeDashboard() {
       setFullTranscript("");
       setLiveCaption("");
 
-      if (data.final_summary) {
-        // Summary is ready immediately
+      // If summary is pending, start polling
+      if (data.summary_pending) {
+        setStatusMessage("Transcript saved. Generating AI summary – please wait...");
+        startSummaryPolling(sessionId, transcriptionId);
+      } else if (data.final_summary) {
+        // Immediate summary (fallback)
         setStatusMessage("Recording saved and summary ready!");
         setIsFinalizing(false);
         setShowStatusModal(false);
@@ -386,8 +444,9 @@ export default function PrototypeDashboard() {
         setSessionId(null);
         setTranscriptionId(null);
       } else {
-        // Fallback (should not happen with new backend)
-        setStatusMessage("Recording saved, but summary is pending.");
+        // Something went wrong
+        setStatusMessage("Recording saved, but summary generation may have failed.");
+        setIsFinalizing(false);
         setShowStatusModal(false);
         localStorage.removeItem("flexiSession");
         setSessionId(null);
@@ -400,6 +459,8 @@ export default function PrototypeDashboard() {
       setErrorMessage(error.message || "Failed to stop transcription. Check backend connection.");
       setErrorModalOpen(true);
       setIsStopping(false);
+      setIsFinalizing(false);
+      setShowStatusModal(false);
     }
   };
 
@@ -475,12 +536,11 @@ export default function PrototypeDashboard() {
 
   return (
     <div className="prototype-container">
-      {/* User Guide Modal */}
+      {/* User Guide Modal (unchanged) */}
       {showGuide && (
         <div className="guide-overlay" onClick={() => setShowGuide(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
             <button className="guide-close" onClick={() => setShowGuide(false)}>✕</button>
-
             <div className="guide-header">
               <img src="/img/fLexiScribe-logo-purple.png" alt="Logo" className="guide-logo" />
               <div>
@@ -488,8 +548,8 @@ export default function PrototypeDashboard() {
                 <p className="guide-subtitle">Your Note-Taking Assistant</p>
               </div>
             </div>
-
             <div className="guide-content">
+              {/* steps unchanged */}
               <div className="guide-step">
                 <div className="guide-step-number">1</div>
                 <div className="guide-step-icon"><FaPowerOff /></div>
@@ -498,7 +558,6 @@ export default function PrototypeDashboard() {
                   <p className="guide-step-text">Press the <strong>Power Button</strong> to start the device.<br />Wait for the Home Screen to load.</p>
                 </div>
               </div>
-
               <div className="guide-step">
                 <div className="guide-step-number">2</div>
                 <div className="guide-step-icon"><FaMicrophone /></div>
@@ -507,7 +566,6 @@ export default function PrototypeDashboard() {
                   <p className="guide-step-text">Power on the <strong>Microphone</strong> and connect it<br />to the device. Click the MIC button to enable.</p>
                 </div>
               </div>
-
               <div className="guide-step">
                 <div className="guide-step-number">3</div>
                 <div className="guide-step-icon"><FaBook /></div>
@@ -516,7 +574,6 @@ export default function PrototypeDashboard() {
                   <p className="guide-step-text">Tap the <strong>Class/Session</strong> button to choose the course<br />and session type (Lecture or Meeting).</p>
                 </div>
               </div>
-
               <div className="guide-step">
                 <div className="guide-step-number">4</div>
                 <div className="guide-step-icon"><FaPlay /></div>
@@ -525,7 +582,6 @@ export default function PrototypeDashboard() {
                   <p className="guide-step-text">Press the <strong>Play Button</strong> and agree to the consent.<br />Speak clearly into the mic to transcribe.</p>
                 </div>
               </div>
-
               <div className="guide-step">
                 <div className="guide-step-number">5</div>
                 <div className="guide-step-icon"><div className="stop-icon"></div></div>
@@ -535,18 +591,16 @@ export default function PrototypeDashboard() {
                 </div>
               </div>
             </div>
-
             <button className="guide-button" onClick={() => setShowGuide(false)}>Got it!</button>
           </div>
         </div>
       )}
 
-      {/* Class & Session Selection Modal */}
+      {/* Class & Session Selection Modal (unchanged) */}
       {showClassSessionModal && (
         <div className="guide-overlay" onClick={() => setShowClassSessionModal(false)}>
           <div className="guide-modal course-select-modal" onClick={(e) => e.stopPropagation()}>
             <button className="guide-close" onClick={() => setShowClassSessionModal(false)}>✕</button>
-
             <div className="guide-header">
               <div className="guide-step-icon"><FaBook /></div>
               <div>
@@ -554,9 +608,7 @@ export default function PrototypeDashboard() {
                 <p className="guide-subtitle">Select the course and session type</p>
               </div>
             </div>
-
             <div className="class-session-content">
-              {/* Course Selection */}
               <div className="selection-section">
                 <label className="selection-label">Course</label>
                 <div className="course-list">
@@ -588,8 +640,6 @@ export default function PrototypeDashboard() {
                   )}
                 </div>
               </div>
-
-              {/* Session Type Selection */}
               <div className="selection-section">
                 <label className="selection-label">Session Type</label>
                 <div className="session-type-list">
@@ -597,22 +647,17 @@ export default function PrototypeDashboard() {
                     className={`session-type-option ${sessionType === "lecture" ? "selected" : ""}`}
                     onClick={() => setSessionType("lecture")}
                   >
-                    <div className="session-type-icon lecture-icon">
-                      <FaChalkboardTeacher />
-                    </div>
+                    <div className="session-type-icon lecture-icon"><FaChalkboardTeacher /></div>
                     <div className="session-type-info">
                       <div className="session-type-name">Lecture</div>
                       <div className="session-type-desc">Generates <strong>Cornell Notes</strong> with cue questions, notes, and summary.</div>
                     </div>
                   </button>
-
                   <button
                     className={`session-type-option ${sessionType === "meeting" ? "selected" : ""}`}
                     onClick={() => setSessionType("meeting")}
                   >
-                    <div className="session-type-icon meeting-icon">
-                      <FaUsers />
-                    </div>
+                    <div className="session-type-icon meeting-icon"><FaUsers /></div>
                     <div className="session-type-info">
                       <div className="session-type-name">Meeting</div>
                       <div className="session-type-desc">Generates <strong>Minutes of the Meeting</strong> with agenda, decisions, and action items.</div>
@@ -621,34 +666,25 @@ export default function PrototypeDashboard() {
                 </div>
               </div>
             </div>
-
-            <button 
-              className="guide-button" 
-              onClick={handleSaveClassSession}
-              disabled={!selectedCourse || !sessionType}
-            >
+            <button className="guide-button" onClick={handleSaveClassSession} disabled={!selectedCourse || !sessionType}>
               Save & Close
             </button>
           </div>
         </div>
       )}
 
-      {/* Consent Modal */}
+      {/* Consent Modal (unchanged) */}
       {showConsentModal && (
         <div className="guide-overlay" onClick={() => setShowConsentModal(false)}>
           <div className="guide-modal consent-modal" onClick={(e) => e.stopPropagation()}>
             <button className="guide-close" onClick={() => setShowConsentModal(false)}>✕</button>
-
             <div className="guide-header">
-              <div className="guide-step-icon" style={{ background: "#c5a6f9" }}>
-                <FaCheckCircle />
-              </div>
+              <div className="guide-step-icon" style={{ background: "#c5a6f9" }}><FaCheckCircle /></div>
               <div>
                 <h2 className="guide-title">Consent to Record</h2>
                 <p className="guide-subtitle">Please confirm before starting the session</p>
               </div>
             </div>
-
             <div className="consent-content">
               <p className="consent-text">
                 I, the professor, acknowledge that this session will be recorded for educational purposes. 
@@ -656,54 +692,40 @@ export default function PrototypeDashboard() {
                 I confirm that I have the authority to record this lecture/meeting and that all participants are aware.
               </p>
               <label className="consent-checkbox">
-                <input 
-                  type="checkbox" 
-                  checked={consentChecked}
-                  onChange={(e) => setConsentChecked(e.target.checked)}
-                />
+                <input type="checkbox" checked={consentChecked} onChange={(e) => setConsentChecked(e.target.checked)} />
                 <span className="consent-checkbox-text">I agree and consent to the recording of this session.</span>
               </label>
             </div>
-
-            <button 
-              className="guide-button" 
-              onClick={handleConsentConfirm}
-              disabled={!consentChecked}
-              style={{ opacity: consentChecked ? 1 : 0.6 }}
-            >
+            <button className="guide-button" onClick={handleConsentConfirm} disabled={!consentChecked} style={{ opacity: consentChecked ? 1 : 0.6 }}>
               Start Recording
             </button>
           </div>
         </div>
       )}
 
-      {/* Summary status modal (kept for any pending state, but rarely shown) */}
+      {/* Summary generation modal – restored with spinner and status message */}
       {showStatusModal && (
         <div className="guide-overlay" onClick={() => { if (!isFinalizing) setShowStatusModal(false); }}>
           <div className="guide-modal summary-modal" onClick={(e) => e.stopPropagation()}>
             <div className="summary-loading-container">
               <div className="status-spinner-large"></div>
-              <h3 className="summary-title">Generating Summary</h3>
+              <h3 className="summary-title">Generating AI Summary</h3>
               <p className="summary-message">{statusMessage || "Finalizing transcript and summary..."}</p>
-              <p className="summary-hint">This may take a moment, do not close the window until complete.</p>
+              <p className="summary-hint">This may take up to a minute. Do not close this window until complete.</p>
             </div>
             {!isFinalizing && (
-              <button className="guide-button" onClick={() => setShowStatusModal(false)}>
-                Close
-              </button>
+              <button className="guide-button" onClick={() => setShowStatusModal(false)}>Close</button>
             )}
           </div>
         </div>
       )}
 
-      {/* Error Modal */}
+      {/* Error Modal (unchanged) */}
       {errorModalOpen && (
         <div className="guide-overlay" onClick={() => setErrorModalOpen(false)}>
           <div className="guide-modal" onClick={(e) => e.stopPropagation()}>
             <div className="guide-header">
-              <div className="guide-step-icon" style={{ backgroundColor: "#dc2626" }}>
-                <FaExclamationTriangle />
-              </div>
+              <div className="guide-step-icon" style={{ backgroundColor: "#dc2626" }}><FaExclamationTriangle /></div>
               <div>
                 <h2 className="guide-title">Error</h2>
                 <p className="guide-subtitle">An error occurred during transcription stop</p>
@@ -713,11 +735,7 @@ export default function PrototypeDashboard() {
               <p style={{ color: "#991b1b", backgroundColor: "#fee2e2", padding: "0.75rem", borderRadius: "8px", marginBottom: "1rem" }}>
                 {errorMessage}
               </p>
-              <button
-                className="guide-button"
-                onClick={() => setErrorModalOpen(false)}
-                style={{ backgroundColor: "#dc2626" }}
-              >
+              <button className="guide-button" onClick={() => setErrorModalOpen(false)} style={{ backgroundColor: "#dc2626" }}>
                 Close
               </button>
             </div>
@@ -726,17 +744,11 @@ export default function PrototypeDashboard() {
       )}
 
       <div className="prototype-content">
-        {/* Action Buttons - Top Right */}
+        {/* Action Buttons */}
         <div className="action-buttons">
-          <button className="action-btn class-btn" onClick={openClassSessionModal} aria-label="Select class and session">
-            <FaBook />
-          </button>
-          <button className="action-btn help-btn" onClick={toggleGuide} aria-label="Open guide">
-            <FaQuestionCircle />
-          </button>
-          <button className="action-btn logout-btn" onClick={handleLogout} aria-label="Logout">
-            <FaSignOutAlt />
-          </button>
+          <button className="action-btn class-btn" onClick={openClassSessionModal} aria-label="Select class and session"><FaBook /></button>
+          <button className="action-btn help-btn" onClick={toggleGuide} aria-label="Open guide"><FaQuestionCircle /></button>
+          <button className="action-btn logout-btn" onClick={handleLogout} aria-label="Logout"><FaSignOutAlt /></button>
         </div>
 
         {/* Header */}
@@ -773,7 +785,6 @@ export default function PrototypeDashboard() {
 
         {/* Main Control Panel */}
         <div className="control-panel">
-          {/* Play/Stop Button */}
           <div className="control-section">
             <div className="control-label">{isRecording ? "STOP" : "PLAY"}</div>
             <button
@@ -789,7 +800,6 @@ export default function PrototypeDashboard() {
             </div>
           </div>
 
-          {/* Mic Button */}
           <div className="control-section">
             <div className="control-label">MIC</div>
             <button
@@ -801,14 +811,7 @@ export default function PrototypeDashboard() {
               {audioLevel > 0.1 ? (
                 <div className="sound-wave">
                   {[...Array(5)].map((_, index) => (
-                    <div
-                      key={index}
-                      className="wave-bar"
-                      style={{
-                        "--bar-height": audioLevel,
-                        "--bar-delay": `${index * 0.1}s`,
-                      }}
-                    />
+                    <div key={index} className="wave-bar" style={{ "--bar-height": audioLevel, "--bar-delay": `${index * 0.1}s` }} />
                   ))}
                 </div>
               ) : (
@@ -817,13 +820,7 @@ export default function PrototypeDashboard() {
             </button>
             <div className={`control-status mic-status ${micConnected ? "connected" : ""}`}>
               <span>MIC: </span>
-              {micConnected ? (
-                <>
-                  <FaCheck className="check-icon" /> Connected
-                </>
-              ) : (
-                "Disconnected"
-              )}
+              {micConnected ? (<><FaCheck className="check-icon" /> Connected</>) : "Disconnected"}
             </div>
           </div>
         </div>
