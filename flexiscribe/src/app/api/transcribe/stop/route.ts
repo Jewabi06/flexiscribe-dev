@@ -134,6 +134,16 @@ export async function POST(request: NextRequest) {
           // summaryJson will be updated later via callback
         },
       });
+
+      // Force a summary regeneration immediately after stop to upload summaryJson.
+      const regenerateUrl = new URL("/api/transcribe/summary/regenerate", request.url).toString();
+      void fetch(regenerateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcriptionId }),
+      }).catch((err) => {
+        console.warn("Forced summary regeneration failed:", err);
+      });
     }
 
     // Tell FastAPI to mark files for deletion (transcript files are no longer needed)
