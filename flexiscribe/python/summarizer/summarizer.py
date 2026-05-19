@@ -72,34 +72,58 @@ def summarize_cornell_context_aware(
     transcript_chunks: list,
     minute_summaries: list,
     model=None,
-    max_retries=2,
+    max_retries=3,
 ) -> dict:
     model = model or OLLAMA_CORNELL_MODEL
     topics = extract_topics(transcript_chunks, model, remote=True)
     main_topic = topics["main_topic"]
     subtopics = topics["subtopics"]
     summaries_text = _format_summaries_for_cornell(minute_summaries)
-
+    
     for attempt in range(max_retries):
         prompt = build_cornell_from_summaries_prompt(summaries_text, main_topic, subtopics)
         raw = generate_response_remote(model, prompt, profile="extended")
-        data = extract_json(raw)  # this now includes repair
-        
-        # Validate schema
+        data = extract_json(raw)
         validated = validate_cornell_schema(data, main_topic)
         
-        # Check if validation produced empty notes/summary (likely failure)
-        if validated.get("notes") or validated.get("summary"):
+        # Check if we got meaningful content (at least one note or key concept)
+        if validated.get("notes") or validated.get("key_concepts"):
             return validated
         
-        print(f"[SUMMARIZER] Validation failed, retry {attempt+1}/{max_retries}")
-        # Optionally append a note to the prompt to correct the error
-        if attempt < max_retries - 1:
-            summaries_text += "\n\n[NOTE: Previous output was invalid JSON. Please ensure the output is valid JSON matching the schema exactly.]"
+        print(f"[SUMMARIZER] Attempt {attempt+1} failed – retrying with correction hint")
+        # Append a hint to the summaries text for next attempt
+        summaries_text += (
+            "\n\n[IMPORTANT] Previous output was invalid or empty. "
+            "Please ensure you return valid JSON matching the schema exactly. "
+            "Every note must have a term, definition, and example."
+        )
     
-    # Final fallback: return a minimal valid structure
-    return validate_cornell_schema({}, main_topic)
-
+    # ── FALLBACK: Build Cornell notes directly from minute summaries ──
+    print("[SUMMARIZER] All retries failed – building fallback Cornell from minute summaries")
+    fallback_notes = []
+    fallback_concepts = set()
+    for ms in minute_summaries:
+        minute_num = ms.get("minute")
+        summary = ms.get("summary", "")
+        key_points = ms.get("key_points", [])
+        # Create a note from the minute summary
+        fallback_notes.append({
+            "term": f"Minute {minute_num}",
+            "definition": summary,
+            "example": " ".join(key_points[:2]) if key_points else ""
+        })
+        for kp in key_points:
+            # Simple keyword extraction (first 3-4 words)
+            words = kp.split()[:4]
+            concept = " ".join(words)
+            fallback_concepts.add(concept)
+    
+    return {
+        "title": main_topic,
+        "key_concepts": list(fallback_concepts)[:20],
+        "notes": fallback_notes,
+        "summary": [f"Minute {ms.get('minute')}: {ms.get('summary', '')}" for ms in minute_summaries if ms.get('summary')]
+    }
 
 def _format_summaries_for_cornell(minute_summaries: list) -> str:
     """Format minute-summary dicts into a structured text block."""

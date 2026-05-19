@@ -10,13 +10,13 @@ from config import OLLAMA_GPU_LAYERS, OLLAMA_BASE_URL
 # Values are kept Jetson Orin Nano-friendly.
 PROFILES = {
     "short": {                  # Topic extraction, minute summaries
-        "temperature": 0.3,
+        "temperature": 0.2,
         "num_predict": 1024,
         "num_gpu": OLLAMA_GPU_LAYERS,
     },
     "extended": {               # Full Cornell notes, MOTM (long lectures)
         "temperature": 0.1,
-        "num_predict": 4096,
+        "num_predict": 6000,
         "num_gpu": OLLAMA_GPU_LAYERS,
     },
 }
