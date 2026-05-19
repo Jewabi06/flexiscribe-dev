@@ -321,22 +321,21 @@ def start_transcription(req: StartRequest):
         "message": "Transcription started successfully",
     }
 
-# ─── Stop transcription (ASYNCHRONOUS – returns immediately) ─────────────
+# ─── Stop transcription (sync for transcript/minutes, async for final summary) ──────
 
 @app.post("/transcribe/stop")
 def stop_transcription(req: StopRequest):
     """
     Stop a running transcription session.
-    Returns immediately; final summary will be delivered via callback.
+    Returns transcript + minute summaries immediately.
+    Final summary is generated asynchronously and delivered via callback.
     """
     session = session_manager.get_session(req.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     if session.status != "running":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Session is not running (status: {session.status})",
-        )
+        raise HTTPException(status_code=400, detail=f"Session not running (status: {session.status})")
+
     if req.transcription_id:
         session.transcription_id = req.transcription_id
 
@@ -344,20 +343,43 @@ def stop_transcription(req: StopRequest):
     session.stop_event.set()
     session_manager.update_session_status(session.session_id, "stopping")
 
+    # --- Wait for whisper to finish processing remaining audio ---
+    print("[API] Waiting for whisper worker to finish...")
+    if session.whisper_thread:
+        session.whisper_thread.join(timeout=90)
+    session.whisper_done.wait(timeout=30)
+    print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
+
+    # --- Wait for minute summaries to complete (fast, no final summary) ---
+    print("[API] Waiting for minute summaries to complete...")
+    session.minutes_done.wait(timeout=60)
+    print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
+
+    # --- Prepare response data (transcript + minute summaries) ---
+    transcript_data = session.get_transcript_json()           # 10‑second chunks
+    live_transcript_data = session.get_live_transcript_json() # 2‑second chunks
+    minute_summaries_data = session.get_summary_json()        # per‑minute summaries
+
+    # --- Start background thread for final summary + callback ---
     def background_finalize():
         print("[API] Background finalisation thread started.")
-        if session.whisper_thread:
-            session.whisper_thread.join(timeout=90)
-        session.whisper_done.wait(timeout=30)
-        print(f"[API] Whisper done. Live chunks: {len(session.live_chunks)}")
-        session.minutes_done.wait(timeout=60)
-        print(f"[API] Minute summaries done: {len(session.minute_summaries)} summaries.")
+        # Wait for summarizer thread (if still running) to finish its minute summaries
         if session.summarizer_thread and session.summarizer_thread.is_alive():
-            print("[API] Waiting for summarizer thread to finish final summary...")
-            session.summarizer_thread.join(timeout=300)
+            session.summarizer_thread.join(timeout=120)
+        # Generate final summary if not already set
         if not session.final_summary:
-            print("[API] Final summary missing – generating directly...")
             _generate_final_summary(session)
+        # Trigger callback if transcription_id exists
+        if session.transcription_id and session.final_summary:
+            from main import _deliver_callback_job   # import inside to avoid circular
+            job = {
+                "session_id": session.session_id,
+                "transcription_id": session.transcription_id,
+                "final_summary": session.final_summary,
+            }
+            # Save job to disk and attempt delivery
+            _save_pending_callback_job(job)
+            _deliver_callback_job(job)
         session.status = "completed" if session.final_summary else "error"
         session_manager.update_session_status(session.session_id, session.status)
         print(f"[API] Session {session.session_id} final status={session.status}.")
@@ -367,8 +389,14 @@ def stop_transcription(req: StopRequest):
     return {
         "session_id": session.session_id,
         "status": "stopping",
-        "message": "Session stopping. Summary will be delivered via callback.",
+        "summary_pending": True,
+        "message": "Transcript and minute summaries ready. Final summary will be delivered via callback.",
         "course_code": session.course_code,
+        "duration": session.duration_formatted,
+        "transcript": transcript_data,
+        "live_transcript": live_transcript_data,
+        "minute_summaries": minute_summaries_data,
+        "file_status": session.file_status,
     }
 
 # ─── Poll summary status (kept for backward compatibility) ─────────────────

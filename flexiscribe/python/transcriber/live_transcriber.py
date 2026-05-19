@@ -99,10 +99,12 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     return new_idx, minute_counter
 
 def _generate_final_summary(session):
-    """Generate final Cornell/MOTM from existing minute summaries and transcript chunks."""
+    """Generate final Cornell/MOTM and trigger callback if transcription_id exists."""
+    from config import OLLAMA_CORNELL_MODEL
     print(f"[INFO] Generating final summary using remote model: {OLLAMA_CORNELL_MODEL}")
     successful_final_summary = False
 
+    # --- (existing fallback logic remains unchanged) ---
     if not session.minute_summaries and session.transcript_chunks:
         print("[INFO] No minute summaries found; building from transcript chunks.")
         for idx, chunk in enumerate(session.transcript_chunks, 1):
@@ -151,6 +153,7 @@ def _generate_final_summary(session):
                     raise ValueError("Empty Cornell result")
             except Exception as e:
                 print(f"[ERROR] Final Cornell summary failed: {e}")
+                # Fallback Cornell (simplified)
                 fallback_notes = []
                 fallback_concepts = set()
                 for ms in session.minute_summaries:
@@ -189,6 +192,20 @@ def _generate_final_summary(session):
     from session_manager import session_manager
     session_manager.update_session_status(session.session_id, session.status)
     print(f"[INFO] Session {session.session_id} final status={session.status}.")
+
+    # ─── Trigger callback if transcription_id exists ─────────────────
+    if session.transcription_id and session.final_summary:
+        try:
+            from main import _save_pending_callback_job, _deliver_callback_job
+            job = {
+                "session_id": session.session_id,
+                "transcription_id": session.transcription_id,
+                "final_summary": session.final_summary,
+            }
+            _save_pending_callback_job(job)
+            _deliver_callback_job(job)
+        except Exception as e:
+            print(f"[ERROR] Failed to trigger callback: {e}")
 
 def summarization_worker(stop_event: threading.Event, session):
     """

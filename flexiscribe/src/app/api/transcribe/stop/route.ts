@@ -4,13 +4,8 @@ import prisma from "@/lib/db";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
-export const maxDuration = 300; // 5 minutes — backend may wait for Ollama final summary
+export const maxDuration = 300; // 5 minutes
 
-/**
- * POST /api/transcribe/stop
- * Stop a running transcription session.
- * FastAPI now returns final summary synchronously.
- */
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
@@ -28,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 270_000); // 4.5 minutes timeout
+    const timeout = setTimeout(() => controller.abort(), 270_000); // 4.5 minutes
 
     const response = await fetch(`${FASTAPI_URL}/transcribe/stop`, {
       method: "POST",
@@ -56,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     const data = await response.json();
 
-    // Build content string from transcript chunks
+    // Build content HTML from transcript chunks
     const chunks = data.transcript?.chunks || [];
     const contentHtml = chunks
       .map(
@@ -65,153 +60,24 @@ export async function POST(request: NextRequest) {
       )
       .join("\n");
 
-    const rawText = chunks
-      .map((c: { text: string }) => c.text)
-      .join("\n");
+    const rawText = chunks.map((c: { text: string }) => c.text).join("\n");
 
+    // Always update transcription with transcript and minute summaries
     if (transcriptionId) {
-      const updatedTranscription = await prisma.transcription.update({
+      await prisma.transcription.update({
         where: { id: transcriptionId },
         data: {
           content: contentHtml,
           rawText: rawText,
           duration: data.duration || "0m 0s",
-          status: "COMPLETED",
+          status: "PROCESSING",     // waiting for final summary callback
           transcriptJson: data.transcript || null,
-          summaryJson: data.final_summary || null,   // ✅ final summary stored here
-        },
-        include: {
-          class: {
-            select: { id: true, subject: true, section: true },
-          },
+          // summaryJson will be updated later via callback
         },
       });
-
-      // ─── Create Lesson (reviewer) from Cornell Notes ────────────────
-      if (data.final_summary && data.final_summary.title) {
-        try {
-          const summaryObj = data.final_summary;
-          const keyConcepts = summaryObj.key_concepts || [];
-          const notes = summaryObj.notes || [];
-          const summary = summaryObj.summary || "";
-
-          const reviewerContent = JSON.stringify({
-            type: "cornell",
-            title: summaryObj.title || updatedTranscription.title,
-            summary,
-            keyConcepts: Array.isArray(notes)
-              ? notes.map(
-                  (n: { term?: string; definition?: string; example?: string } | string, i: number) => {
-                    if (typeof n === "object" && n.term) {
-                      return { term: n.term, definition: n.definition || "", ...(n.example ? { example: n.example } : {}) };
-                    }
-                    return {
-                      term: keyConcepts[i] || `Concept ${i + 1}`,
-                      definition: typeof n === "string" ? n : "",
-                    };
-                  }
-                )
-              : [],
-            importantFacts: Array.isArray(notes)
-              ? notes.map((n: { term?: string; definition?: string; example?: string } | string) =>
-                  typeof n === "object"
-                    ? n.example
-                      ? `${n.term}: ${n.definition} (Example: ${n.example})`
-                      : `${n.term}: ${n.definition}`
-                    : n
-                )
-              : [],
-            detailedContent: `${keyConcepts.join("\n")}\n\n${
-              Array.isArray(notes)
-                ? notes
-                    .map((n: { term?: string; definition?: string; example?: string } | string) =>
-                      typeof n === "object"
-                        ? n.example
-                          ? `${n.term}: ${n.definition}. Example: ${n.example}`
-                          : `${n.term}: ${n.definition}`
-                        : n
-                    )
-                    .join("\n")
-                : ""
-            }\n\n${Array.isArray(summary) ? summary.join("\n") : summary}`,
-          });
-
-          if (reviewerContent.length >= 200) {
-            await prisma.lesson.create({
-              data: {
-                title: updatedTranscription.title,
-                subject: updatedTranscription.course,
-                content: reviewerContent,
-              },
-            });
-            console.log(`[STOP] Auto-created reviewer for transcription ${transcriptionId}`);
-          }
-        } catch (lessonErr) {
-          console.error("[STOP] Failed to auto-create reviewer:", lessonErr);
-        }
-      }
-
-      // ─── Notifications ─────────────────────────────────────────────
-      // Notify educator that everything is ready
-      try {
-        const eduClassSubject = updatedTranscription.class?.subject || updatedTranscription.course;
-        const eduClassSection = updatedTranscription.class?.section || "";
-        let eduNotifMessage = `Your transcription "${updatedTranscription.title}" is complete. Summary and reviewer are ready.`;
-        if (eduClassSection) {
-          eduNotifMessage += ` (${eduClassSubject} — Section ${eduClassSection})`;
-        }
-        await prisma.notification.create({
-          data: {
-            title: "Transcription Complete",
-            message: eduNotifMessage,
-            type: "transcript_summary",
-            educatorId: updatedTranscription.educatorId,
-          },
-        });
-      } catch (eduNotifErr) {
-        console.error("Failed to create educator notification:", eduNotifErr);
-      }
-
-      // Notify enrolled students
-      if (updatedTranscription.classId) {
-        try {
-          const enrollments = await prisma.studentClass.findMany({
-            where: { classId: updatedTranscription.classId },
-            select: { studentId: true },
-          });
-
-          if (enrollments.length > 0) {
-            const classSubject = updatedTranscription.class?.subject || updatedTranscription.course;
-            const classSection = updatedTranscription.class?.section || "";
-            const educator = await prisma.educator.findUnique({
-              where: { id: updatedTranscription.educatorId },
-              select: { fullName: true },
-            });
-            const educatorDisplayName = educator?.fullName || "Your professor";
-
-            let notifMessage = `${educatorDisplayName} uploaded a new transcript and summary "${updatedTranscription.title}"`;
-            if (classSection) {
-              notifMessage += ` for ${classSubject} — Section ${classSection}.`;
-            } else {
-              notifMessage += ` for ${classSubject}.`;
-            }
-
-            await prisma.notification.createMany({
-              data: enrollments.map((e) => ({
-                title: "New Transcript & Summary Available",
-                message: notifMessage,
-                type: "transcript_summary",
-                studentId: e.studentId,
-              })),
-            });
-          }
-        } catch (notifError) {
-          console.error("Failed to create student notifications:", notifError);
-        }
-      }
     }
 
-    // Tell FastAPI to mark files for deletion
+    // Tell FastAPI to mark files for deletion (transcript files are no longer needed)
     try {
       await fetch(`${FASTAPI_URL}/transcribe/upload-confirm`, {
         method: "POST",
@@ -227,15 +93,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: "Transcription saved successfully",
+        message: data.summary_pending
+          ? "Transcript saved. Final summary will arrive via callback."
+          : "Transcription saved successfully",
         session_id: sessionId,
         transcription_id: transcriptionId,
-        status: "COMPLETED",
+        status: "PROCESSING",
         duration: data.duration,
         chunks_count: chunks.length,
-        has_summary: true,
-        summary_pending: false,
-        final_summary: data.final_summary,
+        summary_pending: data.summary_pending || false,
         transcript: data.transcript,
         live_transcript: data.live_transcript || null,
         minute_summaries: data.minute_summaries || null,
