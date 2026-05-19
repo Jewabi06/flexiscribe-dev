@@ -10,6 +10,7 @@ Stages:
 
 import sys
 import os
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from summarizer.ollama_client import generate_response, generate_response_remote
@@ -89,15 +90,23 @@ def summarize_cornell_context_aware(
     model=None,
     max_retries=3,
 ) -> dict:
-    """Generate final Cornell Notes using remote GPU model."""
+    """Generate final Cornell Notes using remote GPU model with automatic retries."""
     model = model or OLLAMA_CORNELL_MODEL
     print(f"[SUMMARIZER] Generating final summary using remote model: {model}")
+
+    # Validate input
+    if not transcript_chunks or not isinstance(transcript_chunks, list):
+        raise ValueError("transcript_chunks must be a non‑empty list")
+    for chunk in transcript_chunks:
+        if not isinstance(chunk, dict) or "text" not in chunk:
+            raise ValueError("Each chunk must be a dict with a 'text' field")
 
     topics = extract_topics(transcript_chunks, model, remote=True)
     main_topic = topics["main_topic"]
     subtopics = topics["subtopics"]
     summaries_text = _format_summaries_for_cornell(minute_summaries)
 
+    last_error = None
     for attempt in range(max_retries):
         prompt = build_cornell_from_summaries_prompt(summaries_text, main_topic, subtopics)
         try:
@@ -105,29 +114,48 @@ def summarize_cornell_context_aware(
             data = extract_json(raw)
             validated = validate_cornell_schema(data, main_topic)
             if validated.get("notes") or validated.get("key_concepts"):
+                print(f"[SUMMARIZER] Success on attempt {attempt+1}")
                 return validated
-            print(f"[SUMMARIZER] Attempt {attempt+1} – empty result, retrying")
-        except RuntimeError as e:
-            print(f"[SUMMARIZER] Remote call failed: {e}")
-            if attempt == max_retries - 1:
-                # Return minimal structure instead of failing silently
-                return {
-                    "title": main_topic or "Lecture Notes",
-                    "key_concepts": [],
-                    "notes": [{"term": "Summarization error", "definition": str(e), "example": ""}],
-                    "summary": ["Remote summarization service unavailable. Please try again later."]
-                }
-            continue
-        # Add hint for retry
-        summaries_text += "\n\n[IMPORTANT] Previous output was invalid or empty. Please return valid JSON exactly as the schema requires."
+            else:
+                last_error = "Empty or invalid JSON structure returned by Ollama"
+                print(f"[SUMMARIZER] Attempt {attempt+1}: {last_error}, retrying...")
+        except Exception as e:
+            last_error = str(e)
+            print(f"[SUMMARIZER] Attempt {attempt+1} failed: {last_error}, retrying...")
+        if attempt < max_retries - 1:
+            time.sleep(2 ** attempt)   # exponential backoff: 1s, 2s, 4s
+            summaries_text += "\n\n[CRITICAL] Previous output was invalid. Return ONLY valid JSON matching the exact schema."
 
-    # Fallback if all retries exhausted
-    return {
-        "title": main_topic or "Lecture Notes",
-        "key_concepts": [],
-        "notes": [{"term": "No summary generated", "definition": "All attempts failed", "example": ""}],
-        "summary": ["Unable to generate final summary."]
-    }
+    # All retries exhausted – raise error (no fallback)
+    raise RuntimeError(
+        f"Ollama summarization failed after {max_retries} attempts. "
+        f"Last error: {last_error}"
+    )
+
+def summarize_motm(transcript, model=None):
+    """Generate Minutes of the Meeting using remote GPU model with automatic retries."""
+    model = model or OLLAMA_CORNELL_MODEL
+    print(f"[SUMMARIZER] MOTM using remote model {model}")
+    max_retries = 3
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            result = extract_json(
+                generate_response_remote(model, build_motm_prompt(transcript), profile="extended")
+            )
+            # Basic validation: must have agendas or meeting_title
+            if result.get("agendas") or result.get("meeting_title"):
+                print(f"[SUMMARIZER] MOTM success on attempt {attempt+1}")
+                return result
+            else:
+                last_error = "Invalid MOTM structure"
+                print(f"[SUMMARIZER] MOTM attempt {attempt+1}: {last_error}, retrying...")
+        except Exception as e:
+            last_error = str(e)
+            print(f"[SUMMARIZER] MOTM attempt {attempt+1} failed: {last_error}, retrying...")
+        if attempt < max_retries - 1:
+            time.sleep(2 ** attempt)
+    raise RuntimeError(f"MOTM summarization failed after {max_retries} attempts: {last_error}")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Legacy / fallback functions (backward compatible)
@@ -158,11 +186,3 @@ def summarize_cornell_from_summaries(summaries_text, model=None):
         )
     )
     return validate_cornell_schema(result)
-
-def summarize_motm(transcript, model=None):
-    """Generate Minutes of the Meeting using remote GPU model."""
-    model = model or OLLAMA_CORNELL_MODEL
-    print(f"[SUMMARIZER] MOTM using remote model {model}")
-    return extract_json(
-        generate_response_remote(model, build_motm_prompt(transcript), profile="extended")
-    )

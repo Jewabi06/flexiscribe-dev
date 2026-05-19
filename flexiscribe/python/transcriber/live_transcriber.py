@@ -4,6 +4,7 @@ non-blocking for per-minute summaries.
 """
 import time
 import threading
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from typing import List
 
@@ -11,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from summarizer.summarizer import summarize_minute, summarize_cornell_context_aware, summarize_cornell, summarize_motm
+from summarizer.summarizer import summarize_minute, summarize_cornell_context_aware, summarize_motm
 from utils.json_writer import write_json
 from config import BUFFER_INTERVAL, SUMMARY_MAX_WORKERS, OLLAMA_CORNELL_MODEL
 
@@ -99,101 +100,45 @@ def _collect_and_submit(session, last_processed_idx: int, minute_counter: int,
     return new_idx, minute_counter
 
 def _generate_final_summary(session):
-    """Generate final Cornell/MOTM and trigger callback if transcription_id exists."""
+    """Generate final Cornell/MOTM using remote Ollama with automatic retries (no fallback)."""
     from config import OLLAMA_CORNELL_MODEL
     print(f"[INFO] Generating final summary using remote model: {OLLAMA_CORNELL_MODEL}")
-    successful_final_summary = False
 
-    # --- (existing fallback logic remains unchanged) ---
-    if not session.minute_summaries and session.transcript_chunks:
-        print("[INFO] No minute summaries found; building from transcript chunks.")
-        for idx, chunk in enumerate(session.transcript_chunks, 1):
-            session.minute_summaries.append({
-                "minute": idx,
-                "timestamp": chunk.get("timestamp", ""),
-                "summary": chunk.get("text", "")[:500],
-                "key_points": []
-            })
-
-    if session.minute_summaries:
-        summaries_text = _format_minute_summaries(session.minute_summaries)
-
-        if getattr(session, "session_type", "lecture") == "meeting":
-            print("[INFO] Generating Minutes of the Meeting (MOTM)...")
-            full_text = "\n".join(c["text"] for c in session.transcript_chunks)
-            try:
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            if getattr(session, "session_type", "lecture") == "meeting":
+                print("[INFO] Generating Minutes of the Meeting (MOTM)...")
+                full_text = "\n".join(c["text"] for c in session.transcript_chunks)
                 motm = summarize_motm(full_text)
-                if motm and (motm.get("agendas") or motm.get("meeting_title")):
-                    session.final_summary = motm
-                    successful_final_summary = True
-                else:
-                    raise ValueError("Empty MOTM result")
-            except Exception as e:
-                print(f"[ERROR] MOTM generation failed: {e}")
-                session.final_summary = {
-                    "meeting_title": f"Meeting - {session.course_code}",
-                    "date": "Not specified",
-                    "time": "Not specified",
-                    "agendas": [],
-                    "next_meeting": "To be announced",
-                    "prepared_by": "To be determined",
-                }
-                successful_final_summary = True
-        else:
-            print("[INFO] Generating context-aware Cornell summary...")
-            try:
+                session.final_summary = motm
+                print(f"[INFO] MOTM generated successfully on attempt {attempt+1}")
+                break
+            else:
+                print("[INFO] Generating context-aware Cornell summary...")
                 cornell = summarize_cornell_context_aware(
                     session.transcript_chunks,
                     session.minute_summaries,
                 )
-                if cornell and (cornell.get("notes") or cornell.get("key_concepts")):
-                    session.final_summary = cornell
-                    successful_final_summary = True
-                else:
-                    raise ValueError("Empty Cornell result")
-            except Exception as e:
-                error_msg = f"Final Cornell summary failed: {str(e)}"
-                print(f"[ERROR] {error_msg}")
-                session.final_summary_error = error_msg
-                # Fallback Cornell (simplified)
-                fallback_notes = []
-                fallback_concepts = set()
-                for ms in session.minute_summaries:
-                    minute_num = ms.get("minute")
-                    summary_text = ms.get("summary", "")
-                    key_points = ms.get("key_points", [])
-                    if summary_text:
-                        fallback_notes.append({
-                            "term": f"Minute {minute_num}",
-                            "definition": summary_text,
-                            "example": " ".join(key_points[:2]) if key_points else ""
-                        })
-                    for kp in key_points:
-                        words = kp.split()[:4]
-                        if words:
-                            fallback_concepts.add(" ".join(words))
-                session.final_summary = {
-                    "title": f"Lecture - {session.course_code}",
-                    "key_concepts": list(fallback_concepts)[:20],
-                    "notes": fallback_notes,
-                    "summary": [f"Minute {ms.get('minute')}: {ms.get('summary', '')[:200]}" 
-                               for ms in session.minute_summaries if ms.get('summary')]
-                }
-                successful_final_summary = True
-    else:
-        print("[INFO] No minute summaries or transcript chunks available; creating minimal summary.")
-        session.final_summary = {
-            "title": f"Lecture - {session.course_code}",
-            "key_concepts": [],
-            "notes": [{"term": "No content", "definition": "No transcript was captured.", "example": ""}],
-            "summary": ["No transcript available to summarize."],
-        }
-        successful_final_summary = True
+                session.final_summary = cornell
+                print(f"[INFO] Cornell summary generated successfully on attempt {attempt+1}")
+                break
+        except Exception as e:
+            print(f"[ERROR] Final summary attempt {attempt+1} failed: {e}")
+            if attempt == max_attempts - 1:
+                # All attempts failed – store error, no callback
+                session.final_summary_error = str(e)
+                session.status = "error"
+                from session_manager import session_manager
+                session_manager.update_session_status(session.session_id, "error")
+                print(f"[ERROR] Session {session.session_id} marked as error after {max_attempts} failed attempts.")
+                return
+            time.sleep(2 ** attempt)   # exponential backoff before retry
 
-    session.status = "completed" if successful_final_summary else "error"
+    session.status = "completed"
     from session_manager import session_manager
-    session_manager.update_session_status(session.session_id, session.status)
-    print(f"[INFO] Session {session.session_id} final status={session.status}.")
+    session_manager.update_session_status(session.session_id, "completed")
+    print(f"[INFO] Session {session.session_id} final status=completed.")
 
     # ─── Trigger callback if transcription_id exists ─────────────────
     if session.transcription_id and session.final_summary:
@@ -273,63 +218,53 @@ def generate_summary_from_transcript_json(
     session_type: str = "lecture",
     course_code: str = "",
 ) -> dict:
-    """Generate a final Cornell/MOTM summary from transcriptJson and minute summaries."""
-    transcript_chunks = transcript_json.get("chunks") if isinstance(transcript_json, dict) else None
-    if transcript_chunks is None or not isinstance(transcript_chunks, list):
-        raise ValueError("Invalid transcript_json: expected an object with a chunks array")
-    try:
-        if minute_summaries and isinstance(minute_summaries, list) and len(minute_summaries) > 0:
-            if session_type == "meeting":
-                full_text = "\n".join(c.get("text", "") for c in transcript_chunks)
-                return summarize_motm(full_text)
-            return summarize_cornell_context_aware(transcript_chunks, minute_summaries)
-        full_text = "\n".join(c.get("text", "") for c in transcript_chunks)
-        return _summarize_text_multipass(full_text)
-    except Exception as e:
-        print(f"[ERROR] Summary generation failed after all retries: {e}")
-        raise RuntimeError(f"Summarization failed: {e}") from e
-
-def _split_text_for_ollama(full_text: str, max_chars: int = 28000):
-    """Split a long transcript text into manageable chunks for Ollama."""
-    if not full_text:
-        return []
-    if len(full_text) <= max_chars:
-        return [full_text]
-    words = full_text.split()
-    chunks = []
-    current = []
-    current_len = 0
-    for word in words:
-        if current_len + len(word) + 1 > max_chars and current:
-            chunks.append(" ".join(current))
-            current = [word]
-            current_len = len(word) + 1
-        else:
-            current.append(word)
-            current_len += len(word) + 1
-    if current:
-        chunks.append(" ".join(current))
-    return chunks
-
-def _summarize_text_multipass(full_text: str) -> dict:
-    """Summarize long transcript text in chunks and merge them safely."""
-    from summarizer.summarizer import summarize_cornell, summarize_cornell_remote
-    chunks = _split_text_for_ollama(full_text)
-    if not chunks:
-        raise ValueError("No transcript text to summarize")
-    def _local_or_remote_summarize(text_to_summarize):
+    """Generate a final Cornell/MOTM summary from transcriptJson and minute summaries (robust input handling)."""
+    # Normalize transcript_json to a list of chunks
+    chunks = None
+    if isinstance(transcript_json, dict):
+        chunks = transcript_json.get("chunks")
+    if chunks is None and isinstance(transcript_json, list):
+        chunks = transcript_json
+    if chunks is None and isinstance(transcript_json, str):
         try:
-            return summarize_cornell_remote(text_to_summarize)
-        except Exception as e:
-            print(f"[SUMMARIZER] Remote Cornell summarization failed: {e}. Falling back to local model.")
-            return summarize_cornell(text_to_summarize)
-    if len(chunks) == 1:
-        return _local_or_remote_summarize(full_text)
-    partial_summaries = []
-    for idx, chunk in enumerate(chunks, start=1):
-        print(f"[SUMMARIZER] multipass chunk {idx}/{len(chunks)} (len={len(chunk)} chars)")
-        short = _local_or_remote_summarize(chunk)
-        partial_summaries.append(" ".join(short.get("summary", [])))
-    combined = " \n\n".join(partial_summaries)
-    print("[SUMMARIZER] generating final summary from chunk partials")
-    return _local_or_remote_summarize(combined)
+            parsed = json.loads(transcript_json)
+            if isinstance(parsed, dict):
+                chunks = parsed.get("chunks")
+            elif isinstance(parsed, list):
+                chunks = parsed
+        except json.JSONDecodeError:
+            pass
+
+    if not chunks or not isinstance(chunks, list):
+        # Last resort: try to reconstruct from minute_summaries
+        if minute_summaries:
+            full_text = " ".join(ms.get("summary", "") for ms in minute_summaries)
+            chunks = [{"text": full_text, "timestamp": ""}]
+        else:
+            raise ValueError(
+                "Invalid transcript_json: expected an object with a 'chunks' array, "
+                "a list of chunk objects, or a JSON string. No minute_summaries available."
+            )
+
+    # Ensure each chunk has at least 'text'
+    normalized_chunks = []
+    for c in chunks:
+        if isinstance(c, str):
+            normalized_chunks.append({"text": c, "timestamp": ""})
+        elif isinstance(c, dict):
+            if "text" not in c:
+                c["text"] = ""
+            if "timestamp" not in c:
+                c["timestamp"] = ""
+            normalized_chunks.append(c)
+        else:
+            continue
+
+    if not normalized_chunks:
+        raise ValueError("No valid text chunks found in transcript_json")
+
+    if session_type == "meeting":
+        full_text = "\n".join(c.get("text", "") for c in normalized_chunks)
+        return summarize_motm(full_text)
+    else:
+        return summarize_cornell_context_aware(normalized_chunks, minute_summaries or [])
