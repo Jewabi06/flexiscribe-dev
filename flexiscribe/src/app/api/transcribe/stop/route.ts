@@ -5,6 +5,73 @@ import prisma from "@/lib/db";
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 const FASTAPI_TIMEOUT_MS = 55_000;
 
+function hasStructuredSummaryData(summary: unknown) {
+  if (!summary || typeof summary !== "object") return false;
+  const summaryObj = summary as Record<string, unknown>;
+  return Boolean(
+    summaryObj.title ||
+      summaryObj.meeting_title ||
+      (Array.isArray(summaryObj.notes) && summaryObj.notes.length > 0) ||
+      (Array.isArray(summaryObj.key_concepts) && summaryObj.key_concepts.length > 0) ||
+      (Array.isArray(summaryObj.cue_questions) && summaryObj.cue_questions.length > 0) ||
+      (Array.isArray(summaryObj.agendas) && summaryObj.agendas.length > 0) ||
+      (Array.isArray(summaryObj.summary) && summaryObj.summary.length > 0) ||
+      (typeof summaryObj.summary === "string" && summaryObj.summary.trim().length > 0)
+  );
+}
+
+function normalizeSummaryJson(summary: unknown) {
+  if (summary === null || summary === undefined) return null;
+
+  if (typeof summary === "string") {
+    const trimmed = summary.trim();
+    if (!trimmed) return null;
+    try {
+      return normalizeSummaryJson(JSON.parse(trimmed));
+    } catch {
+      return { summary: [trimmed] };
+    }
+  }
+
+  if (Array.isArray(summary)) {
+    if (summary.every((item) => typeof item === "string")) {
+      return { summary };
+    }
+    if (summary.every((item) => typeof item === "object" && item !== null)) {
+      return { notes: summary };
+    }
+    return { summary: summary.map((item) => String(item)) };
+  }
+
+  if (typeof summary === "object") {
+    const normalized = { ...(summary as Record<string, unknown>) };
+
+    if (typeof normalized.summary === "string") {
+      const text = (normalized.summary as string).trim();
+      normalized.summary = text ? [text] : [];
+    }
+
+    if (Array.isArray(normalized.summary) && normalized.summary.length > 0) {
+      return normalized;
+    }
+
+    if (typeof normalized.notes === "string") {
+      const text = (normalized.notes as string).trim();
+      normalized.notes = text ? [text] : [];
+    }
+
+    if (hasStructuredSummaryData(normalized)) {
+      return normalized;
+    }
+
+    // If object doesn't match known shapes, flatten to summary text.
+    const fallbackText = JSON.stringify(normalized);
+    return { summary: [fallbackText] };
+  }
+
+  return null;
+}
+
 export const maxDuration = 300; // 5 minutes
 
 export async function POST(request: NextRequest) {
@@ -109,6 +176,10 @@ export async function POST(request: NextRequest) {
     const transcript = data.transcript && typeof data.transcript === "object" ? data.transcript : {};
     const liveTranscript = data.live_transcript && typeof data.live_transcript === "object" ? data.live_transcript : null;
     const minuteSummaries = Array.isArray(data.minute_summaries) ? data.minute_summaries : null;
+    const finalSummary = data.final_summary ?? data.summary ?? data.summaryJson ?? null;
+    const summaryPending = Boolean(data.summary_pending);
+    const normalizedSummary = normalizeSummaryJson(finalSummary);
+    const hasFinalSummary = Boolean(normalizedSummary);
 
     // Build content HTML from transcript chunks
     const chunks = Array.isArray(transcript.chunks) ? transcript.chunks : [];
@@ -123,27 +194,36 @@ export async function POST(request: NextRequest) {
 
     // Always update transcription with transcript and minute summaries
     if (transcriptionId) {
+      const updateData: any = {
+        content: contentHtml,
+        rawText,
+        duration,
+        transcriptJson: transcript,
+      };
+
+      if (hasFinalSummary) {
+        updateData.summaryJson = normalizedSummary;
+        updateData.status = "COMPLETED";
+      } else {
+        updateData.status = "PROCESSING"; // waiting for final summary callback
+      }
+
       await prisma.transcription.update({
         where: { id: transcriptionId },
-        data: {
-          content: contentHtml,
-          rawText: rawText,
-          duration: duration,
-          status: "PROCESSING",     // waiting for final summary callback
-          transcriptJson: transcript,
-          // summaryJson will be updated later via callback
-        },
+        data: updateData,
       });
 
-      // Force a summary regeneration immediately after stop to upload summaryJson.
-      const regenerateUrl = new URL("/api/transcribe/summary/regenerate", request.url).toString();
-      void fetch(regenerateUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcriptionId }),
-      }).catch((err) => {
-        console.warn("Forced summary regeneration failed:", err);
-      });
+      if (!hasFinalSummary && summaryPending) {
+        // Trigger regeneration only if no final summary is available yet.
+        const regenerateUrl = new URL("/api/transcribe/summary/regenerate", request.url).toString();
+        void fetch(regenerateUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcriptionId }),
+        }).catch((err) => {
+          console.warn("Forced summary regeneration failed:", err);
+        });
+      }
     }
 
     // Tell FastAPI to mark files for deletion (transcript files are no longer needed)
@@ -162,15 +242,19 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: data.summary_pending
+        message: summaryPending
           ? "Transcript saved. Final summary will arrive via callback."
+          : hasFinalSummary
+          ? "Transcript saved and summary generated successfully."
           : "Transcription saved successfully",
         session_id: sessionId,
         transcription_id: transcriptionId,
-        status: "PROCESSING",
+        status: hasFinalSummary ? "COMPLETED" : "PROCESSING",
         duration,
         chunks_count: chunks.length,
-        summary_pending: Boolean(data.summary_pending),
+        summary_pending: summaryPending,
+        final_summary: hasFinalSummary ? normalizedSummary : null,
+        summaryJson: hasFinalSummary ? normalizedSummary : null,
         transcript,
         live_transcript: liveTranscript,
         minute_summaries: minuteSummaries,
